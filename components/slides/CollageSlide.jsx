@@ -66,33 +66,38 @@ export default function CollageSlide({ config, S }) {
       {captionText && (
         <div
           style={{
-          position: "absolute",
-          left: "50%",
-          top: captionTop + jitter.y,
-          transform: `translateX(calc(-50% + ${jitter.x}px))`,
+            position: "absolute",
+            left: "50%",
+            top: captionTop + jitter.y,
+            transform: `translateX(calc(-50% + ${jitter.x}px))`,
             background: captionBg,
-            borderRadius: Math.round(22 * S),
-            padding: `${Math.round(22 * S)}px ${Math.round(44 * S)}px`,
-            maxWidth: "82%",
-            textAlign: "center",
+            borderRadius: Math.round(12 * S),
+            padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
+            maxWidth: "80%",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: Math.round(2 * S),
             zIndex: 10,
-            boxShadow: `0 ${Math.round(6 * S)}px ${Math.round(32 * S)}px rgba(0,0,0,0.5)`,
+            boxShadow: `0 ${Math.round(4 * S)}px ${Math.round(20 * S)}px rgba(0,0,0,0.55)`,
           }}
         >
           {captionText.split("\n").map((line, i) => (
-            <p
+            <span
               key={i}
               style={{
+                display: "block",
                 color: captionColor,
                 fontSize: Math.round(captionSize * S),
-                fontWeight: captionBold ? "900" : "500",
-                lineHeight: 1.22,
-                margin: 0,
+                fontWeight: captionBold ? "900" : "600",
+                lineHeight: 1.2,
                 fontFamily: "Arial, Helvetica, sans-serif",
+                letterSpacing: "-0.01em",
+                textAlign: "center",
               }}
             >
               {line}
-            </p>
+            </span>
           ))}
         </div>
       )}

@@ -203,7 +203,7 @@ export default function ThriftySlide({ slot, S }) {
   // Random safe zones — avoids logo (H×0.05-0.18) and price card (H×0.38-0.54)
   // Max zone capped so caption box never overflows the bottom edge
   const THRIFTY_SAFE_ZONES = [0.22, 0.30, 0.60, 0.68, 0.75];
-  const captionBoxHeight = Math.round(22 * S) * 2 + Math.round(72 * S * 1.22) + Math.round(46 * S * 1.22);
+  const captionBoxHeight = Math.round(10 * S) * 2 + Math.round(60 * S * 1.2);
   const maxCaptionTop = H - captionBoxHeight - Math.round(H * 0.02);
   const rawCaptionTop = Math.round(H * THRIFTY_SAFE_ZONES[randInt(seed + 50, 0, THRIFTY_SAFE_ZONES.length - 1)]) + captionJitter.y;
   const captionTop = Math.min(rawCaptionTop, maxCaptionTop);
@@ -223,24 +223,28 @@ export default function ThriftySlide({ slot, S }) {
           top: captionTop,
           transform: `translateX(calc(-50% + ${captionJitter.x}px))`,
           background: randomCombo.bg,
-          borderRadius: Math.round(22 * S),
-          padding: `${Math.round(22 * S)}px ${Math.round(44 * S)}px`,
-          maxWidth: "82%",
-          textAlign: "center",
+          borderRadius: Math.round(12 * S),
+          padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
+          maxWidth: "80%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
           zIndex: 100,
           pointerEvents: "none",
-          boxShadow: `0 ${Math.round(6 * S)}px ${Math.round(32 * S)}px rgba(0,0,0,0.5)`,
+          boxShadow: `0 ${Math.round(4 * S)}px ${Math.round(20 * S)}px rgba(0,0,0,0.55)`,
         }}>
-          <p style={{
+          <span style={{
+            display: "block",
             color: randomCombo.color,
-            fontSize: Math.round(72 * S),
-            fontWeight: "900",
-            lineHeight: 1.22,
-            margin: 0,
+            fontSize: Math.round(60 * S),
+            fontWeight: "800",
+            lineHeight: 1.2,
             fontFamily: "Arial, Helvetica, sans-serif",
+            letterSpacing: "-0.01em",
+            textAlign: "center",
           }}>
             {captionText}
-          </p>
+          </span>
         </div>
       )}
 

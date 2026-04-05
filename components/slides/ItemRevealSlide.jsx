@@ -16,8 +16,8 @@ export default function ItemRevealSlide({ slot, S }) {
   const captionBold  = slot.revealCaptionBold  ?? true;
   // Random safe zones spread across the image
   const REVEAL_SAFE_ZONES = [0.06, 0.14, 0.28, 0.42, 0.56, 0.68, 0.76];
-  // Estimated caption box height: padding*2 + line1 + line2
-  const captionBoxH = Math.round(22 * S) * 2 + Math.round(captionSize * S * 1.22) + Math.round(captionSize * 0.65 * S * 1.22) + Math.round(6 * S);
+  // Estimated caption box height: padding*2 + line1 + gap + line2
+  const captionBoxH = Math.round(10 * S) * 2 + Math.round(captionSize * S * 1.2) + Math.round(captionSize * 0.55 * S * 1.2) + Math.round(5 * S);
   const maxTop = H - captionBoxH - Math.round(H * 0.02);
   const [captionTop, setCaptionTop] = useState(Math.round(H * 0.42));
   const [jitter, setJitter] = useState({ x: 0, y: 0 });
@@ -58,7 +58,7 @@ export default function ItemRevealSlide({ slot, S }) {
         }}
       />
 
-      {/* "Spent $X" caption — identical design to collage caption */}
+      {/* "Spent $X" caption */}
       <div
         style={{
           position: "absolute",
@@ -66,36 +66,42 @@ export default function ItemRevealSlide({ slot, S }) {
           top: captionTop,
           transform: `translateX(calc(-50% + ${jitter.x}px))`,
           background: captionBg,
-          borderRadius: Math.round(22 * S),
-          padding: `${Math.round(22 * S)}px ${Math.round(44 * S)}px`,
-          maxWidth: "82%",
-          textAlign: "center",
+          borderRadius: Math.round(12 * S),
+          padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
+          maxWidth: "80%",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: Math.round(4 * S),
           zIndex: 10,
-          boxShadow: `0 ${Math.round(6 * S)}px ${Math.round(32 * S)}px rgba(0,0,0,0.5)`,
+          boxShadow: `0 ${Math.round(4 * S)}px ${Math.round(20 * S)}px rgba(0,0,0,0.55)`,
         }}
       >
-        <p style={{
+        <span style={{
+          display: "block",
           color: captionColor,
           fontSize: Math.round(captionSize * S),
-          fontWeight: captionBold ? "900" : "500",
-          lineHeight: 1.22,
-          margin: 0,
+          fontWeight: captionBold ? "900" : "600",
+          lineHeight: 1.2,
           fontFamily: "Arial, Helvetica, sans-serif",
+          letterSpacing: "-0.01em",
+          textAlign: "center",
         }}>
           {spentLine}
-        </p>
+        </span>
         {itemLine && (
-          <p style={{
+          <span style={{
+            display: "block",
             color: captionColor,
-            fontSize: Math.round(captionSize * 0.65 * S),
+            fontSize: Math.round(captionSize * 0.55 * S),
             fontWeight: "600",
-            lineHeight: 1.22,
-            margin: `${Math.round(6 * S)}px 0 0`,
+            lineHeight: 1.2,
             fontFamily: "Arial, Helvetica, sans-serif",
-            opacity: 0.85,
+            opacity: 0.8,
+            textAlign: "center",
           }}>
             {itemLine}
-          </p>
+          </span>
         )}
       </div>
     </div>

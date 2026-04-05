@@ -474,35 +474,68 @@ Be decisive. Think like a reseller trying to make money.` },
     setExportStatus("Capturing slides…");
 
     const captureScale = Math.round(1080 / (1080 * DISPLAY_SCALE));
-    const frames = [];
+
+    // ThriftySlides are at positions 2, 4, 6, … (i > 0 && (i-1) % 2 === 1)
+    const isThriftySlide = (i) => i > 0 && (i - 1) % 2 === 1;
+
+    // For ThriftySlides we capture multiple snapshots to animate confetti.
+    // Timestamps (ms after mount) to capture — spans before + during confetti burst + falling
+    const THRIFTY_CAPTURE_MS = [50, 380, 680, 1000, 1380];
+
+    const captureOpts = (bgColor) => ({
+      useCORS: true, allowTaint: true, scale: captureScale,
+      backgroundColor: bgColor, logging: false,
+    });
+
+    // allSlideFrames[i] = Canvas[] — ThriftySlides get multiple canvases, others get one
+    const allSlideFrames = [];
 
     for (let i = 0; i < totalSlides; i++) {
-      // Navigate to slide
       setCurrentSlide(i);
-      // Wait two frames for React to re-render
+      // Wait for React to render the slide
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-      await new Promise((r) => setTimeout(r, 80));
 
       const el = document.getElementById("video-preview-root");
-      if (!el) continue;
+      if (!el) { allSlideFrames.push([]); continue; }
 
-      try {
-        const canvas = await html2canvas(el, {
-          useCORS: true,
-          allowTaint: true,
-          scale: captureScale,
-          backgroundColor: i === 0 ? "#111111" : "#ffffff",
-          logging: false,
-        });
-        frames.push(canvas);
-      } catch (err) {
-        console.error("Capture error slide", i, err);
+      const bg = i === 0 ? "#111111" : "#ffffff";
+
+      if (isThriftySlide(i)) {
+        setExportStatus(`Capturing slide ${i + 1} (confetti)…`);
+        const snapshots = [];
+        let elapsed = 0;
+        for (const t of THRIFTY_CAPTURE_MS) {
+          await new Promise((r) => setTimeout(r, t - elapsed));
+          elapsed = t;
+          try {
+            const canvas = await html2canvas(el, captureOpts(bg));
+            snapshots.push(canvas);
+          } catch (err) {
+            console.error("Capture error slide", i, "at", t, "ms", err);
+          }
+        }
+        allSlideFrames.push(snapshots);
+      } else {
+        await new Promise((r) => setTimeout(r, 80));
+        try {
+          const canvas = await html2canvas(el, captureOpts(bg));
+          allSlideFrames.push([canvas]);
+        } catch (err) {
+          console.error("Capture error slide", i, err);
+          allSlideFrames.push([]);
+        }
       }
+
       setExportProgress(Math.round((i + 1) / totalSlides * 40));
       setExportStatus(`Captured slide ${i + 1} of ${totalSlides}…`);
     }
 
-    if (frames.length === 0) {
+    // Filter to slides that have at least one captured frame
+    const validSlides = allSlideFrames
+      .map((snapshots, i) => ({ snapshots, origIndex: i }))
+      .filter(({ snapshots }) => snapshots.length > 0);
+
+    if (validSlides.length === 0) {
       setIsExporting(false);
       setExportStatus("Export failed — no frames captured.");
       return;
@@ -510,8 +543,8 @@ Be decisive. Think like a reseller trying to make money.` },
 
     setExportStatus("Encoding video…");
 
-    const W = frames[0].width;
-    const H = frames[0].height;
+    const W = validSlides[0].snapshots[0].width;
+    const H = validSlides[0].snapshots[0].height;
     const outputCanvas = document.createElement("canvas");
     outputCanvas.width = W;
     outputCanvas.height = H;
@@ -521,20 +554,27 @@ Be decisive. Think like a reseller trying to make money.` },
     const transitionFrames = Math.round((config.transitionMs / 1000) * fps);
 
     // Each slide gets a slightly randomised hold duration (base ± up to 0.5s)
-    const perSlideDurationFrames = frames.map(() => {
-      const jitterMs = Math.floor(Math.random() * 500); // 0–499 ms extra
+    const perSlideDurationFrames = validSlides.map(() => {
+      const jitterMs = Math.floor(Math.random() * 500);
       return Math.round((config.slideDuration + jitterMs / 1000) * fps);
     });
 
-    // Build segment start positions for fast O(1) lookup during rendering
-    // Segment i = hold[i] frames + transitionFrames (except last slide has no transition)
-    const segmentStarts = []; // frame index where each segment begins
+    // Build cumulative segment start positions
+    const segmentStarts = [];
     let cursor = 0;
-    for (let i = 0; i < frames.length; i++) {
+    for (let i = 0; i < validSlides.length; i++) {
       segmentStarts.push(cursor);
-      cursor += perSlideDurationFrames[i] + (i < frames.length - 1 ? transitionFrames : 0);
+      cursor += perSlideDurationFrames[i] + (i < validSlides.length - 1 ? transitionFrames : 0);
     }
     const totalOutputFrames = cursor;
+
+    // Pick the right snapshot for an animated (ThriftySlide) segment
+    // posInHold: frames elapsed in the hold portion, holdFrames: total hold frames
+    const getCanvas = (snapshots, posInHold, holdFrames) => {
+      if (snapshots.length === 1) return snapshots[0];
+      const t = posInHold / Math.max(holdFrames - 1, 1);
+      return snapshots[Math.min(Math.floor(t * snapshots.length), snapshots.length - 1)];
+    };
 
     const stream = outputCanvas.captureStream(fps);
     const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
@@ -568,35 +608,35 @@ Be decisive. Think like a reseller trying to make money.` },
       }
 
       // Find which segment this frame belongs to
-      let segIndex = frames.length - 1;
-      for (let i = 0; i < frames.length - 1; i++) {
+      let segIndex = validSlides.length - 1;
+      for (let i = 0; i < validSlides.length - 1; i++) {
         if (frameNum < segmentStarts[i + 1]) { segIndex = i; break; }
       }
       const posInSeg = frameNum - segmentStarts[segIndex];
       const holdFrames = perSlideDurationFrames[segIndex];
 
-      const currentFrame = frames[segIndex];
-      const nextFrame = frames[Math.min(segIndex + 1, frames.length - 1)];
+      const curSnapshots = validSlides[segIndex].snapshots;
+      const nxtSnapshots = validSlides[Math.min(segIndex + 1, validSlides.length - 1)].snapshots;
 
       ctx.clearRect(0, 0, W, H);
 
       if (posInSeg < holdFrames) {
-        // Static slide hold
-        ctx.drawImage(currentFrame, 0, 0);
+        // Animated hold — pick the right confetti snapshot for this moment
+        ctx.drawImage(getCanvas(curSnapshots, posInSeg, holdFrames), 0, 0);
       } else {
         // iPhone-style thumb swipe: fast start, cubic deceleration
         const t = (posInSeg - holdFrames) / transitionFrames;
-        const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic — mimics phone flick momentum
+        const eased = 1 - Math.pow(1 - t, 3);
         const offset = Math.round(eased * W);
-        ctx.drawImage(currentFrame, -offset, 0);
-        ctx.drawImage(nextFrame, W - offset, 0);
+        // Use last snapshot of current slide and first of next during transition
+        ctx.drawImage(curSnapshots[curSnapshots.length - 1], -offset, 0);
+        ctx.drawImage(nxtSnapshots[0], W - offset, 0);
       }
 
       frameNum++;
       const pct = 40 + Math.round((frameNum / totalOutputFrames) * 58);
       setExportProgress(pct);
 
-      // Use setTimeout to avoid blocking the main thread too long
       if (frameNum % 10 === 0) {
         setTimeout(renderNextFrame, 0);
       } else {
