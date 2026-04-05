@@ -1,0 +1,144 @@
+"use client";
+
+import CollageSlide from "./slides/CollageSlide";
+import ItemRevealSlide from "./slides/ItemRevealSlide";
+import ThriftySlide from "./slides/ThriftySlide";
+
+// At 0.28 scale → 1080×1920 renders as ~302×538px in browser
+export const DISPLAY_SCALE = 0.28;
+
+export function getSlideInfo(config, slideIndex) {
+  if (slideIndex === 0) return { type: "collage" };
+  const itemIndex = Math.floor((slideIndex - 1) / 2);
+  const isReveal = (slideIndex - 1) % 2 === 0;
+  return {
+    type: isReveal ? "reveal" : "thrifty",
+    slot: config.slots[itemIndex],
+    itemIndex,
+  };
+}
+
+export default function VideoPreview({ config, currentSlide, setCurrentSlide, totalSlides, isGenerating, onRefreshSlide }) {
+  const S = DISPLAY_SCALE;
+  const W = Math.round(1080 * S);
+  const H = Math.round(1920 * S);
+
+  const info = getSlideInfo(config, currentSlide);
+
+  const slideLabel = () => {
+    if (currentSlide === 0) return "Collage";
+    const item = Math.floor((currentSlide - 1) / 2) + 1;
+    const type = (currentSlide - 1) % 2 === 0 ? "Reveal" : "Thrifty Price";
+    return `Item ${item} — ${type}`;
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+      {/* Slide label */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => setCurrentSlide((s) => Math.max(0, s - 1))}
+          disabled={currentSlide === 0}
+          className="w-7 h-7 rounded-full bg-white/8 hover:bg-white/15 disabled:opacity-20 flex items-center justify-center text-white text-sm transition-colors"
+        >
+          ←
+        </button>
+        <span className="text-white/50 text-xs min-w-[140px] text-center">{slideLabel()}</span>
+        <button
+          onClick={() => setCurrentSlide((s) => Math.min(totalSlides - 1, s + 1))}
+          disabled={currentSlide === totalSlides - 1}
+          className="w-7 h-7 rounded-full bg-white/8 hover:bg-white/15 disabled:opacity-20 flex items-center justify-center text-white text-sm transition-colors"
+        >
+          →
+        </button>
+      </div>
+
+      {/* Slide frame */}
+      <div
+        style={{
+          width: W,
+          height: H,
+          borderRadius: Math.round(20 * S),
+          boxShadow: "0 24px 64px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.08)",
+          flexShrink: 0,
+          position: "relative",
+        }}
+      >
+        <div
+          id="video-preview-root"
+          style={{ width: "100%", height: "100%", borderRadius: "inherit", overflow: "hidden", position: "relative" }}
+        >
+          {info.type === "collage" && <CollageSlide config={config} S={S} />}
+          {info.type === "reveal" && <ItemRevealSlide slot={info.slot} S={S} />}
+          {info.type === "thrifty" && <ThriftySlide slot={info.slot} S={S} />}
+        </div>
+
+        {/* Per-slide AI refresh button */}
+        <button
+          onClick={() => !isGenerating && onRefreshSlide?.(currentSlide)}
+          disabled={isGenerating}
+          title={isGenerating ? "Generating…" : "Regenerate with AI"}
+          style={{
+            position: "absolute",
+            bottom: Math.round(14 * S),
+            right: Math.round(14 * S),
+            width: Math.round(44 * S),
+            height: Math.round(44 * S),
+            borderRadius: "50%",
+            background: isGenerating ? "rgba(109,40,217,0.85)" : "rgba(30,30,30,0.75)",
+            border: "1.5px solid rgba(255,255,255,0.18)",
+            backdropFilter: "blur(8px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: isGenerating ? "default" : "pointer",
+            fontSize: Math.round(18 * S),
+            zIndex: 20,
+            boxShadow: "0 2px 12px rgba(0,0,0,0.5)",
+            transition: "background 0.2s",
+          }}
+        >
+          {isGenerating ? (
+            <div style={{
+              width: Math.round(16 * S),
+              height: Math.round(16 * S),
+              border: `${Math.round(2 * S)}px solid rgba(255,255,255,0.3)`,
+              borderTop: `${Math.round(2 * S)}px solid #fff`,
+              borderRadius: "50%",
+              animation: "spin 0.7s linear infinite",
+            }} />
+          ) : "🔄"}
+        </button>
+      </div>
+
+      {/* Slide dots */}
+      <div className="flex gap-1 flex-wrap justify-center max-w-[340px]">
+        {Array.from({ length: totalSlides }).map((_, i) => {
+          const isCollage = i === 0;
+          const isReveal = i > 0 && (i - 1) % 2 === 0;
+          const dotColor = isCollage
+            ? "bg-violet-500"
+            : isReveal
+            ? "bg-orange-400"
+            : "bg-emerald-400";
+          return (
+            <button
+              key={i}
+              onClick={() => setCurrentSlide(i)}
+              className={`w-2 h-2 rounded-full transition-all ${
+                i === currentSlide
+                  ? `${dotColor} scale-125`
+                  : "bg-white/20 hover:bg-white/40"
+              }`}
+            />
+          );
+        })}
+      </div>
+      <div className="flex gap-4 text-xs text-white/30">
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-violet-500 inline-block"/>Collage</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block"/>Reveal</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>Thrifty</span>
+      </div>
+    </div>
+  );
+}
