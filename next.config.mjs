@@ -6,6 +6,12 @@ const nextConfig = {
       { protocol: "https", hostname: "**" },
     ],
   },
+
+  // Needed so FFmpeg.wasm can load its .wasm binary at runtime
+  webpack(config) {
+    config.resolve.fallback = { ...config.resolve.fallback, fs: false };
+    return config;
+  },
 };
 
 export default nextConfig;

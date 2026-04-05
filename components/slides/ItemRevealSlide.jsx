@@ -1,34 +1,61 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo } from "react";
+
+// Same color palette used by ThriftySlide captions
+const REVEAL_CAPTION_COMBOS = [
+  { bg: "#000000", color: "#ffffff" },
+  { bg: "#e03030", color: "#ffffff" },
+  { bg: "#1a5cbf", color: "#ffffff" },
+  { bg: "#1a8a3a", color: "#ffffff" },
+  { bg: "#7c22cc", color: "#ffffff" },
+  { bg: "#d4a017", color: "#000000" },
+  { bg: "#ffffff", color: "#000000" },
+  { bg: "#111111", color: "#f5e642" },
+  { bg: "#e05c20", color: "#ffffff" },
+  { bg: "#0d7377", color: "#ffffff" },
+];
+
+// Stable seeded PRNG — same output for same seed, no re-randomisation on re-render
+function seededRand(seed) {
+  const x = Math.sin(seed + 3.14) * 10000;
+  return x - Math.floor(x);
+}
+
+// Derive a numeric seed from the slot's content so each slot gets
+// consistent (but unique) randomisation that survives export re-renders
+function slotSeed(slot) {
+  const str = (slot.itemName || "") + (slot.spentPrice || "") + (slot.soldPrice || "");
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = ((h << 5) + h) ^ str.charCodeAt(i);
+  return Math.abs(h);
+}
 
 export default function ItemRevealSlide({ slot, S }) {
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
-  const px = (n) => Math.round(n * S); // n is already in 1080px space
+  const px = (n) => Math.round(n * S);
 
-  const spentLine = slot.spentPrice ? `Spent $${slot.spentPrice}` : "Spent $?";
-  const itemLine  = slot.itemName ? `(${slot.itemName})` : null;
+  const spentLine = (slot.spentPrice ? `spent $${slot.spentPrice}` : "spent $?");
+  const itemLine  = slot.itemName ? `(${slot.itemName.toLowerCase()})` : null;
 
-  const captionBg    = slot.revealCaptionBg    || "#000000";
-  const captionColor = slot.revealCaptionColor || "#ffffff";
-  const captionSize  = slot.revealCaptionSize  ?? 72;
-  const captionBold  = slot.revealCaptionBold  ?? true;
-  // Random safe zones spread across the image
+  const captionSize = slot.revealCaptionSize ?? 72;
+
+  // All random values derived from a stable seed — same layout every render/export
+  const seed = useMemo(() => slotSeed(slot), [slot.itemName, slot.spentPrice, slot.soldPrice]);
+
   const REVEAL_SAFE_ZONES = [0.06, 0.14, 0.28, 0.42, 0.56, 0.68, 0.76];
-  // Estimated caption box height: padding*2 + line1 + gap + line2
-  const captionBoxH = Math.round(10 * S) * 2 + Math.round(captionSize * S * 1.2) + Math.round(captionSize * 0.55 * S * 1.2) + Math.round(5 * S);
+  const captionBoxH = Math.round(10 * S) * 2 + Math.round(captionSize * S * 1.2) * 2 + Math.round(5 * S);
   const maxTop = H - captionBoxH - Math.round(H * 0.02);
-  const [captionTop, setCaptionTop] = useState(Math.round(H * 0.42));
-  const [jitter, setJitter] = useState({ x: 0, y: 0 });
-  useEffect(() => {
-    const zone = REVEAL_SAFE_ZONES[Math.floor(Math.random() * REVEAL_SAFE_ZONES.length)];
-    const jx = Math.round((Math.random() - 0.5) * 16 * S);
-    const jy = Math.round((Math.random() - 0.5) * 16 * S);
-    const raw = Math.round(H * zone) + jy;
-    setCaptionTop(Math.min(raw, maxTop));
-    setJitter({ x: jx, y: 0 });
-  }, []);
+
+  const combo = useMemo(() => REVEAL_CAPTION_COMBOS[Math.floor(seededRand(seed)     * REVEAL_CAPTION_COMBOS.length)], [seed]);
+  const zoneIdx = useMemo(() => Math.floor(seededRand(seed + 1) * REVEAL_SAFE_ZONES.length), [seed]);
+  const jitterX = useMemo(() => Math.round((seededRand(seed + 2) - 0.5) * 16 * S),  [seed, S]);
+  const jitterY = useMemo(() => Math.round((seededRand(seed + 3) - 0.5) * 16 * S),  [seed, S]);
+  const captionTop = useMemo(() => {
+    const raw = Math.round(H * REVEAL_SAFE_ZONES[zoneIdx]) + jitterY;
+    return Math.min(raw, maxTop);
+  }, [seed, H, maxTop, zoneIdx, jitterY]);
 
   return (
     <div style={{ width: W, height: H, position: "relative", background: "#000", overflow: "hidden" }}>
@@ -58,14 +85,14 @@ export default function ItemRevealSlide({ slot, S }) {
         }}
       />
 
-      {/* "Spent $X" caption */}
+      {/* "spent $X (item name)" caption */}
       <div
         style={{
           position: "absolute",
           left: "50%",
           top: captionTop,
-          transform: `translateX(calc(-50% + ${jitter.x}px))`,
-          background: captionBg,
+          transform: `translateX(calc(-50% + ${jitterX}px))`,
+          background: combo.bg,
           borderRadius: Math.round(12 * S),
           padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
           maxWidth: "80%",
@@ -79,9 +106,9 @@ export default function ItemRevealSlide({ slot, S }) {
       >
         <span style={{
           display: "block",
-          color: captionColor,
+          color: combo.color,
           fontSize: Math.round(captionSize * S),
-          fontWeight: captionBold ? "900" : "600",
+          fontWeight: "800",
           lineHeight: 1.2,
           fontFamily: "Arial, Helvetica, sans-serif",
           letterSpacing: "-0.01em",
@@ -92,12 +119,12 @@ export default function ItemRevealSlide({ slot, S }) {
         {itemLine && (
           <span style={{
             display: "block",
-            color: captionColor,
-            fontSize: Math.round(captionSize * 0.55 * S),
-            fontWeight: "600",
+            color: combo.color,
+            fontSize: Math.round(captionSize * S),
+            fontWeight: "800",
             lineHeight: 1.2,
             fontFamily: "Arial, Helvetica, sans-serif",
-            opacity: 0.8,
+            letterSpacing: "-0.01em",
             textAlign: "center",
           }}>
             {itemLine}

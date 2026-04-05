@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useEffect, useRef, useState } from "react";
+import { useMemo, useEffect, useRef } from "react";
 
 /**
  * ThriftySlide — pixel-faithful recreation of SongEditView.
@@ -133,9 +133,14 @@ export default function ThriftySlide({ slot, S }) {
     return () => clearTimeout(t);
   }, []);  // fires once per mount = once per slide-in
 
-  // Seed initialised to a fixed value for SSR, randomised after hydration
-  const [seed, setSeed] = useState(42);
-  useEffect(() => { setSeed(Math.random() * 9999); }, []);
+  // Stable seed derived from slot content — same layout every render & export
+  // (no useEffect/Math.random so the output never changes between preview and video)
+  const seed = useMemo(() => {
+    const str = (slot.itemName || "") + (slot.spentPrice || "") + (slot.soldPrice || "");
+    let h = 5381;
+    for (let i = 0; i < str.length; i++) h = ((h << 5) + h) ^ str.charCodeAt(i);
+    return Math.abs(h) % 9999;
+  }, [slot.itemName, slot.spentPrice, slot.soldPrice]);
   const statusBar = useMemo(() => ({
     time:        randomTime(seed),
     signalBars:  randInt(seed + 2, 2, 4),

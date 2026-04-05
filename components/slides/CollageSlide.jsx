@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo } from "react";
 
 export default function CollageSlide({ config, S }) {
   const {
@@ -24,14 +24,15 @@ export default function CollageSlide({ config, S }) {
       ? Math.round(H * 0.74)
       : Math.round(H * 0.42);
 
-  // Small per-mount jitter — initialised to 0 for SSR, randomised client-side
-  const [jitter, setJitter] = useState({ x: 0, y: 0 });
-  useEffect(() => {
-    setJitter({
-      x: Math.round((Math.random() - 0.5) * 16 * S),
-      y: Math.round((Math.random() - 0.5) * 16 * S),
-    });
-  }, []);
+  // Jitter derived from caption text — stable across renders and export
+  const jitter = useMemo(() => {
+    const str = captionText || "default";
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619) >>> 0;
+    const r1 = ((h & 0xffff) / 0xffff) - 0.5;
+    const r2 = (((h >>> 16) & 0xffff) / 0xffff) - 0.5;
+    return { x: Math.round(r1 * 16 * S), y: Math.round(r2 * 16 * S) };
+  }, [captionText, S]);
 
   return (
     <div style={{ width: W, height: H, position: "relative", background: "#111", overflow: "hidden" }}>

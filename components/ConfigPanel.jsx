@@ -93,8 +93,10 @@ export default function ConfigPanel({
 }) {
   const DEFAULT_PROMPT = "A thrift store find held up in one hand toward the camera, shot inside a real Goodwill or thrift store — clothing racks and shelves softly blurred in the background, bright overhead fluorescent lighting, shallow depth of field, candid realistic photo style, natural colors, no text, no watermarks, no studio backdrop";
 
-  const [geminiApiKey, setGeminiApiKey] = useState(""); // Google AI — image generation (Nano Banana 2)
-  const [aiApiKey, setAiApiKey] = useState("");          // OpenAI — auto-titling (GPT-4o vision)
+  const [imageModel, setImageModelRaw] = useState("gpt-image-1"); // "gpt-image-1" | "gemini"
+  const setImageModel = (v) => { setImageModelRaw(v); localStorage.setItem("ts_image_model", v); };
+  const [geminiApiKey, setGeminiApiKey] = useState(""); // Google AI — Gemini image gen
+  const [aiApiKey, setAiApiKey] = useState("");          // OpenAI — gpt-image-1 gen + GPT-4o auto-title
   const [globalPrompt, setGlobalPrompt] = useState(DEFAULT_PROMPT);
   const [generatingSlot, setGeneratingSlotRaw] = useState(null);
   const setGeneratingSlot = (val) => {
@@ -120,6 +122,8 @@ export default function ConfigPanel({
   const [brandItemsRaw, setBrandItemsRaw] = useState(DEFAULT_BRAND_LIST);
   const [hooksRaw, setHooksRaw] = useState(DEFAULT_HOOKS);
   useEffect(() => {
+    const savedModel = localStorage.getItem("ts_image_model");
+    if (savedModel) setImageModelRaw(savedModel);
     const savedGemini = localStorage.getItem("ts_gemini_key");
     if (savedGemini) setGeminiApiKey(savedGemini);
     const savedKey = localStorage.getItem("ts_api_key");
@@ -161,8 +165,9 @@ export default function ConfigPanel({
   const cancelGenRef = useRef(false);
 
   const generateImage = async (index, prompt, brandItem) => {
-    if (!geminiApiKey.trim()) {
-      setAiErrors((p) => ({ ...p, [index]: "Google AI API key required." }));
+    const activeKey = imageModel === "gpt-image-1" ? aiApiKey : geminiApiKey;
+    if (!activeKey.trim()) {
+      setAiErrors((p) => ({ ...p, [index]: imageModel === "gpt-image-1" ? "OpenAI API key required." : "Google AI API key required." }));
       return null;
     }
     try {
@@ -216,7 +221,9 @@ Maintain realistic perspective, scale, lighting direction, shadows, and reflecti
 
 The final result should look like a natural thrifting discovery photo taken casually inside a Goodwill or secondhand store using an iPhone 15 Pro Max.
 
-Do not add text, captions, labels, price tags, logos, watermarks, or graphic overlays.`.trim();
+Text and logo rendering rule: If the item has a brand logo, text graphic, embroidery, print, or any typography that is physically part of the item (such as a Supreme box logo, Nike swoosh wordmark, band tee graphic, or embossed lettering), render it with sharp, clean, legible edges exactly as it appears on the real product. This is critical — brand markings on the item itself must be clear and accurate, not blurry, distorted, or omitted.
+
+Do NOT add any external overlays: no captions, subtitles, price tags, watermarks, floating labels, or any text that is not physically part of the item itself.`.trim();
 
       const fullPrompt = matchingRefs.length > 0
         ? `Use the uploaded image as the main subject and preserve the item exactly as it appears, including its shape, color, texture, branding, and small details. Do not redesign, stylize, exaggerate, or invent new parts of the object. Replace the item with a specific, real, well-known product by ${brandName} — choose an iconic piece this brand actually made and is known for. Keep the setting, lighting, and composition identical to the uploaded photo.\n\n${SHARED_RULES}`
@@ -233,8 +240,10 @@ Do not add text, captions, labels, price tags, logos, watermarks, or graphic ove
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: fullPrompt,
-          referenceFile: refFile || null,  // just the filename, server reads from public/references/
+          referenceFile: refFile || null,
+          model: imageModel,
           geminiApiKey,
+          openaiApiKey: aiApiKey,
         }),
       });
       const data = await res.json();
@@ -371,7 +380,11 @@ Be decisive. Think like a reseller trying to make money.` },
   };
 
   const handleGenerateAll = async () => {
-    if (!geminiApiKey.trim()) { alert("Enter your Google AI API key first."); return; }
+    const activeKey = imageModel === "gpt-image-1" ? aiApiKey : geminiApiKey;
+    if (!activeKey.trim()) {
+      alert(imageModel === "gpt-image-1" ? "Enter your OpenAI API key first." : "Enter your Google AI API key first.");
+      return;
+    }
     setGeneratingSlot("all");
     setAiErrors({});
     // Auto-pick a random hook caption for the collage slide
@@ -583,14 +596,70 @@ Be decisive. Think like a reseller trying to make money.` },
     const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 12_000_000 });
     const chunks = [];
     recorder.ondataavailable = (e) => e.data.size > 0 && chunks.push(e.data);
-    recorder.onstop = () => {
-      const blob = new Blob(chunks, { type: "video/webm" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "thrifty-slideshow.webm";
-      a.click();
-      URL.revokeObjectURL(url);
+    recorder.onstop = async () => {
+      const webmBlob = new Blob(chunks, { type: "video/webm" });
+
+      // ── Convert WebM → MP4 with randomized metadata via FFmpeg.wasm ──────────
+      try {
+        setExportStatus("Loading MP4 converter…");
+        setExportProgress(99);
+
+        const { FFmpeg } = await import("@ffmpeg/ffmpeg");
+        const ffmpeg = new FFmpeg();
+
+        // Single-threaded core — no SharedArrayBuffer / COOP headers required
+        await ffmpeg.load({
+          coreURL:  "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js",
+          wasmURL:  "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm",
+        });
+
+        setExportStatus("Encoding MP4…");
+
+        // Write WebM to virtual FS
+        const webmBytes = new Uint8Array(await webmBlob.arrayBuffer());
+        await ffmpeg.writeFile("input.webm", webmBytes);
+
+        // ── Randomised metadata — different every export ──────────────────────
+        const daysBack    = Math.floor(Math.random() * 60) + 1;
+        const createTime  = new Date(Date.now() - daysBack * 86_400_000).toISOString();
+        const devices     = ["iPhone 15 Pro Max","Samsung Galaxy S24 Ultra","Google Pixel 9 Pro","OnePlus 12"];
+        const deviceLabel = devices[Math.floor(Math.random() * devices.length)];
+        const uid         = Array.from({ length: 16 }, () => "abcdefghijklmnopqrstuvwxyz0123456789"[Math.floor(Math.random() * 36)]).join("");
+        const crf         = String(18 + Math.floor(Math.random() * 5)); // 18-22 — slight bitrate variation
+
+        await ffmpeg.exec([
+          "-i",         "input.webm",
+          "-c:v",       "libx264",
+          "-preset",    "ultrafast",
+          "-crf",       crf,
+          "-pix_fmt",   "yuv420p",          // required for broad player compat
+          "-movflags",  "+faststart",        // puts moov atom at front (streaming-friendly)
+          "-metadata",  `creation_time=${createTime}`,
+          "-metadata",  `encoder=${deviceLabel}`,
+          "-metadata",  `comment=${uid}`,
+          "-metadata",  `title=${uid.slice(0, 8)}`,
+          "output.mp4",
+        ]);
+
+        const mp4Data = await ffmpeg.readFile("output.mp4");
+        const mp4Blob = new Blob([mp4Data.buffer], { type: "video/mp4" });
+        const url = URL.createObjectURL(mp4Blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `thrifty_${uid.slice(0, 8)}.mp4`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error("FFmpeg conversion failed, falling back to WebM:", err);
+        setExportStatus("MP4 failed — downloading WebM…");
+        const url = URL.createObjectURL(webmBlob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `thrifty-slideshow.webm`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
       setIsExporting(false);
       setExportProgress(100);
       setExportStatus("Done! Video downloaded.");
@@ -734,14 +803,40 @@ Be decisive. Think like a reseller trying to make money.` },
 
       {/* ── AI GENERATION ── */}
       <Section title="AI Generation" icon="✨">
-        <Label>Google AI API Key <span className="text-white/30 font-normal">(Nano Banana 2 — image gen)</span></Label>
-        <input type="password" value={geminiApiKey}
-          onChange={(e) => { setGeminiApiKey(e.target.value); localStorage.setItem("ts_gemini_key", e.target.value); }}
-          placeholder="AIza..." className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500/60 placeholder-white/20 font-mono" />
-        <Label className="mt-2">OpenAI API Key <span className="text-white/30 font-normal">(GPT-4o — auto-title)</span></Label>
+        {/* Model selector */}
+        <div className="flex gap-2 mb-3">
+          {[
+            { id: "gpt-image-1", label: "GPT-Image-1.5", sub: "$0.013/img", color: "border-emerald-500 bg-emerald-500/15 text-emerald-200" },
+            { id: "gemini",      label: "Gemini Flash", sub: "$0.067/img", color: "border-violet-500 bg-violet-500/15 text-violet-200" },
+          ].map(({ id, label, sub, color }) => (
+            <button
+              key={id}
+              onClick={() => setImageModel(id)}
+              className={`flex-1 py-2 px-3 rounded-xl border text-xs font-semibold transition-all text-left ${
+                imageModel === id ? color : "border-white/10 bg-white/4 text-white/40 hover:text-white/60"
+              }`}
+            >
+              <span className="flex items-center gap-1.5">
+                {imageModel === id && <span className="w-2 h-2 rounded-full bg-current inline-block" />}
+                {label}
+              </span>
+              <span className={`block text-[10px] mt-0.5 font-normal ${imageModel === id ? "opacity-70" : "opacity-40"}`}>{sub} · low quality</span>
+            </button>
+          ))}
+        </div>
+
+        <Label>OpenAI API Key <span className="text-white/30 font-normal">
+          {imageModel === "gpt-image-1" ? "(image gen + auto-title)" : "(auto-title only)"}
+        </span></Label>
         <input type="password" value={aiApiKey}
           onChange={(e) => { setAiApiKey(e.target.value); localStorage.setItem("ts_api_key", e.target.value); }}
           placeholder="sk-..." className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500/60 placeholder-white/20 font-mono" />
+        {imageModel === "gemini" && <>
+          <Label className="mt-2">Google AI API Key <span className="text-white/30 font-normal">(Gemini — image gen)</span></Label>
+          <input type="password" value={geminiApiKey}
+            onChange={(e) => { setGeminiApiKey(e.target.value); localStorage.setItem("ts_gemini_key", e.target.value); }}
+            placeholder="AIza..." className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500/60 placeholder-white/20 font-mono" />
+        </>}
 
         {/* Reference images status — only rendered client-side to avoid hydration mismatch */}
         {mounted && <div className={`mt-2 flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
