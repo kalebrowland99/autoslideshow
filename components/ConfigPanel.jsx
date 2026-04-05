@@ -554,166 +554,170 @@ Be decisive. Think like a reseller trying to make money.` },
       return;
     }
 
-    setExportStatus("Encoding video…");
+    // ── PHASE 2: Render transition frames (offscreen, no timing dependency) ─────
+    setExportStatus("Rendering transitions…");
 
     const W = validSlides[0].snapshots[0].width;
     const H = validSlides[0].snapshots[0].height;
-    const outputCanvas = document.createElement("canvas");
-    outputCanvas.width = W;
-    outputCanvas.height = H;
-    const ctx = outputCanvas.getContext("2d");
+    const offscreen = document.createElement("canvas");
+    offscreen.width  = W;
+    offscreen.height = H;
+    const octx = offscreen.getContext("2d");
 
-    const fps = 30;
+    const fps            = 30;
+    const frameSec       = 1 / fps;
     const transitionFrames = Math.round((config.transitionMs / 1000) * fps);
 
-    // Each slide gets a slightly randomised hold duration (base ± up to 0.5s)
-    const perSlideDurationFrames = validSlides.map(() => {
+    // Per-slide hold durations (seconds, with random jitter for TikTok variance)
+    const perSlideHoldSec = validSlides.map(() => {
       const jitterMs = Math.floor(Math.random() * 500);
-      return Math.round((config.slideDuration + jitterMs / 1000) * fps);
+      return config.slideDuration + jitterMs / 1000;
     });
 
-    // Build cumulative segment start positions
-    const segmentStarts = [];
-    let cursor = 0;
-    for (let i = 0; i < validSlides.length; i++) {
-      segmentStarts.push(cursor);
-      cursor += perSlideDurationFrames[i] + (i < validSlides.length - 1 ? transitionFrames : 0);
-    }
-    const totalOutputFrames = cursor;
+    // Helper: canvas → JPEG Uint8Array for FFmpeg FS
+    const canvasToJpegBytes = (canvas, quality = 0.92) =>
+      new Promise((resolve) => {
+        canvas.toBlob(
+          async (blob) => resolve(new Uint8Array(await blob.arrayBuffer())),
+          "image/jpeg",
+          quality
+        );
+      });
 
-    // Pick the right snapshot for an animated (ThriftySlide) segment
-    // posInHold: frames elapsed in the hold portion, holdFrames: total hold frames
-    const getCanvas = (snapshots, posInHold, holdFrames) => {
-      if (snapshots.length === 1) return snapshots[0];
-      const t = posInHold / Math.max(holdFrames - 1, 1);
-      return snapshots[Math.min(Math.floor(t * snapshots.length), snapshots.length - 1)];
-    };
-
-    const stream = outputCanvas.captureStream(fps);
-    const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
-      ? "video/webm;codecs=vp9"
-      : "video/webm";
-    const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 12_000_000 });
-    const chunks = [];
-    recorder.ondataavailable = (e) => e.data.size > 0 && chunks.push(e.data);
-    recorder.onstop = async () => {
-      const webmBlob = new Blob(chunks, { type: "video/webm" });
-
-      // ── Convert WebM → MP4 with randomized metadata via FFmpeg.wasm ──────────
-      try {
-        setExportStatus("Loading MP4 converter…");
-        setExportProgress(99);
-
-        const { FFmpeg } = await import("@ffmpeg/ffmpeg");
-        const ffmpeg = new FFmpeg();
-
-        // Single-threaded core — no SharedArrayBuffer / COOP headers required
-        await ffmpeg.load({
-          coreURL:  "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js",
-          wasmURL:  "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm",
-        });
-
-        setExportStatus("Encoding MP4…");
-
-        // Write WebM to virtual FS
-        const webmBytes = new Uint8Array(await webmBlob.arrayBuffer());
-        await ffmpeg.writeFile("input.webm", webmBytes);
-
-        // ── Randomised metadata — different every export ──────────────────────
-        const daysBack    = Math.floor(Math.random() * 60) + 1;
-        const createTime  = new Date(Date.now() - daysBack * 86_400_000).toISOString();
-        const devices     = ["iPhone 15 Pro Max","Samsung Galaxy S24 Ultra","Google Pixel 9 Pro","OnePlus 12"];
-        const deviceLabel = devices[Math.floor(Math.random() * devices.length)];
-        const uid         = Array.from({ length: 16 }, () => "abcdefghijklmnopqrstuvwxyz0123456789"[Math.floor(Math.random() * 36)]).join("");
-        const crf         = String(18 + Math.floor(Math.random() * 5)); // 18-22 — slight bitrate variation
-
-        await ffmpeg.exec([
-          "-i",         "input.webm",
-          "-c:v",       "libx264",
-          "-preset",    "ultrafast",
-          "-crf",       crf,
-          "-pix_fmt",   "yuv420p",          // required for broad player compat
-          "-movflags",  "+faststart",        // puts moov atom at front (streaming-friendly)
-          "-metadata",  `creation_time=${createTime}`,
-          "-metadata",  `encoder=${deviceLabel}`,
-          "-metadata",  `comment=${uid}`,
-          "-metadata",  `title=${uid.slice(0, 8)}`,
-          "output.mp4",
-        ]);
-
-        const mp4Data = await ffmpeg.readFile("output.mp4");
-        const mp4Blob = new Blob([mp4Data.buffer], { type: "video/mp4" });
-        const url = URL.createObjectURL(mp4Blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `thrifty_${uid.slice(0, 8)}.mp4`;
-        a.click();
-        URL.revokeObjectURL(url);
-      } catch (err) {
-        console.error("FFmpeg conversion failed, falling back to WebM:", err);
-        setExportStatus("MP4 failed — downloading WebM…");
-        const url = URL.createObjectURL(webmBlob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `thrifty-slideshow.webm`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
-
-      setIsExporting(false);
-      setExportProgress(100);
-      setExportStatus("Done! Video downloaded.");
-      setTimeout(() => { setExportStatus(""); setExportProgress(0); }, 3000);
-    };
-
-    recorder.start();
-
-    let frameNum = 0;
-
-    const renderNextFrame = () => {
-      if (frameNum >= totalOutputFrames) {
-        recorder.stop();
-        return;
-      }
-
-      // Find which segment this frame belongs to
-      let segIndex = validSlides.length - 1;
-      for (let i = 0; i < validSlides.length - 1; i++) {
-        if (frameNum < segmentStarts[i + 1]) { segIndex = i; break; }
-      }
-      const posInSeg = frameNum - segmentStarts[segIndex];
-      const holdFrames = perSlideDurationFrames[segIndex];
-
-      const curSnapshots = validSlides[segIndex].snapshots;
-      const nxtSnapshots = validSlides[Math.min(segIndex + 1, validSlides.length - 1)].snapshots;
-
-      ctx.clearRect(0, 0, W, H);
-
-      if (posInSeg < holdFrames) {
-        // Animated hold — pick the right confetti snapshot for this moment
-        ctx.drawImage(getCanvas(curSnapshots, posInSeg, holdFrames), 0, 0);
-      } else {
-        // iPhone-style thumb swipe: fast start, cubic deceleration
-        const t = (posInSeg - holdFrames) / transitionFrames;
-        const eased = 1 - Math.pow(1 - t, 3);
+    // Render all transition frames to JPEG blobs
+    // transBlobs[i][f] = Uint8Array — frames sliding slide i → slide i+1
+    const transBlobs = [];
+    for (let i = 0; i < validSlides.length - 1; i++) {
+      const curSnap = validSlides[i].snapshots[validSlides[i].snapshots.length - 1];
+      const nxtSnap = validSlides[i + 1].snapshots[0];
+      const frames  = [];
+      for (let f = 0; f < transitionFrames; f++) {
+        const t      = f / transitionFrames;
+        const eased  = 1 - Math.pow(1 - t, 3); // cubic ease-out = iPhone thumb flick
         const offset = Math.round(eased * W);
-        // Use last snapshot of current slide and first of next during transition
-        ctx.drawImage(curSnapshots[curSnapshots.length - 1], -offset, 0);
-        ctx.drawImage(nxtSnapshots[0], W - offset, 0);
+        octx.clearRect(0, 0, W, H);
+        octx.drawImage(curSnap, -offset, 0);
+        octx.drawImage(nxtSnap,  W - offset, 0);
+        frames.push(await canvasToJpegBytes(offscreen, 0.93));
       }
+      transBlobs.push(frames);
+      setExportProgress(40 + Math.round((i + 1) / validSlides.length * 15));
+    }
 
-      frameNum++;
-      const pct = 40 + Math.round((frameNum / totalOutputFrames) * 58);
-      setExportProgress(pct);
+    // ── PHASE 3: Load FFmpeg (single-threaded core, no SharedArrayBuffer) ───────
+    setExportStatus("Loading MP4 converter…");
+    const { FFmpeg } = await import("@ffmpeg/ffmpeg");
+    const ffmpeg = new FFmpeg();
+    await ffmpeg.load({
+      coreURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js",
+      wasmURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm",
+    });
 
-      if (frameNum % 10 === 0) {
-        setTimeout(renderNextFrame, 0);
+    // ── PHASE 4: Write all frames to FFmpeg virtual FS ───────────────────────────
+    setExportStatus("Writing frames…");
+    setExportProgress(60);
+
+    // Slide keyframes
+    for (let i = 0; i < validSlides.length; i++) {
+      const snaps = validSlides[i].snapshots;
+      for (let j = 0; j < snaps.length; j++) {
+        await ffmpeg.writeFile(`s_${i}_${j}.jpg`, await canvasToJpegBytes(snaps[j], 0.94));
+      }
+    }
+    setExportProgress(70);
+
+    // Transition frames
+    for (let i = 0; i < transBlobs.length; i++) {
+      for (let j = 0; j < transBlobs[i].length; j++) {
+        await ffmpeg.writeFile(`t_${i}_${j}.jpg`, transBlobs[i][j]);
+      }
+    }
+    setExportProgress(75);
+
+    // ── PHASE 5: Build FFmpeg concat list ────────────────────────────────────────
+    // Timestamps at which each ThriftySlide confetti snapshot was taken
+    const THRIFTY_CAPTURE_MS = [50, 380, 680, 1000, 1380];
+
+    let concat = "";
+    for (let i = 0; i < validSlides.length; i++) {
+      const snaps   = validSlides[i].snapshots;
+      const holdSec = perSlideHoldSec[i];
+
+      if (snaps.length === 1) {
+        // Static slide — one JPEG held for the full hold duration
+        concat += `file 's_${i}_0.jpg'\nduration ${holdSec.toFixed(6)}\n`;
       } else {
-        requestAnimationFrame(renderNextFrame);
+        // ThriftySlide — spread 5 snapshots at their real capture timestamps
+        for (let j = 0; j < snaps.length; j++) {
+          const startMs = THRIFTY_CAPTURE_MS[j];
+          const endMs   = j < snaps.length - 1
+            ? THRIFTY_CAPTURE_MS[j + 1]
+            : holdSec * 1000;              // last frame holds to end of slide
+          const durSec  = Math.max((endMs - startMs) / 1000, frameSec);
+          concat += `file 's_${i}_${j}.jpg'\nduration ${durSec.toFixed(6)}\n`;
+        }
       }
-    };
 
-    renderNextFrame();
+      // Append transition frames between this slide and the next
+      if (i < transBlobs.length) {
+        for (let f = 0; f < transBlobs[i].length; f++) {
+          concat += `file 't_${i}_${f}.jpg'\nduration ${frameSec.toFixed(6)}\n`;
+        }
+      }
+    }
+    // FFmpeg concat demuxer requires the final file listed once more (no duration)
+    // so it knows when the last frame ends.
+    const lastI = validSlides.length - 1;
+    const lastJ = validSlides[lastI].snapshots.length - 1;
+    concat += `file 's_${lastI}_${lastJ}.jpg'\n`;
+
+    await ffmpeg.writeFile("concat.txt", new TextEncoder().encode(concat));
+
+    // ── PHASE 6: Encode to H.264 MP4 with randomised metadata ────────────────────
+    setExportStatus("Encoding MP4…");
+    setExportProgress(80);
+
+    const daysBack    = Math.floor(Math.random() * 60) + 1;
+    const createTime  = new Date(Date.now() - daysBack * 86_400_000).toISOString();
+    const devices     = ["iPhone 15 Pro Max","Samsung Galaxy S24 Ultra","Google Pixel 9 Pro","OnePlus 12"];
+    const deviceLabel = devices[Math.floor(Math.random() * devices.length)];
+    const uid         = Array.from({ length: 16 }, () =>
+      "abcdefghijklmnopqrstuvwxyz0123456789"[Math.floor(Math.random() * 36)]
+    ).join("");
+    const crf         = String(18 + Math.floor(Math.random() * 5));
+
+    await ffmpeg.exec([
+      "-f",         "concat",
+      "-safe",      "0",
+      "-i",         "concat.txt",
+      // Force locked 30fps and scale to exact 1080×1920 TikTok dimensions
+      "-vf",        `fps=${fps},scale=1080:1920:flags=lanczos`,
+      "-c:v",       "libx264",
+      "-preset",    "fast",          // fast = good quality/speed balance vs ultrafast
+      "-crf",       crf,
+      "-pix_fmt",   "yuv420p",
+      "-movflags",  "+faststart",
+      "-metadata",  `creation_time=${createTime}`,
+      "-metadata",  `encoder=${deviceLabel}`,
+      "-metadata",  `comment=${uid}`,
+      "-metadata",  `title=${uid.slice(0, 8)}`,
+      "output.mp4",
+    ]);
+
+    setExportProgress(97);
+    const mp4Data = await ffmpeg.readFile("output.mp4");
+    const mp4Blob = new Blob([mp4Data.buffer], { type: "video/mp4" });
+    const url = URL.createObjectURL(mp4Blob);
+    const a   = document.createElement("a");
+    a.href     = url;
+    a.download = `thrifty_${uid.slice(0, 8)}.mp4`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    setIsExporting(false);
+    setExportProgress(100);
+    setExportStatus("Done! Video downloaded.");
+    setTimeout(() => { setExportStatus(""); setExportProgress(0); }, 3000);
   };
 
   const handleExportPNG = async () => {
