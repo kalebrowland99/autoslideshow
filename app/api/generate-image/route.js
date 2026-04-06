@@ -6,6 +6,7 @@ const GEMINI_ENDPOINT =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent";
 const OPENAI_GENERATIONS = "https://api.openai.com/v1/images/generations";
 const OPENAI_EDITS       = "https://api.openai.com/v1/images/edits";
+const OPENAI_CHAT        = "https://api.openai.com/v1/chat/completions";
 
 function mimeFromPath(filePath) {
   const ext = filePath.split(".").pop()?.toLowerCase();
@@ -124,12 +125,92 @@ async function generateWithGptImage1({ prompt, referenceFile, openaiApiKey }) {
   return { b64 };
 }
 
+async function identifyWithOpenAI({ imageUrl, openaiApiKey }) {
+  if (!openaiApiKey?.trim()) {
+    return { error: "OpenAI API key is not configured on the server.", status: 500 };
+  }
+
+  const res = await fetch(OPENAI_CHAT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${openaiApiKey}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o",
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image_url", image_url: { url: imageUrl, detail: "low" } },
+          { type: "text", text: `You are an expert Grailed reseller and thrift evaluator. Analyze this thrift store item photo.
+
+Return ONLY valid JSON — no markdown, no explanation:
+{"title": "3-6 word resale title", "price": 45}
+
+Rules:
+- title: concise resale product title like "Vintage Chrome Hearts Ring" or "Supreme Box Logo Hoodie" or "Kapital Boro Patchwork Jacket"
+- price: realistic Grailed/eBay resale price in USD as an integer
+
+Brand price guidelines:
+- Japanese archive (Kapital, Visvim, Undercover, Number Nine, Comme des Garçons, etc.): $150–2000
+- High fashion (Rick Owens, Balenciaga, Chrome Hearts, Prada, etc.): $100–1500
+- Streetwear (Supreme, BAPE, Off-White, Palace): $60–500
+- Gorpcore (Arc'teryx, Patagonia TNF): $40–300
+- Vintage workwear (Carhartt, Levi's USA, Dickies): $30–200
+- Sneakers (Nike, Jordan, Adidas vintage): $50–400
+- General vintage / cultural merch: $15–80
+
+Be decisive. Think like a reseller trying to make money.` },
+        ],
+      }],
+      max_tokens: 60,
+    }),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    return { error: data?.error?.message || `OpenAI error ${res.status}`, status: res.status };
+  }
+
+  const data = await res.json();
+  const raw = data.choices?.[0]?.message?.content?.trim() || "";
+
+  try {
+    const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    return {
+      title: parsed.title?.replace(/^["']|["']$/g, "") || null,
+      price: parsed.price ? String(Math.round(Number(parsed.price))) : null,
+    };
+  } catch {
+    return { error: "Could not parse OpenAI identification response.", status: 502 };
+  }
+}
+
 // ── Route handler ─────────────────────────────────────────────────────────────
 export async function POST(req) {
   try {
-    const { prompt, referenceFile, geminiApiKey, openaiApiKey, model = "gemini" } = await req.json();
+    const {
+      action = "generate",
+      prompt,
+      referenceFile,
+      imageUrl,
+      geminiApiKey: requestGeminiApiKey,
+      openaiApiKey: requestOpenaiApiKey,
+      model = "gemini",
+    } = await req.json();
+
+    const openaiApiKey = process.env.OPENAI_API_KEY?.trim() || requestOpenaiApiKey?.trim();
+    const geminiApiKey = process.env.GEMINI_API_KEY?.trim() || requestGeminiApiKey?.trim();
 
     let result;
+    if (action === "identify") {
+      result = await identifyWithOpenAI({ imageUrl, openaiApiKey });
+      if (result.error) {
+        return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
+      }
+      return NextResponse.json({ title: result.title, price: result.price });
+    }
+
     if (model === "gpt-image-1") {
       result = await generateWithGptImage1({ prompt, referenceFile, openaiApiKey });
     } else {

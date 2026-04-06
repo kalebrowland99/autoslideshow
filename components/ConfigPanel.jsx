@@ -138,8 +138,6 @@ export default function ConfigPanel({
 
   const [imageModel, setImageModelRaw] = useState("gpt-image-1"); // "gpt-image-1" | "gemini"
   const setImageModel = (v) => { setImageModelRaw(v); localStorage.setItem("ts_image_model", v); };
-  const [geminiApiKey, setGeminiApiKey] = useState(""); // Google AI — Gemini image gen
-  const [aiApiKey, setAiApiKey] = useState("");          // OpenAI — gpt-image-1 gen + GPT-4o auto-title
   const [globalPrompt, setGlobalPrompt] = useState(DEFAULT_PROMPT);
   const [generatingSlot, setGeneratingSlotRaw] = useState(null);
   const setGeneratingSlot = (val) => {
@@ -167,10 +165,6 @@ export default function ConfigPanel({
   useEffect(() => {
     const savedModel = localStorage.getItem("ts_image_model");
     if (savedModel) setImageModelRaw(savedModel);
-    const savedGemini = localStorage.getItem("ts_gemini_key");
-    if (savedGemini) setGeminiApiKey(savedGemini);
-    const savedKey = localStorage.getItem("ts_api_key");
-    if (savedKey) setAiApiKey(savedKey);
     const savedPrompt = localStorage.getItem("ts_global_prompt");
     if (savedPrompt != null) setGlobalPrompt(savedPrompt);
     const savedBrands = localStorage.getItem("ts_brand_items");
@@ -249,11 +243,6 @@ export default function ConfigPanel({
   const cancelGenRef = useRef(false);
 
   const generateImage = async (index, prompt, brandItem) => {
-    const activeKey = imageModel === "gpt-image-1" ? aiApiKey : geminiApiKey;
-    if (!activeKey.trim()) {
-      setAiErrors((p) => ({ ...p, [index]: imageModel === "gpt-image-1" ? "OpenAI API key required." : "Google AI API key required." }));
-      return null;
-    }
     try {
       let b64 = null;
 
@@ -330,8 +319,6 @@ Do NOT add any external overlays: no captions, subtitles, price tags, watermarks
           prompt: fullPrompt,
           referenceFile: refFile || null,
           model: imageModel,
-          geminiApiKey,
-          openaiApiKey: aiApiKey,
         }),
       });
       const data = await res.json();
@@ -359,16 +346,14 @@ Do NOT add any external overlays: no captions, subtitles, price tags, watermarks
       const priceUpdates = (!slot.spentPrice && !slot.soldPrice) ? autoRandomPrices() : {};
       updateSlot(index, { imageUrl: url, ...priceUpdates });
       // Auto-title from the new image
-      if (aiApiKey.trim()) {
-        const grail = await autoTitleFromImage(url, aiApiKey);
-        if (grail?.title) {
-          const resolvedPrice = grail.price ?? priceUpdates.soldPrice ?? slot.soldPrice;
-          updateSlot(index, {
-            itemName: grail.title,
-            ...(grail.price ? { soldPrice: grail.price } : {}),
-            matchItems: autoSoldListings(grail.title, resolvedPrice),
-          });
-        }
+      const grail = await autoTitleFromImage(url);
+      if (grail?.title) {
+        const resolvedPrice = grail.price ?? priceUpdates.soldPrice ?? slot.soldPrice;
+        updateSlot(index, {
+          itemName: grail.title,
+          ...(grail.price ? { soldPrice: grail.price } : {}),
+          matchItems: autoSoldListings(grail.title, resolvedPrice),
+        });
       }
     }
     setGeneratingSlot(null);
@@ -376,48 +361,21 @@ Do NOT add any external overlays: no captions, subtitles, price tags, watermarks
 
   // ── GPT-4 Vision: generate item title from image ──
   // ── Grail Identifier: returns { title, price } from image ───────────────────
-  const autoTitleFromImage = async (imageUrl, apiKey) => {
+  const autoTitleFromImage = async (imageUrl) => {
     try {
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      const res = await fetch("/api/generate-image", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "gpt-4o",
-          messages: [{
-            role: "user",
-            content: [
-              { type: "image_url", image_url: { url: imageUrl, detail: "low" } },
-              { type: "text", text: `You are an expert Grailed reseller and thrift evaluator. Analyze this thrift store item photo.
-
-Return ONLY valid JSON — no markdown, no explanation:
-{"title": "3-6 word resale title", "price": 45}
-
-Rules:
-- title: concise resale product title like "Vintage Chrome Hearts Ring" or "Supreme Box Logo Hoodie" or "Kapital Boro Patchwork Jacket"
-- price: realistic Grailed/eBay resale price in USD as an integer
-
-Brand price guidelines:
-- Japanese archive (Kapital, Visvim, Undercover, Number Nine, Comme des Garçons, etc.): $150–2000
-- High fashion (Rick Owens, Balenciaga, Chrome Hearts, Prada, etc.): $100–1500
-- Streetwear (Supreme, BAPE, Off-White, Palace): $60–500
-- Gorpcore (Arc'teryx, Patagonia TNF): $40–300
-- Vintage workwear (Carhartt, Levi's USA, Dickies): $30–200
-- Sneakers (Nike, Jordan, Adidas vintage): $50–400
-- General vintage / cultural merch: $15–80
-
-Be decisive. Think like a reseller trying to make money.` },
-            ],
-          }],
-          max_tokens: 60,
+          action: "identify",
+          imageUrl,
         }),
       });
       if (!res.ok) return null;
       const data = await res.json();
-      const raw = data.choices?.[0]?.message?.content?.trim() || "";
-      const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
       return {
-        title: parsed.title?.replace(/^["']|["']$/g, "") || null,
-        price: parsed.price ? String(Math.round(Number(parsed.price))) : null,
+        title: data.title || null,
+        price: data.price || null,
       };
     } catch { return null; }
   };
@@ -450,10 +408,9 @@ Be decisive. Think like a reseller trying to make money.` },
   const handleAutoTitle = async (index) => {
     const slot = config.slots[index];
     if (!slot.imageUrl) { setAiErrors((p) => ({ ...p, [`title_${index}`]: "Upload an image first." })); return; }
-    if (!aiApiKey.trim()) { setAiErrors((p) => ({ ...p, [`title_${index}`]: "API key required." })); return; }
     setAiErrors((p) => ({ ...p, [`title_${index}`]: null }));
     setGeneratingSlot(`title_${index}`);
-    const grail = await autoTitleFromImage(slot.imageUrl, aiApiKey);
+    const grail = await autoTitleFromImage(slot.imageUrl);
     if (grail?.title) {
       const resolvedPrice = grail.price ?? slot.soldPrice;
       updateSlot(index, {
@@ -468,11 +425,6 @@ Be decisive. Think like a reseller trying to make money.` },
   };
 
   const handleGenerateAll = async () => {
-    const activeKey = imageModel === "gpt-image-1" ? aiApiKey : geminiApiKey;
-    if (!activeKey.trim()) {
-      alert(imageModel === "gpt-image-1" ? "Enter your OpenAI API key first." : "Enter your Google AI API key first.");
-      return;
-    }
     setGeneratingSlot("all");
     setAiErrors({});
     // Auto-pick a random hook caption for the collage slide
@@ -534,18 +486,16 @@ Be decisive. Think like a reseller trying to make money.` },
         const priceUpdates = (!slot.spentPrice && !slot.soldPrice) ? autoRandomPrices() : {};
         updateSlot(i, { imageUrl: url, ...priceUpdates });
 
-        // Phase 2 — auto-title (if API key present)
-        if (aiApiKey.trim()) {
-          setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Analyzing item ${stepLabel}…`, slotsDone: new Set(slotsDone) });
-          const grail = await autoTitleFromImage(url, aiApiKey);
-          if (grail?.title) {
-            const resolvedPrice = grail.price ?? priceUpdates.soldPrice ?? slot.soldPrice;
-            updateSlot(i, {
-              itemName: grail.title,
-              ...(grail.price ? { soldPrice: grail.price } : {}),
-              matchItems: autoSoldListings(grail.title, resolvedPrice),
-            });
-          }
+        // Phase 2 — auto-title
+        setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Analyzing item ${stepLabel}…`, slotsDone: new Set(slotsDone) });
+        const grail = await autoTitleFromImage(url);
+        if (grail?.title) {
+          const resolvedPrice = grail.price ?? priceUpdates.soldPrice ?? slot.soldPrice;
+          updateSlot(i, {
+            itemName: grail.title,
+            ...(grail.price ? { soldPrice: grail.price } : {}),
+            matchItems: autoSoldListings(grail.title, resolvedPrice),
+          });
         }
 
         slotsDone.add(i);
@@ -597,21 +547,19 @@ Be decisive. Think like a reseller trying to make money.` },
       if (url) {
         const prices = autoRandomPrices();
         localSlots[si] = { ...localSlots[si], imageUrl: url, ...prices };
-        if (aiApiKey.trim()) {
-          setGenAllProgress({
-            total: 6, done: si, current: si,
-            phase: `Show ${showIndex + 1}/${totalShows} · Analyzing item ${si + 1}/6…`,
-            slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
-          });
-          const grail = await autoTitleFromImage(url, aiApiKey);
-          if (grail?.title) {
-            const rp = grail.price ?? prices.soldPrice;
-            localSlots[si] = {
-              ...localSlots[si], itemName: grail.title,
-              ...(grail.price ? { soldPrice: grail.price } : {}),
-              matchItems: autoSoldListings(grail.title, rp),
-            };
-          }
+        setGenAllProgress({
+          total: 6, done: si, current: si,
+          phase: `Show ${showIndex + 1}/${totalShows} · Analyzing item ${si + 1}/6…`,
+          slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
+        });
+        const grail = await autoTitleFromImage(url);
+        if (grail?.title) {
+          const rp = grail.price ?? prices.soldPrice;
+          localSlots[si] = {
+            ...localSlots[si], itemName: grail.title,
+            ...(grail.price ? { soldPrice: grail.price } : {}),
+            matchItems: autoSoldListings(grail.title, rp),
+          };
         }
       }
       // Update live preview so user can watch along
@@ -629,11 +577,6 @@ Be decisive. Think like a reseller trying to make money.` },
   };
 
   const handleGenerateBatch = async () => {
-    const activeKey = imageModel === "gpt-image-1" ? aiApiKey : geminiApiKey;
-    if (!activeKey.trim()) {
-      alert(imageModel === "gpt-image-1" ? "Enter your OpenAI API key first." : "Enter your Google AI API key first.");
-      return;
-    }
     if (brandItems.length === 0) {
       alert("Add items to the Brand Items List first.");
       return;
@@ -1056,18 +999,13 @@ Be decisive. Think like a reseller trying to make money.` },
           ))}
         </div>
 
-        <Label>OpenAI API Key <span className="text-white/30 font-normal">
-          {imageModel === "gpt-image-1" ? "(image gen + auto-title)" : "(auto-title only)"}
-        </span></Label>
-        <input type="password" value={aiApiKey}
-          onChange={(e) => { setAiApiKey(e.target.value); localStorage.setItem("ts_api_key", e.target.value); }}
-          placeholder="sk-..." className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500/60 placeholder-white/20 font-mono" />
-        {imageModel === "gemini" && <>
-          <Label className="mt-2">Google AI API Key <span className="text-white/30 font-normal">(Gemini — image gen)</span></Label>
-          <input type="password" value={geminiApiKey}
-            onChange={(e) => { setGeminiApiKey(e.target.value); localStorage.setItem("ts_gemini_key", e.target.value); }}
-            placeholder="AIza..." className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500/60 placeholder-white/20 font-mono" />
-        </>}
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/8 px-3 py-2.5 text-xs text-emerald-200">
+          <div className="font-semibold">AI keys are managed on the server.</div>
+          <div className="mt-1 text-emerald-100/70">
+            This deployment uses the Vercel environment variables for image generation and auto-title,
+            so teammates can use the app without entering API keys here.
+          </div>
+        </div>
 
         {/* Reference images status — only rendered client-side to avoid hydration mismatch */}
         {mounted && <div className={`mt-2 flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
