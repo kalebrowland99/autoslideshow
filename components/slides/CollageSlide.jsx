@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-import { exportImgCrossOrigin } from "../exportImg";
 
 export default function CollageSlide({ config, S }) {
   const {
@@ -55,11 +54,8 @@ export default function CollageSlide({ config, S }) {
           <div key={i} style={{ overflow: "hidden", position: "relative", background: "#1c1c1c" }}>
             {slot.imageUrl ? (
               <img
-                data-export-image=""
                 src={slot.imageUrl}
                 alt={`Slot ${i + 1}`}
-                crossOrigin={exportImgCrossOrigin(slot.imageUrl)}
-                decoding="async"
                 style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
               />
             ) : (

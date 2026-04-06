@@ -1,8 +1,6 @@
 "use client";
 
 import { useMemo, useEffect, useRef } from "react";
-import { exportImgCrossOrigin } from "../exportImg";
-import { buildSoldRows } from "./thriftySoldRows";
 
 /**
  * ThriftySlide — pixel-faithful recreation of SongEditView.
@@ -15,6 +13,8 @@ import { buildSoldRows } from "./thriftySoldRows";
 const IPHONE_SCALE = 1080 / 390;
 
 const SOURCES = ["eBay", "Poshmark", "Mercari", "Depop", "Grailed", "StockX", "Vestiaire", "thredUP"];
+const PREFIXES = ["Pre-owned ", "Used ", "Vintage ", "Authentic ", "Like-New "];
+const SUFFIXES = [" - Great Condition", " - Gently Used", " (Pre-loved)", " - Excellent", " - Good Shape"];
 
 // ── Seeded PRNG (stable per mount) ──────────────────────────────────────────
 function rand(seed) {
@@ -315,14 +315,8 @@ export default function ThriftySlide({ slot, S, captionSize: globalCaptionSize }
             flexShrink: 0, background: "#e8e8e8",
             boxShadow: `0 ${px(2)}px ${px(4)}px rgba(0,0,0,0.1)` }}>
             {slot.imageUrl ? (
-              <img
-                data-export-image=""
-                src={slot.imageUrl}
-                alt={itemName}
-                crossOrigin={exportImgCrossOrigin(slot.imageUrl)}
-                decoding="async"
-                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-              />
+              <img src={slot.imageUrl} alt={itemName}
+                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
             ) : (
               <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column",
                 alignItems: "center", justifyContent: "center", gap: px(4) }}>
@@ -422,6 +416,32 @@ export default function ThriftySlide({ slot, S, captionSize: globalCaptionSize }
       </div>
     </div>
   );
+}
+
+// ── Build sold rows ──────────────────────────────────────────────────────────
+function buildSoldRows(slot, src1, src2) {
+  const filled = slot.matchItems?.filter((m) => m.title || m.price) ?? [];
+  if (filled.length >= 2) {
+    // Override sources with the randomised ones
+    return [
+      { ...filled[0], source: src1, inStock: false },
+      { ...filled[1], source: src2, inStock: false },
+    ];
+  }
+  const base  = slot.itemName || "";
+  const price = parseFloat(slot.soldPrice);
+  const makeRow = (seed, src) => ({
+    title:   base
+      ? `${PREFIXES[seed % PREFIXES.length]}${base}${SUFFIXES[(seed + 1) % SUFFIXES.length]}`
+      : `Sold listing ${seed + 1}`,
+    source:  src,
+    price:   isNaN(price) ? "" : String(Math.round(price * (seed % 2 === 0 ? 0.88 : 1.08))),
+    inStock: false,
+  });
+  return [
+    filled[0] ? { ...filled[0], source: src1, inStock: false } : makeRow(0, src1),
+    filled[1] ? { ...filled[1], source: src2, inStock: false } : makeRow(1, src2),
+  ];
 }
 
 // ── iOS Status Bar — fully random ────────────────────────────────────────────
