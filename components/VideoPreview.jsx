@@ -3,6 +3,7 @@
 import CollageSlide from "./slides/CollageSlide";
 import ItemRevealSlide from "./slides/ItemRevealSlide";
 import ThriftySlide from "./slides/ThriftySlide";
+import { ExportCollageSlide, ExportRevealSlide, ExportThriftySlide } from "./export/ExportSlides";
 
 // At 0.28 scale → 1080×1920 renders as ~302×538px in browser
 export const DISPLAY_SCALE = 0.28;
@@ -28,6 +29,16 @@ function SlideRenderer({ config, info, S }) {
   );
 }
 
+function ExportSlideRenderer({ config, info }) {
+  return (
+    <>
+      {info.type === "collage" && <ExportCollageSlide config={config} />}
+      {info.type === "reveal" && <ExportRevealSlide slot={info.slot} captionSize={config.captionSize} />}
+      {info.type === "thrifty" && <ExportThriftySlide slot={info.slot} captionSize={config.captionSize} />}
+    </>
+  );
+}
+
 export default function VideoPreview({ config, currentSlide, setCurrentSlide, totalSlides, isGenerating, onRefreshSlide }) {
   const S = DISPLAY_SCALE;
   const W = Math.round(1080 * S);
@@ -41,6 +52,8 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
     const type = (currentSlide - 1) % 2 === 0 ? "Reveal" : "Thrifty Price";
     return `Item ${item} — ${type}`;
   };
+
+  const exportInfo = getSlideInfo(config, currentSlide);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
@@ -146,6 +159,24 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-violet-500 inline-block"/>Collage</span>
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block"/>Reveal</span>
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>Thrifty</span>
+      </div>
+
+      {/* Off-screen 1080×1920 export target — minimal DOM for reliable capture */}
+      <div
+        id="video-export-root"
+        aria-hidden
+        style={{
+          position: "fixed",
+          left: -10000,
+          top: 0,
+          width: 1080,
+          height: 1920,
+          overflow: "hidden",
+          pointerEvents: "none",
+          zIndex: -1,
+        }}
+      >
+        <ExportSlideRenderer config={config} info={exportInfo} />
       </div>
 
     </div>

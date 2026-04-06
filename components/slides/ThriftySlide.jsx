@@ -2,6 +2,7 @@
 
 import { useMemo, useEffect, useRef } from "react";
 import { exportImgCrossOrigin } from "../exportImg";
+import { buildSoldRows } from "./thriftySoldRows";
 
 /**
  * ThriftySlide — pixel-faithful recreation of SongEditView.
@@ -14,8 +15,6 @@ import { exportImgCrossOrigin } from "../exportImg";
 const IPHONE_SCALE = 1080 / 390;
 
 const SOURCES = ["eBay", "Poshmark", "Mercari", "Depop", "Grailed", "StockX", "Vestiaire", "thredUP"];
-const PREFIXES = ["Pre-owned ", "Used ", "Vintage ", "Authentic ", "Like-New "];
-const SUFFIXES = [" - Great Condition", " - Gently Used", " (Pre-loved)", " - Excellent", " - Good Shape"];
 
 // ── Seeded PRNG (stable per mount) ──────────────────────────────────────────
 function rand(seed) {
@@ -423,32 +422,6 @@ export default function ThriftySlide({ slot, S, captionSize: globalCaptionSize }
       </div>
     </div>
   );
-}
-
-// ── Build sold rows ──────────────────────────────────────────────────────────
-function buildSoldRows(slot, src1, src2) {
-  const filled = slot.matchItems?.filter((m) => m.title || m.price) ?? [];
-  if (filled.length >= 2) {
-    // Override sources with the randomised ones
-    return [
-      { ...filled[0], source: src1, inStock: false },
-      { ...filled[1], source: src2, inStock: false },
-    ];
-  }
-  const base  = slot.itemName || "";
-  const price = parseFloat(slot.soldPrice);
-  const makeRow = (seed, src) => ({
-    title:   base
-      ? `${PREFIXES[seed % PREFIXES.length]}${base}${SUFFIXES[(seed + 1) % SUFFIXES.length]}`
-      : `Sold listing ${seed + 1}`,
-    source:  src,
-    price:   isNaN(price) ? "" : String(Math.round(price * (seed % 2 === 0 ? 0.88 : 1.08))),
-    inStock: false,
-  });
-  return [
-    filled[0] ? { ...filled[0], source: src1, inStock: false } : makeRow(0, src1),
-    filled[1] ? { ...filled[1], source: src2, inStock: false } : makeRow(1, src2),
-  ];
 }
 
 // ── iOS Status Bar — fully random ────────────────────────────────────────────
