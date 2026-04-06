@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { exportImgCrossOrigin } from "../exportImg";
 
 // Same color palette used by ThriftySlide captions
 const REVEAL_CAPTION_COMBOS = [
@@ -63,8 +64,11 @@ export default function ItemRevealSlide({ slot, S, captionSize: globalCaptionSiz
       {/* Full-screen image */}
       {slot.imageUrl ? (
         <img
+          data-export-image=""
           src={slot.imageUrl}
           alt={slot.itemName || "Item"}
+          crossOrigin={exportImgCrossOrigin(slot.imageUrl)}
+          decoding="async"
           style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
         />
       ) : (
@@ -77,6 +81,7 @@ export default function ItemRevealSlide({ slot, S, captionSize: globalCaptionSiz
 
       {/* Bottom gradient scrim */}
       <div
+        data-export-scrim=""
         style={{
           position: "absolute",
           bottom: 0, left: 0, right: 0,

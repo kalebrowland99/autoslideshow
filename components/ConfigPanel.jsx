@@ -2,6 +2,7 @@
 
 import { useRef, useState, useEffect } from "react";
 import html2canvas from "html2canvas";
+import { getFontEmbedCSS, toCanvas, toJpeg } from "html-to-image";
 import { DISPLAY_SCALE } from "./VideoPreview";
 
 const PRESET_COLORS = [
@@ -127,30 +128,31 @@ const waitForFonts = async () => {
   } catch {}
 };
 
-const waitForImages = async (root) => {
-  if (!root) return;
-  const images = Array.from(root.querySelectorAll("img"));
-  if (!images.length) return;
-
+/** Wait for <img> load + decode so raster capture sees decoded pixels */
+const waitForImagesInRoot = async (root) => {
+  if (!root?.querySelectorAll) return;
+  const imgs = [...root.querySelectorAll("img")];
   await Promise.all(
-    images.map((img) => {
-      if (img.complete && img.naturalWidth > 0) return Promise.resolve();
-
-      // decode() is the most reliable readiness signal before canvas capture.
-      if (typeof img.decode === "function") {
-        return img.decode().catch(() => {});
+    imgs.map(
+      (img) =>
+        new Promise((resolve) => {
+          if (img.complete) {
+            resolve();
+            return;
+          }
+          const done = () => resolve();
+          img.addEventListener("load", done, { once: true });
+          img.addEventListener("error", done, { once: true });
+        })
+    )
+  );
+  await Promise.all(
+    imgs.map(async (img) => {
+      try {
+        if (typeof img.decode === "function") await img.decode();
+      } catch {
+        /* broken or unsupported decode */
       }
-
-      return new Promise((resolve) => {
-        const done = () => {
-          img.removeEventListener("load", done);
-          img.removeEventListener("error", done);
-          resolve();
-        };
-        img.addEventListener("load", done, { once: true });
-        img.addEventListener("error", done, { once: true });
-        setTimeout(done, 2000);
-      });
     })
   );
 };
@@ -215,37 +217,64 @@ export default function ConfigPanel({
 
   const getCaptureNode = () => document.getElementById("video-preview-root");
 
+  const getCaptureOptions = (bgColor, fontEmbedCSS) => ({
+    backgroundColor: bgColor,
+    pixelRatio: 1,
+    canvasWidth: 1080,
+    canvasHeight: 1920,
+    cacheBust: true,
+    includeQueryParams: true,
+    skipAutoScale: true,
+    ...(fontEmbedCSS ? { fontEmbedCSS } : {}),
+  });
+
   const getH2cScale = (el) => {
     const rect = el.getBoundingClientRect();
     if (!rect.width || !Number.isFinite(rect.width)) return 1;
     return Math.max(1, 1080 / rect.width);
   };
 
-  const h2cOpts = (el, bgColor, { foreignObjectRendering = true } = {}) => ({
+  const patchExportClone = (clonedDoc) => {
+    clonedDoc.querySelectorAll("[data-export-image]").forEach((node) => {
+      if (!(node instanceof HTMLElement)) return;
+      node.style.filter = "none";
+      node.style.backdropFilter = "none";
+      node.style.mixBlendMode = "normal";
+      node.style.transform = "none";
+    });
+    clonedDoc.querySelectorAll("[data-export-scrim]").forEach((node) => {
+      if (!(node instanceof HTMLElement)) return;
+      node.style.filter = "none";
+      node.style.backdropFilter = "none";
+      node.style.mixBlendMode = "normal";
+    });
+  };
+
+  const h2cOpts = (el, bgColor) => ({
     useCORS: true,
-    allowTaint: true,
+    allowTaint: false,
+    foreignObjectRendering: false,
     backgroundColor: bgColor,
     logging: false,
     imageTimeout: 30000,
     scale: getH2cScale(el),
-    foreignObjectRendering,
+    onclone: (clonedDoc) => patchExportClone(clonedDoc),
   });
 
-  const captureSlideCanvas = async (bgColor) => {
+  const captureSlideCanvas = async (bgColor, { forceRaster = false } = {}) => {
     const el = getCaptureNode();
     if (!el) return null;
 
     await waitForPreviewPaint();
     await waitForFonts();
-    await waitForImages(el);
+    await waitForImagesInRoot(el);
 
-    try {
-      // foreignObjectRendering usually matches visible DOM more closely.
-      return await html2canvas(el, h2cOpts(el, bgColor, { foreignObjectRendering: true }));
-    } catch (err) {
-      console.warn("html2canvas foreignObject failed, falling back", err);
-      return html2canvas(el, h2cOpts(el, bgColor, { foreignObjectRendering: false }));
+    if (forceRaster) {
+      return html2canvas(el, h2cOpts(el, bgColor));
     }
+
+    const fontEmbedCSS = await getFontEmbedCSS(el);
+    return toCanvas(el, getCaptureOptions(bgColor, fontEmbedCSS));
   };
 
   const captureLivePreviewThumbnail = async () => {
@@ -256,10 +285,18 @@ export default function ConfigPanel({
     try {
       await waitForPreviewPaint();
       await waitForFonts();
-      await waitForImages(el);
+      await waitForImagesInRoot(el);
 
-      const canvas = await captureSlideCanvas(bgColor);
-      return canvas.toDataURL("image/jpeg", 0.92);
+      if (currentSlide === 0) {
+        const canvas = await html2canvas(el, h2cOpts(el, bgColor));
+        return canvas.toDataURL("image/jpeg", 0.92);
+      }
+
+      const fontEmbedCSS = await getFontEmbedCSS(el);
+      return toJpeg(el, {
+        ...getCaptureOptions(bgColor, fontEmbedCSS),
+        quality: 0.92,
+      });
     } catch (err) {
       console.error("Preview thumbnail capture failed", err);
       return null;
@@ -660,7 +697,7 @@ Do NOT add any external overlays: no captions, subtitles, price tags, watermarks
         setExportStatus(`Capturing slide ${i + 1}…`);
         await new Promise((r) => setTimeout(r, 60));
         try {
-          const canvas = await captureSlideCanvas(bg);
+          const canvas = await captureSlideCanvas(bg, { forceRaster: i === 0 });
           if (!canvas) throw new Error("Preview node not found");
           allSlideFrames.push([canvas]);
         } catch (err) {
@@ -670,7 +707,7 @@ Do NOT add any external overlays: no captions, subtitles, price tags, watermarks
       } else {
         await new Promise((r) => setTimeout(r, 80));
         try {
-          const canvas = await captureSlideCanvas(bg);
+          const canvas = await captureSlideCanvas(bg, { forceRaster: i === 0 });
           if (!canvas) throw new Error("Preview node not found");
           allSlideFrames.push([canvas]);
         } catch (err) {
@@ -922,7 +959,7 @@ Do NOT add any external overlays: no captions, subtitles, price tags, watermarks
     setIsExporting(true);
     setExportProgress(20);
     try {
-      const canvas = await captureSlideCanvas(currentSlide === 0 ? "#111111" : "#ffffff");
+      const canvas = await captureSlideCanvas(currentSlide === 0 ? "#111111" : "#ffffff", { forceRaster: currentSlide === 0 });
       if (!canvas) throw new Error("Preview node not found");
       setExportProgress(80);
       canvas.toBlob((blob) => {
