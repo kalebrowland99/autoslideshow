@@ -128,6 +128,34 @@ const waitForFonts = async () => {
   } catch {}
 };
 
+const waitForImages = async (root) => {
+  if (!root) return;
+  const images = Array.from(root.querySelectorAll("img"));
+  if (!images.length) return;
+
+  await Promise.all(
+    images.map((img) => {
+      if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+
+      // decode() is the most reliable readiness signal before canvas capture.
+      if (typeof img.decode === "function") {
+        return img.decode().catch(() => {});
+      }
+
+      return new Promise((resolve) => {
+        const done = () => {
+          img.removeEventListener("load", done);
+          img.removeEventListener("error", done);
+          resolve();
+        };
+        img.addEventListener("load", done, { once: true });
+        img.addEventListener("error", done, { once: true });
+        setTimeout(done, 2000);
+      });
+    })
+  );
+};
+
 export default function ConfigPanel({
   config, updateConfig, updateSlot, updateMatchItem,
   currentSlide, setCurrentSlide, totalSlides,
@@ -220,6 +248,7 @@ export default function ConfigPanel({
 
     await waitForPreviewPaint();
     await waitForFonts();
+    await waitForImages(el);
 
     if (forceRaster) {
       return html2canvas(el, h2cOpts(el, bgColor));
@@ -237,6 +266,7 @@ export default function ConfigPanel({
     try {
       await waitForPreviewPaint();
       await waitForFonts();
+      await waitForImages(el);
 
       if (currentSlide === 0) {
         const canvas = await html2canvas(el, h2cOpts(el, bgColor));
