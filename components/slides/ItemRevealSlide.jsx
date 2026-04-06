@@ -31,7 +31,7 @@ function slotSeed(slot) {
   return Math.abs(h);
 }
 
-export default function ItemRevealSlide({ slot, S }) {
+export default function ItemRevealSlide({ slot, S, captionSize: globalCaptionSize }) {
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
   const px = (n) => Math.round(n * S);
@@ -39,7 +39,7 @@ export default function ItemRevealSlide({ slot, S }) {
   const spentLine = (slot.spentPrice ? `spent $${slot.spentPrice}` : "spent $?");
   const itemLine  = slot.itemName ? `(${slot.itemName.toLowerCase()})` : null;
 
-  const captionSize = slot.revealCaptionSize ?? 72;
+  const captionSize = globalCaptionSize ?? slot.revealCaptionSize ?? 72;
 
   // All random values derived from a stable seed — same layout every render/export
   const seed = useMemo(() => slotSeed(slot), [slot.itemName, slot.spentPrice, slot.soldPrice]);
@@ -52,6 +52,7 @@ export default function ItemRevealSlide({ slot, S }) {
   const zoneIdx = useMemo(() => Math.floor(seededRand(seed + 1) * REVEAL_SAFE_ZONES.length), [seed]);
   const jitterX = useMemo(() => Math.round((seededRand(seed + 2) - 0.5) * 16 * S),  [seed, S]);
   const jitterY = useMemo(() => Math.round((seededRand(seed + 3) - 0.5) * 16 * S),  [seed, S]);
+  const tilt    = useMemo(() => ((seededRand(seed + 4) - 0.5) * 4).toFixed(2),       [seed]); // ±2 deg
   const captionTop = useMemo(() => {
     const raw = Math.round(H * REVEAL_SAFE_ZONES[zoneIdx]) + jitterY;
     return Math.min(raw, maxTop);
@@ -85,22 +86,31 @@ export default function ItemRevealSlide({ slot, S }) {
         }}
       />
 
-      {/* "spent $X (item name)" caption */}
+      {/* "spent $X (item name)" caption — flex-centered wrapper avoids calc() in html2canvas */}
       <div
         style={{
           position: "absolute",
-          left: "50%",
+          left: 0,
+          width: W,
           top: captionTop,
-          transform: `translateX(calc(-50% + ${jitterX}px))`,
+          display: "flex",
+          justifyContent: "center",
+          pointerEvents: "none",
+          zIndex: 10,
+        }}
+      >
+      <div
+        style={{
+          marginLeft: jitterX,
+          transform: `rotate(${tilt}deg)`,
           background: combo.bg,
           borderRadius: Math.round(12 * S),
           padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
-          maxWidth: "80%",
+          maxWidth: Math.round(W * 0.8),
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
           gap: Math.round(4 * S),
-          zIndex: 10,
           boxShadow: `0 ${Math.round(4 * S)}px ${Math.round(20 * S)}px rgba(0,0,0,0.55)`,
         }}
       >
@@ -130,6 +140,7 @@ export default function ItemRevealSlide({ slot, S }) {
             {itemLine}
           </span>
         )}
+      </div>
       </div>
     </div>
   );

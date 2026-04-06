@@ -56,6 +56,24 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const refreshHandlerRef = useRef(null);
 
+  // ── Batch slideshow gallery ──────────────────────────────────────────────────
+  const [savedSlideshows, setSavedSlideshows] = useState([]);
+  const [activeShowIdx, setActiveShowIdx] = useState(null);
+
+  const handleSlideshowSaved = useCallback((showData) => {
+    setSavedSlideshows((prev) => {
+      const next = [...prev, showData];
+      setActiveShowIdx(next.length - 1);
+      return next;
+    });
+  }, []);
+
+  const loadShow = useCallback((showData, idx) => {
+    setConfig((prev) => ({ ...prev, slots: showData.slots, captionText: showData.captionText }));
+    setActiveShowIdx(idx);
+    setCurrentSlide(0);
+  }, []);
+
   // Total slides = 1 (collage) + 6 × 2 (reveal + thrifty)
   const totalSlides = 1 + config.slots.length * 2;
 
@@ -123,6 +141,7 @@ export default function Home() {
             setExportStatus={setExportStatus}
             onBusyChange={setIsGenerating}
             registerRefreshSlide={(fn) => { refreshHandlerRef.current = fn; }}
+            onSlideshowSaved={handleSlideshowSaved}
           />
         </aside>
 
@@ -140,6 +159,74 @@ export default function Home() {
             <p className="text-white/30 text-xs">1080 × 1920 · {totalSlides} slides · {config.slideDuration}s each</p>
           </div>
         </main>
+
+        {/* ── Slideshow gallery panel ─────────────────────────────────────────── */}
+        {savedSlideshows.length > 0 && (
+          <aside className="w-[252px] border-l border-white/10 overflow-y-auto shrink-0 bg-[#0a0a0a]">
+            <div className="p-3">
+              <div className="flex items-center justify-between mb-3 sticky top-0 bg-[#0a0a0a] py-1 z-10">
+                <span className="text-white/50 text-[11px] font-semibold uppercase tracking-wider">
+                  Slideshows
+                </span>
+                <span className="text-violet-400 text-[11px] font-semibold">
+                  {savedSlideshows.length} ready
+                </span>
+              </div>
+              <div className="space-y-2.5">
+                {savedSlideshows.map((show, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => loadShow(show, idx)}
+                    className={`w-full rounded-xl overflow-hidden border transition-all text-left ${
+                      activeShowIdx === idx
+                        ? "border-violet-500 ring-1 ring-violet-500/40"
+                        : "border-white/10 hover:border-white/25"
+                    }`}
+                  >
+                    {show.previewScreenshot ? (
+                      <div className="bg-black/80">
+                        <div className="relative bg-black" style={{ aspectRatio: "9 / 16" }}>
+                          <img
+                            src={show.previewScreenshot}
+                            alt={show.captionText ? `Preview of ${show.captionText}` : `Preview of slideshow ${idx + 1}`}
+                            className="w-full h-full object-cover block"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-px bg-black/60">
+                        {show.slots.map((slot, i) => (
+                          <div key={i} className="relative overflow-hidden bg-zinc-900" style={{ aspectRatio: "3/4" }}>
+                            {slot.imageUrl
+                              ? <img src={slot.imageUrl} alt="" className="w-full h-full object-cover" />
+                              : <div className="w-full h-full flex items-center justify-center">
+                                  <span className="text-white/15 text-[10px]">{i + 1}</span>
+                                </div>
+                            }
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Card footer */}
+                    <div className="px-2.5 py-2 bg-zinc-900/80">
+                      <div className="flex items-center justify-between">
+                        <span className={`text-[10px] font-semibold ${activeShowIdx === idx ? "text-violet-400" : "text-white/30"}`}>
+                          #{idx + 1}
+                        </span>
+                        {activeShowIdx === idx && (
+                          <span className="text-[9px] text-violet-400 font-medium">● active</span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-white/60 truncate mt-0.5 leading-tight">
+                        {show.captionText || `Slideshow ${idx + 1}`}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </aside>
+        )}
       </div>
     </div>
   );

@@ -119,7 +119,7 @@ function fireConfetti(canvas) {
   return () => cancelAnimationFrame(rafId);
 }
 
-export default function ThriftySlide({ slot, S }) {
+export default function ThriftySlide({ slot, S, captionSize: globalCaptionSize }) {
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
   const px = (n) => Math.round(n * IPHONE_SCALE * S);
@@ -199,10 +199,11 @@ export default function ThriftySlide({ slot, S }) {
     () => CAPTION_COMBOS[randInt(seed + 30, 0, CAPTION_COMBOS.length - 1)],
     [seed]
   );
-  // Per-mount jitter (stable per render, dodges TikTok pattern detection)
+  // Per-mount jitter + tilt (stable per render, dodges TikTok pattern detection)
   const captionJitter = useMemo(() => ({
-    x: Math.round((rand(seed + 20) - 0.5) * 16 * S),
-    y: Math.round((rand(seed + 21) - 0.5) * 16 * S),
+    x:   Math.round((rand(seed + 20) - 0.5) * 16 * S),
+    y:   Math.round((rand(seed + 21) - 0.5) * 16 * S),
+    rot: ((rand(seed + 22) - 0.5) * 4).toFixed(2), // ±2 degrees
   }), [seed, S]);
 
   // Random safe zones — avoids logo (H×0.05-0.18) and price card (H×0.38-0.54)
@@ -220,36 +221,43 @@ export default function ThriftySlide({ slot, S }) {
       position: "relative", fontFamily: "Arial, Helvetica, sans-serif",
       display: "flex", flexDirection: "column" }}>
 
-      {/* Floating caption — "Found for $X → Resell $Y 💰" */}
+      {/* Floating caption — flex-centered wrapper avoids calc() in html2canvas */}
       {captionText && (
         <div style={{
           position: "absolute",
-          left: "50%",
+          left: 0,
+          width: W,
           top: captionTop,
-          transform: `translateX(calc(-50% + ${captionJitter.x}px))`,
-          background: randomCombo.bg,
-          borderRadius: Math.round(12 * S),
-          padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
-          maxWidth: "80%",
           display: "flex",
-          alignItems: "center",
           justifyContent: "center",
           zIndex: 100,
           pointerEvents: "none",
-          boxShadow: `0 ${Math.round(4 * S)}px ${Math.round(20 * S)}px rgba(0,0,0,0.55)`,
         }}>
-          <span style={{
-            display: "block",
-            color: randomCombo.color,
-            fontSize: Math.round(60 * S),
-            fontWeight: "800",
-            lineHeight: 1.2,
-            fontFamily: "Arial, Helvetica, sans-serif",
-            letterSpacing: "-0.01em",
-            textAlign: "center",
+          <div style={{
+            marginLeft: captionJitter.x,
+            transform: `rotate(${captionJitter.rot}deg)`,
+            background: randomCombo.bg,
+            borderRadius: Math.round(12 * S),
+            padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
+            maxWidth: Math.round(W * 0.8),
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: `0 ${Math.round(4 * S)}px ${Math.round(20 * S)}px rgba(0,0,0,0.55)`,
           }}>
-            {captionText}
-          </span>
+            <span style={{
+              display: "block",
+              color: randomCombo.color,
+              fontSize: Math.round((globalCaptionSize ?? 60) * S),
+              fontWeight: "800",
+              lineHeight: 1.2,
+              fontFamily: "Arial, Helvetica, sans-serif",
+              letterSpacing: "-0.01em",
+              textAlign: "center",
+            }}>
+              {captionText}
+            </span>
+          </div>
         </div>
       )}
 
@@ -279,14 +287,15 @@ export default function ThriftySlide({ slot, S }) {
           </div>
 
           {/* "thrifty" — large serif logo */}
-          <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
+          <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center", minHeight: px(44) }}>
             <span style={{
+              display: "block",
               fontSize: px(42),
               fontWeight: "900",
               color: "#7B4F2E",
               fontFamily: "Georgia, 'Times New Roman', serif",
               letterSpacing: "-1px",
-              lineHeight: 1,
+              lineHeight: 1.02,
             }}>
               thrifty
             </span>
@@ -321,8 +330,9 @@ export default function ThriftySlide({ slot, S }) {
 
           <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: px(8) }}>
             <div style={{ position: "relative", background: "rgba(0,0,0,0.05)", borderRadius: px(8),
-              paddingTop: px(12), paddingBottom: px(12), paddingLeft: px(12), paddingRight: px(34) }}>
-              <span style={{ fontSize: px(18), fontWeight: "700", color: "#000", lineHeight: 1.25, display: "block" }}>
+              minHeight: px(46), display: "flex", alignItems: "center",
+              paddingTop: px(10), paddingBottom: px(10), paddingLeft: px(12), paddingRight: px(34) }}>
+              <span style={{ fontSize: px(18), fontWeight: "700", color: "#000", lineHeight: 1.1, display: "block" }}>
                 {itemName}
               </span>
               <svg style={{ position: "absolute", top: "50%", right: px(8), transform: "translateY(-50%)" }}
@@ -331,7 +341,7 @@ export default function ThriftySlide({ slot, S }) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
               </svg>
             </div>
-            <span style={{ fontSize: px(14), fontWeight: "500", color: "#888" }}>{date}</span>
+            <span style={{ display: "block", fontSize: px(14), fontWeight: "500", color: "#888", lineHeight: 1.15 }}>{date}</span>
           </div>
         </div>
 
@@ -351,14 +361,14 @@ export default function ThriftySlide({ slot, S }) {
           paddingTop: px(20), paddingBottom: px(20),
           display: "flex", flexDirection: "column", alignItems: "center", gap: px(6) }}>
           <div style={{ display: "flex", alignItems: "center", gap: px(6) }}>
-            <span style={{ fontSize: px(14), fontWeight: "500", color: "#888",
+            <span style={{ display: "block", fontSize: px(14), fontWeight: "500", color: "#888", lineHeight: 1.1,
               letterSpacing: px(1), textTransform: "uppercase" }}>Thrifty Price</span>
             <div style={{ width: px(18), height: px(18), borderRadius: "50%", background: "#3b82f6",
               display: "flex", alignItems: "center", justifyContent: "center" }}>
               <span style={{ color: "#fff", fontSize: px(11), fontWeight: "700" }}>i</span>
             </div>
           </div>
-          <span style={{ fontSize: px(56), fontWeight: "700", letterSpacing: "-1px", lineHeight: 1.0,
+          <span style={{ display: "block", fontSize: px(56), fontWeight: "700", letterSpacing: "-1px", lineHeight: 0.96,
             color: slot.soldPrice ? "#000" : "#aaa" }}>
             {soldPrice}
           </span>
@@ -376,7 +386,7 @@ export default function ThriftySlide({ slot, S }) {
             <span style={{ fontSize: px(18), fontWeight: "600", color: "#111" }}>Sold</span>
           </div>
 
-          <p style={{ fontSize: px(14), fontWeight: "500", color: "#888", margin: `0 0 ${px(8)}px 0` }}>
+          <p style={{ fontSize: px(14), fontWeight: "500", color: "#888", lineHeight: 1.2, margin: `0 0 ${px(8)}px 0` }}>
             Recently Sold on {src1}, {src2}{" "}&amp; more:
           </p>
 
@@ -498,8 +508,8 @@ function SoldRow({ row, last, px }) {
 
       {/* Title + source */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ fontSize: px(14), fontWeight: "500", color: "#000",
-          margin: `0 0 ${px(4)}px`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <p style={{ display: "block", fontSize: px(14), fontWeight: "500", color: "#000",
+          lineHeight: 1.15, margin: `0 0 ${px(4)}px`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {row.title || "Sold listing"}
         </p>
         <div style={{ display: "flex", gap: px(6) }}>

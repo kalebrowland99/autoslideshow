@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
-import html2canvas from "html2canvas";
-import { getSlideInfo, DISPLAY_SCALE } from "./VideoPreview";
+import { getFontEmbedCSS, toCanvas, toJpeg } from "html-to-image";
+import { DISPLAY_SCALE } from "./VideoPreview";
 
 const PRESET_COLORS = [
   "#e03030","#e05c20","#d4a017","#1a8a3a","#1a5cbf","#7c22cc","#000000","#ffffff",
@@ -74,22 +74,65 @@ const DEFAULT_BRAND_LIST = [
   "vintage Metallica band tee","vintage Nirvana band tee",
   "vintage Harley Davidson tee","vintage NASCAR jacket",
   "Naruto anime tee","vintage Vivienne Westwood",
-  // Furniture
-  "Herman Miller chair","Knoll chair","Eames lounge chair",
-  "mid-century modern teak credenza","mid-century modern walnut dresser",
-  "vintage solid wood dining table","vintage Lane furniture cabinet",
-  "vintage Drexel dresser","vintage Restoration Hardware couch",
-  "vintage teak sideboard","vintage mid-century modern sofa",
-  "solid wood dovetail dresser","vintage industrial metal shelving",
-  "vintage sculptural armchair",
+  // Furniture — multiple distinct products per brand so each slideshow varies
+  "Herman Miller Aeron chair",
+  "Herman Miller Eames DSW plastic side chair",
+  "Herman Miller Eames RAR rocking armchair",
+  "Herman Miller Eames wire chair DKR",
+  "Herman Miller Eames fiberglass armchair DAR",
+  "Herman Miller Eames 670 lounge chair and ottoman",
+  "Herman Miller Eames aluminum group chair",
+  "Knoll Tulip pedestal chair Eero Saarinen",
+  "Knoll Barcelona chair Mies van der Rohe",
+  "Knoll Womb chair Eero Saarinen",
+  "mid-century modern teak credenza",
+  "mid-century modern walnut dresser with hairpin legs",
+  "vintage solid wood farm dining table",
+  "vintage Lane Furniture record cabinet",
+  "vintage Drexel walnut dresser",
+  "vintage G Plan teak sideboard",
+  "vintage Danish teak sofa",
+  "solid wood dovetail tallboy dresser",
+  "vintage industrial pipe shelf unit",
+  "vintage rattan peacock chair",
+  "vintage Bertoia diamond wire chair",
+  "vintage butterfly sling chair",
+  "vintage egg-shaped pod chair",
+  "vintage travertine side table",
+  "vintage brutalist ceramic lamp",
 ].join("\n");
+
+// Minimal slot factory — used for batch generation (avoids circular import with page.js)
+const freshSlot = (i) => ({
+  imageUrl: null, prompt: "",
+  itemName: `Item ${i + 1}`, spentPrice: "", soldPrice: "",
+  date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+  matchItems: [
+    { title: "", source: "eBay",     price: "", inStock: true },
+    { title: "", source: "Poshmark", price: "", inStock: true },
+  ],
+  revealCaptionBg: "", revealCaptionColor: "", revealCaptionPosition: "bottom",
+  revealCaptionSize: 72, revealCaptionBold: true,
+  thriftyCaptionText: "", thriftyCaptionBg: "", thriftyCaptionColor: "",
+  thriftyCaptionPosition: "top", thriftyCaptionSize: 72, thriftyCaptionBold: true,
+});
+
+const waitForPreviewPaint = () =>
+  new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+const waitForFonts = async () => {
+  if (!document.fonts?.ready) return;
+  try {
+    await document.fonts.ready;
+  } catch {}
+};
 
 export default function ConfigPanel({
   config, updateConfig, updateSlot, updateMatchItem,
   currentSlide, setCurrentSlide, totalSlides,
   isExporting, setIsExporting, exportProgress, setExportProgress,
   exportStatus, setExportStatus,
-  onBusyChange, registerRefreshSlide,
+  onBusyChange, registerRefreshSlide, onSlideshowSaved,
 }) {
   const DEFAULT_PROMPT = "A thrift store find held up in one hand toward the camera, shot inside a real Goodwill or thrift store — clothing racks and shelves softly blurred in the background, bright overhead fluorescent lighting, shallow depth of field, candid realistic photo style, natural colors, no text, no watermarks, no studio backdrop";
 
@@ -148,6 +191,47 @@ export default function ConfigPanel({
     .map((l) => l.trim())
     .filter(Boolean);
 
+  const getCaptureNode = () => document.getElementById("video-preview-root");
+
+  const getCaptureOptions = (bgColor, fontEmbedCSS) => ({
+    backgroundColor: bgColor,
+    pixelRatio: 1,
+    canvasWidth: 1080,
+    canvasHeight: 1920,
+    cacheBust: true,
+    includeQueryParams: true,
+    skipAutoScale: true,
+    ...(fontEmbedCSS ? { fontEmbedCSS } : {}),
+  });
+
+  const captureSlideCanvas = async (bgColor, fontEmbedCSS) => {
+    const el = getCaptureNode();
+    if (!el) return null;
+
+    await waitForPreviewPaint();
+    await waitForFonts();
+    return toCanvas(el, getCaptureOptions(bgColor, fontEmbedCSS));
+  };
+
+  const captureLivePreviewThumbnail = async () => {
+    const el = getCaptureNode();
+    if (!el) return null;
+    const bgColor = currentSlide === 0 ? "#111111" : "#ffffff";
+
+    try {
+      await waitForPreviewPaint();
+      await waitForFonts();
+      const fontEmbedCSS = await getFontEmbedCSS(el);
+      return toJpeg(el, {
+        ...getCaptureOptions(bgColor, fontEmbedCSS),
+        quality: 0.92,
+      });
+    } catch (err) {
+      console.error("Preview thumbnail capture failed", err);
+      return null;
+    }
+  };
+
   const pickRandomHook = () => {
     if (hookItems.length === 0) return;
     const pick = hookItems[Math.floor(Math.random() * hookItems.length)];
@@ -200,10 +284,14 @@ export default function ConfigPanel({
       const SHARED_RULES = `
 Aspect ratio requirement: Generate the image in 9:16 vertical portrait orientation only. This is mandatory. The image must be tall (portrait), optimized for smartphone viewing similar to TikTok or Instagram Reels. Do not generate square or landscape images. The composition must fill a 9:16 portrait frame from top to bottom.
 
-The photo should look like it was taken using an iPhone 15 Pro Max smartphone camera, with realistic smartphone photography characteristics such as natural HDR, balanced exposure, sharp foreground detail, and realistic indoor lighting typical of modern iPhone photography.
+The photo should look like it was taken using an iPhone 15 Pro Max smartphone camera. Apply the exact iPhone 15 Pro Max color science: Display P3 wide color gamut, accurate natural colors, realistic HDR with lifted shadows, sharp foreground detail.
+
+Color temperature and white balance are critical: the scene is lit by overhead fluorescent retail store lights which produce a neutral-to-slightly-cool white balance at approximately 4500–5500K with a very slight green-neutral cast. The whites in the image must appear clean, crisp, and neutral — not warm, not orange, not yellow, not amber. There must be zero warm incandescent glow, zero golden-hour toning, zero cinematic color grading, zero film emulation, and zero vintage warm filter. Colors should look exactly as a real iPhone camera sees a Goodwill store: accurate, slightly cool, neutral and clean under fluorescent retail lighting. Blues appear vivid and accurate. Whites appear clean. Shadows are cool-neutral and slightly lifted by Smart HDR processing. The overall image looks like an unedited iPhone snapshot, not a color-graded commercial photo.
 
 Handling rule:
 For most items (clothing, shoes, accessories, small objects, etc.), the item should be held by a human hand in a physically believable way, following real-world physics. The hand should grip the object where a person would naturally hold it, with fingers wrapping around appropriate areas and the thumb stabilizing it. The object must appear fully supported by the hand with correct balance and weight, not floating or clipping through the fingers. Finger placement, wrist angle, and grip pressure should look natural, like someone casually lifting the item to inspect it while browsing. Maintain realistic proportions between the hand and the object.
+
+Clothing rule: If the item is a jacket, hoodie, shirt, pants, coat, or any garment that would normally hang on a hanger, the person must be holding it by gripping the top of the coat hanger — fingers wrapped around the hanger hook or neck area, the garment hanging naturally below with gravity pulling it down. The hanger itself must look anatomically correct (a standard thrift store wire or plastic hanger with a realistic hook at the top). The clothing must hang loosely and naturally with realistic fabric drape, wrinkles, and weight — not stiff, flat, or rigid like a product photo. The garment must be sized as if it fits a full-grown adult, with realistic sleeve length, body width, and shoulder span — not small or child-sized. Fabric folds and creases should look natural, as if the item has been worn and stored.
 
 Exception for large objects: If the item is large furniture or heavy objects such as cabinets, nightstands, chairs, tables, shelves, dressers, or similar items, do not include a hand holding it. Instead, place the item naturally in the thrift store environment, such as sitting on the floor, on display, or positioned in the furniture section of the store. The furniture should appear stable, grounded, and properly resting according to real-world physics.
 
@@ -480,58 +568,129 @@ Be decisive. Think like a reseller trying to make money.` },
     setTimeout(() => setGenAllProgress(null), 4000);
   };
 
+  // ── Batch generation: produce N complete slideshows sequentially ─────────────
+  const [numSlideshows, setNumSlideshows] = useState(3);
+
+  // Generate one complete slideshow into a local slots array, save via callback.
+  const generateOneSlideshow = async (showIndex, totalShows) => {
+    const hookCaption = hookItems.length > 0
+      ? hookItems[Math.floor(Math.random() * hookItems.length)]
+      : config.captionText;
+
+    // Pick 6 unique brand items for this show
+    const uniqueBrands = [...new Set(brandItems)];
+    const shuffled = [...uniqueBrands].sort(() => Math.random() - 0.5);
+    while (shuffled.length > 0 && shuffled.length < 6)
+      shuffled.push(...[...uniqueBrands].sort(() => Math.random() - 0.5));
+
+    const localSlots = Array.from({ length: 6 }, (_, i) => freshSlot(i));
+
+    for (let si = 0; si < 6; si++) {
+      if (cancelGenRef.current) break;
+      const brandItem = shuffled.length > 0 ? shuffled[si] : null;
+      setGenAllProgress({
+        total: 6, done: si, current: si,
+        phase: `Show ${showIndex + 1}/${totalShows} · Image ${si + 1}/6${brandItem ? ` — "${brandItem}"` : ""}…`,
+        slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
+      });
+      const url = await generateImage(si, globalPrompt, brandItem);
+      if (url) {
+        const prices = autoRandomPrices();
+        localSlots[si] = { ...localSlots[si], imageUrl: url, ...prices };
+        if (aiApiKey.trim()) {
+          setGenAllProgress({
+            total: 6, done: si, current: si,
+            phase: `Show ${showIndex + 1}/${totalShows} · Analyzing item ${si + 1}/6…`,
+            slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
+          });
+          const grail = await autoTitleFromImage(url, aiApiKey);
+          if (grail?.title) {
+            const rp = grail.price ?? prices.soldPrice;
+            localSlots[si] = {
+              ...localSlots[si], itemName: grail.title,
+              ...(grail.price ? { soldPrice: grail.price } : {}),
+              matchItems: autoSoldListings(grail.title, rp),
+            };
+          }
+        }
+      }
+      // Update live preview so user can watch along
+      updateConfig("slots", [...localSlots]);
+    }
+    updateConfig("captionText", hookCaption);
+    await waitForPreviewPaint();
+    const previewScreenshot = await captureLivePreviewThumbnail();
+    onSlideshowSaved?.({
+      slots: [...localSlots],
+      captionText: hookCaption,
+      previewScreenshot,
+    });
+    return localSlots;
+  };
+
+  const handleGenerateBatch = async () => {
+    const activeKey = imageModel === "gpt-image-1" ? aiApiKey : geminiApiKey;
+    if (!activeKey.trim()) {
+      alert(imageModel === "gpt-image-1" ? "Enter your OpenAI API key first." : "Enter your Google AI API key first.");
+      return;
+    }
+    if (brandItems.length === 0) {
+      alert("Add items to the Brand Items List first.");
+      return;
+    }
+    setGeneratingSlot("all");
+    setAiErrors({});
+    cancelGenRef.current = false;
+    for (let i = 0; i < numSlideshows; i++) {
+      if (cancelGenRef.current) break;
+      await generateOneSlideshow(i, numSlideshows);
+    }
+    setGeneratingSlot(null);
+    setGenAllProgress((p) => p
+      ? { ...p, phase: `✓ ${numSlideshows} slideshow${numSlideshows > 1 ? "s" : ""} saved to gallery!`, done: 6 }
+      : null
+    );
+    setTimeout(() => setGenAllProgress(null), 4000);
+  };
+
   // ── Video export: capture each slide, then animate ──
   const handleExportVideo = async () => {
     setIsExporting(true);
     setExportProgress(0);
     setExportStatus("Capturing slides…");
 
-    const captureScale = Math.round(1080 / (1080 * DISPLAY_SCALE));
-
     // ThriftySlides are at positions 2, 4, 6, … (i > 0 && (i-1) % 2 === 1)
     const isThriftySlide = (i) => i > 0 && (i - 1) % 2 === 1;
 
-    // For ThriftySlides we capture multiple snapshots to animate confetti.
-    // Timestamps (ms after mount) to capture — spans before + during confetti burst + falling
-    const THRIFTY_CAPTURE_MS = [50, 380, 680, 1000, 1380];
-
-    const captureOpts = (bgColor) => ({
-      useCORS: true, allowTaint: true, scale: captureScale,
-      backgroundColor: bgColor, logging: false,
-    });
-
     // allSlideFrames[i] = Canvas[] — ThriftySlides get multiple canvases, others get one
     const allSlideFrames = [];
+    const previewNode = getCaptureNode();
+    const fontEmbedCSS = previewNode ? await getFontEmbedCSS(previewNode) : undefined;
 
     for (let i = 0; i < totalSlides; i++) {
       setCurrentSlide(i);
-      // Wait for React to render the slide
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-
-      const el = document.getElementById("video-preview-root");
-      if (!el) { allSlideFrames.push([]); continue; }
+      await waitForPreviewPaint();
 
       const bg = i === 0 ? "#111111" : "#ffffff";
 
       if (isThriftySlide(i)) {
-        setExportStatus(`Capturing slide ${i + 1} (confetti)…`);
-        const snapshots = [];
-        let elapsed = 0;
-        for (const t of THRIFTY_CAPTURE_MS) {
-          await new Promise((r) => setTimeout(r, t - elapsed));
-          elapsed = t;
-          try {
-            const canvas = await html2canvas(el, captureOpts(bg));
-            snapshots.push(canvas);
-          } catch (err) {
-            console.error("Capture error slide", i, "at", t, "ms", err);
-          }
+        // Capture ONE clean background snapshot before confetti fires (fires at 300ms).
+        // Confetti will be drawn directly onto the export canvas at true 30fps.
+        setExportStatus(`Capturing slide ${i + 1}…`);
+        await new Promise((r) => setTimeout(r, 60));
+        try {
+          const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
+          if (!canvas) throw new Error("Preview node not found");
+          allSlideFrames.push([canvas]);
+        } catch (err) {
+          console.error("Capture error slide", i, err);
+          allSlideFrames.push([]);
         }
-        allSlideFrames.push(snapshots);
       } else {
         await new Promise((r) => setTimeout(r, 80));
         try {
-          const canvas = await html2canvas(el, captureOpts(bg));
+          const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
+          if (!canvas) throw new Error("Preview node not found");
           allSlideFrames.push([canvas]);
         } catch (err) {
           console.error("Capture error slide", i, err);
@@ -554,163 +713,219 @@ Be decisive. Think like a reseller trying to make money.` },
       return;
     }
 
-    // ── PHASE 2: Render transition frames (offscreen, no timing dependency) ─────
-    setExportStatus("Rendering transitions…");
+    // ── PHASE 2: Encode with native WebCodecs + mp4-muxer (no WASM, no CDN) ──────
+    setExportStatus("Preparing encoder…");
+    setExportProgress(42);
 
-    const W = validSlides[0].snapshots[0].width;
-    const H = validSlides[0].snapshots[0].height;
-    const offscreen = document.createElement("canvas");
-    offscreen.width  = W;
-    offscreen.height = H;
-    const octx = offscreen.getContext("2d");
+    // WebCodecs availability check
+    if (typeof VideoEncoder === "undefined") {
+      setIsExporting(false);
+      setExportStatus("WebCodecs not available — please use Chrome or Safari 16+.");
+      return;
+    }
 
-    const fps            = 30;
-    const frameSec       = 1 / fps;
+    const OUT_W = 1080;
+    const OUT_H = 1920;
+    const fps = 30;
     const transitionFrames = Math.round((config.transitionMs / 1000) * fps);
+    const frameDurationUs  = Math.round(1_000_000 / fps); // microseconds per frame
 
-    // Per-slide hold durations (seconds, with random jitter for TikTok variance)
-    const perSlideHoldSec = validSlides.map(() => {
+    // Per-slide hold duration in frames (with random jitter for TikTok variance)
+    const perSlideHoldFrames = validSlides.map(() => {
       const jitterMs = Math.floor(Math.random() * 500);
-      return config.slideDuration + jitterMs / 1000;
+      return Math.round((config.slideDuration + jitterMs / 1000) * fps);
     });
 
-    // Helper: canvas → JPEG Uint8Array for FFmpeg FS
-    const canvasToJpegBytes = (canvas, quality = 0.92) =>
-      new Promise((resolve) => {
-        canvas.toBlob(
-          async (blob) => resolve(new Uint8Array(await blob.arrayBuffer())),
-          "image/jpeg",
-          quality
-        );
+    // Total frame count for progress
+    let totalFrames = 0;
+    for (let i = 0; i < validSlides.length; i++) {
+      totalFrames += perSlideHoldFrames[i];
+      if (i < validSlides.length - 1) totalFrames += transitionFrames;
+    }
+
+    // Scale canvas: renders each frame at exact 1080×1920
+    const scaleCanvas = document.createElement("canvas");
+    scaleCanvas.width  = OUT_W;
+    scaleCanvas.height = OUT_H;
+    const sctx = scaleCanvas.getContext("2d");
+
+    // ── Confetti physics for ThriftySlides — drawn directly at 30fps ──────────
+    const CONFETTI_COLORS_EXP = [
+      "#f44336","#e91e63","#9c27b0","#3f51b5","#2196f3",
+      "#00bcd4","#4caf50","#ffeb3b","#ff9800","#ff5722",
+    ];
+    // Scale particle size from display pixels to export pixels
+    const displayW = Math.round(1080 * DISPLAY_SCALE);
+    const displayH = Math.round(1920 * DISPLAY_SCALE);
+    const confScaleX = OUT_W / displayW;
+    const confScaleY = OUT_H / displayH;
+    // Confetti fires 300ms after slide mount
+    const confettiDelayFrames = Math.round(0.3 * fps);
+
+    function makeExportParticles() {
+      const origins = [{ x: OUT_W * 0.5, y: OUT_H * 0.50 }];
+      return Array.from({ length: 40 }, (_, i) => {
+        const o = origins[i % origins.length];
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 3 + Math.random() * (OUT_H * 0.05);
+        return {
+          x: o.x + (Math.random() - 0.5) * OUT_W * 0.06,
+          y: o.y,
+          vx: Math.cos(angle) * speed * 0.25,
+          vy: -(Math.random() * speed * 0.35 + speed * 0.1),
+          color: CONFETTI_COLORS_EXP[Math.floor(Math.random() * CONFETTI_COLORS_EXP.length)],
+          w: (2 + Math.random() * 4) * confScaleX,
+          h: (1.5 + Math.random() * 3) * confScaleY,
+          rot: Math.random() * Math.PI * 2,
+          rotV: (Math.random() - 0.5) * 0.25,
+          offscreen: false,
+          shape: Math.random() > 0.45 ? "rect" : "circle",
+        };
       });
-
-    // Render all transition frames to JPEG blobs
-    // transBlobs[i][f] = Uint8Array — frames sliding slide i → slide i+1
-    const transBlobs = [];
-    for (let i = 0; i < validSlides.length - 1; i++) {
-      const curSnap = validSlides[i].snapshots[validSlides[i].snapshots.length - 1];
-      const nxtSnap = validSlides[i + 1].snapshots[0];
-      const frames  = [];
-      for (let f = 0; f < transitionFrames; f++) {
-        const t      = f / transitionFrames;
-        const eased  = 1 - Math.pow(1 - t, 3); // cubic ease-out = iPhone thumb flick
-        const offset = Math.round(eased * W);
-        octx.clearRect(0, 0, W, H);
-        octx.drawImage(curSnap, -offset, 0);
-        octx.drawImage(nxtSnap,  W - offset, 0);
-        frames.push(await canvasToJpegBytes(offscreen, 0.93));
-      }
-      transBlobs.push(frames);
-      setExportProgress(40 + Math.round((i + 1) / validSlides.length * 15));
     }
 
-    // ── PHASE 3: Load FFmpeg (single-threaded core, no SharedArrayBuffer) ───────
-    setExportStatus("Loading MP4 converter…");
-    const { FFmpeg } = await import("@ffmpeg/ffmpeg");
-    const ffmpeg = new FFmpeg();
-    await ffmpeg.load({
-      coreURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js",
-      wasmURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm",
+    function stepExportParticles(particles) {
+      for (const p of particles) {
+        if (p.offscreen) continue;
+        p.x  += p.vx;
+        p.y  += p.vy;
+        p.vy += OUT_H * 0.0008;
+        p.vx *= 0.985;
+        p.rot += p.rotV;
+        if (p.y > OUT_H + 20) p.offscreen = true;
+      }
+    }
+
+    function drawExportConfetti(ctx, particles) {
+      for (const p of particles) {
+        if (p.offscreen) continue;
+        ctx.save();
+        ctx.globalAlpha = 1;
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        if (p.shape === "rect") {
+          ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        } else {
+          ctx.beginPath();
+          ctx.ellipse(0, 0, p.w / 2, p.h / 2, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+
+    // mp4-muxer setup (pure JS, in-memory)
+    const { Muxer, ArrayBufferTarget } = await import("mp4-muxer");
+    const target = new ArrayBufferTarget();
+    const muxer  = new Muxer({
+      target,
+      video: { codec: "avc", width: OUT_W, height: OUT_H },
+      fastStart: "in-memory",
     });
 
-    // ── PHASE 4: Write all frames to FFmpeg virtual FS ───────────────────────────
-    setExportStatus("Writing frames…");
-    setExportProgress(60);
+    // VideoEncoder (browser-native H.264)
+    let encoderError = null;
+    const encoder = new VideoEncoder({
+      output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+      error:  (e) => { encoderError = e; console.error("VideoEncoder:", e); },
+    });
+    encoder.configure({
+      codec:        "avc1.640028",   // H.264 High Profile Level 4.0
+      width:        OUT_W,
+      height:       OUT_H,
+      bitrate:      12_000_000,
+      framerate:    fps,
+      bitrateMode:  "constant",
+      latencyMode:  "quality",
+    });
 
-    // Slide keyframes
-    for (let i = 0; i < validSlides.length; i++) {
-      const snaps = validSlides[i].snapshots;
-      for (let j = 0; j < snaps.length; j++) {
-        await ffmpeg.writeFile(`s_${i}_${j}.jpg`, await canvasToJpegBytes(snaps[j], 0.94));
-      }
-    }
-    setExportProgress(70);
+    // ── Encode every frame ────────────────────────────────────────────────────
+    let pts = 0;           // presentation timestamp in microseconds
+    let encoded = 0;
 
-    // Transition frames
-    for (let i = 0; i < transBlobs.length; i++) {
-      for (let j = 0; j < transBlobs[i].length; j++) {
-        await ffmpeg.writeFile(`t_${i}_${j}.jpg`, transBlobs[i][j]);
-      }
-    }
-    setExportProgress(75);
+    for (let si = 0; si < validSlides.length; si++) {
+      const curSnaps   = validSlides[si].snapshots;
+      const holdFrames = perSlideHoldFrames[si];
+      const needsConfetti = isThriftySlide(validSlides[si].origIndex);
 
-    // ── PHASE 5: Build FFmpeg concat list ────────────────────────────────────────
-    // Timestamps at which each ThriftySlide confetti snapshot was taken
-    const THRIFTY_CAPTURE_MS = [50, 380, 680, 1000, 1380];
+      // Create a fresh particle system per ThriftySlide (spawned at confettiDelayFrames)
+      let confettiParticles = null;
 
-    let concat = "";
-    for (let i = 0; i < validSlides.length; i++) {
-      const snaps   = validSlides[i].snapshots;
-      const holdSec = perSlideHoldSec[i];
+      // Hold phase — draw static background + live confetti physics at true 30fps
+      for (let f = 0; f < holdFrames; f++) {
+        if (encoderError) break;
+        sctx.clearRect(0, 0, OUT_W, OUT_H);
+        sctx.drawImage(curSnaps[0], 0, 0, OUT_W, OUT_H);
 
-      if (snaps.length === 1) {
-        // Static slide — one JPEG held for the full hold duration
-        concat += `file 's_${i}_0.jpg'\nduration ${holdSec.toFixed(6)}\n`;
-      } else {
-        // ThriftySlide — spread 5 snapshots at their real capture timestamps
-        for (let j = 0; j < snaps.length; j++) {
-          const startMs = THRIFTY_CAPTURE_MS[j];
-          const endMs   = j < snaps.length - 1
-            ? THRIFTY_CAPTURE_MS[j + 1]
-            : holdSec * 1000;              // last frame holds to end of slide
-          const durSec  = Math.max((endMs - startMs) / 1000, frameSec);
-          concat += `file 's_${i}_${j}.jpg'\nduration ${durSec.toFixed(6)}\n`;
+        if (needsConfetti) {
+          if (f === confettiDelayFrames) confettiParticles = makeExportParticles();
+          if (confettiParticles) {
+            drawExportConfetti(sctx, confettiParticles);
+            stepExportParticles(confettiParticles);
+          }
+        }
+
+        const vf = new VideoFrame(scaleCanvas, { timestamp: pts, duration: frameDurationUs });
+        encoder.encode(vf, { keyFrame: encoded % fps === 0 });
+        vf.close();
+        pts += frameDurationUs;
+        encoded++;
+
+        // Yield periodically to keep the UI responsive
+        if (encoded % 20 === 0) {
+          await new Promise((r) => setTimeout(r, 0));
+          setExportProgress(42 + Math.round((encoded / totalFrames) * 55));
+          setExportStatus(`Encoding frame ${encoded} / ${totalFrames}…`);
+        }
+        // Throttle if the encoder queue is building up
+        while (encoder.encodeQueueSize > 12) {
+          await new Promise((r) => setTimeout(r, 5));
         }
       }
 
-      // Append transition frames between this slide and the next
-      if (i < transBlobs.length) {
-        for (let f = 0; f < transBlobs[i].length; f++) {
-          concat += `file 't_${i}_${f}.jpg'\nduration ${frameSec.toFixed(6)}\n`;
+      // Transition phase — iPhone cubic ease-out swipe
+      if (si < validSlides.length - 1) {
+        const nxtSnaps = validSlides[si + 1].snapshots;
+        for (let f = 0; f < transitionFrames; f++) {
+          if (encoderError) break;
+          const t      = f / transitionFrames;
+          const eased  = 1 - Math.pow(1 - t, 3);
+          const offset = Math.round(eased * OUT_W);
+          sctx.clearRect(0, 0, OUT_W, OUT_H);
+          sctx.drawImage(curSnaps[0], -offset,        0, OUT_W, OUT_H);
+          sctx.drawImage(nxtSnaps[0],                   OUT_W - offset, 0, OUT_W, OUT_H);
+
+          const vf = new VideoFrame(scaleCanvas, { timestamp: pts, duration: frameDurationUs });
+          encoder.encode(vf, { keyFrame: false });
+          vf.close();
+          pts += frameDurationUs;
+          encoded++;
         }
       }
     }
-    // FFmpeg concat demuxer requires the final file listed once more (no duration)
-    // so it knows when the last frame ends.
-    const lastI = validSlides.length - 1;
-    const lastJ = validSlides[lastI].snapshots.length - 1;
-    concat += `file 's_${lastI}_${lastJ}.jpg'\n`;
 
-    await ffmpeg.writeFile("concat.txt", new TextEncoder().encode(concat));
+    if (encoderError) {
+      setIsExporting(false);
+      setExportStatus(`Encoding failed: ${encoderError.message}`);
+      return;
+    }
 
-    // ── PHASE 6: Encode to H.264 MP4 with randomised metadata ────────────────────
-    setExportStatus("Encoding MP4…");
-    setExportProgress(80);
+    setExportStatus("Finalizing MP4…");
+    setExportProgress(97);
+    await encoder.flush();
+    muxer.finalize();
 
-    const daysBack    = Math.floor(Math.random() * 60) + 1;
-    const createTime  = new Date(Date.now() - daysBack * 86_400_000).toISOString();
-    const devices     = ["iPhone 15 Pro Max","Samsung Galaxy S24 Ultra","Google Pixel 9 Pro","OnePlus 12"];
-    const deviceLabel = devices[Math.floor(Math.random() * devices.length)];
-    const uid         = Array.from({ length: 16 }, () =>
+    // Randomised filename for uniqueness
+    const uid = Array.from({ length: 10 }, () =>
       "abcdefghijklmnopqrstuvwxyz0123456789"[Math.floor(Math.random() * 36)]
     ).join("");
-    const crf         = String(18 + Math.floor(Math.random() * 5));
 
-    await ffmpeg.exec([
-      "-f",         "concat",
-      "-safe",      "0",
-      "-i",         "concat.txt",
-      // Force locked 30fps and scale to exact 1080×1920 TikTok dimensions
-      "-vf",        `fps=${fps},scale=1080:1920:flags=lanczos`,
-      "-c:v",       "libx264",
-      "-preset",    "fast",          // fast = good quality/speed balance vs ultrafast
-      "-crf",       crf,
-      "-pix_fmt",   "yuv420p",
-      "-movflags",  "+faststart",
-      "-metadata",  `creation_time=${createTime}`,
-      "-metadata",  `encoder=${deviceLabel}`,
-      "-metadata",  `comment=${uid}`,
-      "-metadata",  `title=${uid.slice(0, 8)}`,
-      "output.mp4",
-    ]);
-
-    setExportProgress(97);
-    const mp4Data = await ffmpeg.readFile("output.mp4");
-    const mp4Blob = new Blob([mp4Data.buffer], { type: "video/mp4" });
+    const mp4Blob = new Blob([target.buffer], { type: "video/mp4" });
     const url = URL.createObjectURL(mp4Blob);
     const a   = document.createElement("a");
     a.href     = url;
-    a.download = `thrifty_${uid.slice(0, 8)}.mp4`;
+    a.download = `thrifty_${uid}.mp4`;
     a.click();
     URL.revokeObjectURL(url);
 
@@ -721,20 +936,21 @@ Be decisive. Think like a reseller trying to make money.` },
   };
 
   const handleExportPNG = async () => {
-    const el = document.getElementById("video-preview-root");
+    const el = getCaptureNode();
     if (!el) return;
     setIsExporting(true);
     setExportProgress(20);
-    const captureScale = Math.round(1080 / (1080 * DISPLAY_SCALE));
     try {
-      const canvas = await html2canvas(el, {
-        useCORS: true,
-        allowTaint: true,
-        scale: captureScale,
-        backgroundColor: currentSlide === 0 ? "#111111" : "#ffffff",
-      });
+      const fontEmbedCSS = await getFontEmbedCSS(el);
+      const canvas = await captureSlideCanvas(currentSlide === 0 ? "#111111" : "#ffffff", fontEmbedCSS);
+      if (!canvas) throw new Error("Preview node not found");
       setExportProgress(80);
       canvas.toBlob((blob) => {
+        if (!blob) {
+          setIsExporting(false);
+          setExportProgress(0);
+          return;
+        }
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
@@ -769,6 +985,17 @@ Be decisive. Think like a reseller trying to make money.` },
 
       {/* ── COLLAGE CAPTION ── */}
       <Section title="Collage Caption" icon="💬">
+        {/* Universal caption size — controls all slides */}
+        <div className="flex items-center gap-3 mb-3">
+          <label className="text-white/45 text-xs shrink-0">Text size (all slides)</label>
+          <input
+            type="range" min={36} max={110} step={2}
+            value={config.captionSize}
+            onChange={(e) => updateConfig("captionSize", Number(e.target.value))}
+            className="flex-1 h-1 rounded-full appearance-none bg-white/15 accent-violet-500"
+          />
+          <span className="text-white/60 text-xs w-7 text-right">{config.captionSize}</span>
+        </div>
         <div className="flex items-start gap-2">
           <Textarea
             value={config.captionText}
@@ -810,8 +1037,8 @@ Be decisive. Think like a reseller trying to make money.` },
         {/* Model selector */}
         <div className="flex gap-2 mb-3">
           {[
-            { id: "gpt-image-1", label: "GPT-Image-1.5", sub: "$0.013/img", color: "border-emerald-500 bg-emerald-500/15 text-emerald-200" },
-            { id: "gemini",      label: "Gemini Flash", sub: "$0.067/img", color: "border-violet-500 bg-violet-500/15 text-violet-200" },
+            { id: "gpt-image-1", label: "GPT-Image-1.5", sub: "$0.09/slideshow", color: "border-emerald-500 bg-emerald-500/15 text-emerald-200" },
+            { id: "gemini",      label: "Gemini Flash",  sub: "$0.42/slideshow", color: "border-violet-500 bg-violet-500/15 text-violet-200" },
           ].map(({ id, label, sub, color }) => (
             <button
               key={id}
@@ -886,7 +1113,7 @@ Be decisive. Think like a reseller trying to make money.` },
         <div className="mt-2 flex gap-2">
           <button onClick={handleGenerateAll} disabled={generatingSlot !== null}
             className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-semibold transition-colors">
-            {generatingSlot === "all" ? "Generating…" : "✨ Generate All 6 Images"}
+            {generatingSlot === "all" ? "Generating…" : "✨ Generate 1 Slideshow"}
           </button>
           {generatingSlot === "all" && (
             <button
@@ -897,6 +1124,35 @@ Be decisive. Think like a reseller trying to make money.` },
               ■ Stop
             </button>
           )}
+        </div>
+
+        {/* ── Batch: generate N slideshows ── */}
+        <div className="mt-3 pt-3 border-t border-white/8">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-white/45 text-xs flex-1">Generate multiple slideshows</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-white/30 text-[11px]">qty</span>
+              <input
+                type="number" min={1} max={50}
+                value={numSlideshows}
+                onChange={(e) => setNumSlideshows(Math.max(1, Math.min(50, Number(e.target.value))))}
+                className="w-14 bg-white/8 border border-white/15 rounded-lg px-2 py-1 text-white text-sm text-center focus:outline-none focus:border-violet-500/60"
+              />
+            </div>
+          </div>
+          <button
+            onClick={handleGenerateBatch}
+            disabled={generatingSlot !== null}
+            className="w-full py-2.5 rounded-xl bg-fuchsia-700 hover:bg-fuchsia-600 disabled:opacity-40 text-white text-sm font-bold transition-colors"
+          >
+            {generatingSlot === "all" ? "Generating…" : `🎬 Generate ${numSlideshows} Slideshow${numSlideshows > 1 ? "s" : ""}`}
+          </button>
+          <p className="text-white/25 text-[10px] mt-1.5 text-center">
+            est. {imageModel === "gpt-image-1"
+              ? `$${(numSlideshows * 0.09).toFixed(2)}`
+              : `$${(numSlideshows * 0.42).toFixed(2)}`
+            } · each goes to gallery on the right
+          </p>
         </div>
 
         {/* Progress tracker */}
@@ -969,7 +1225,7 @@ Be decisive. Think like a reseller trying to make money.` },
         </button>
         <button onClick={handleExportVideo} disabled={isExporting}
           className="w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-semibold transition-colors">
-          🎬 Export Full Video (.webm)
+          🎬 Export Full Video (.mp4)
         </button>
         <p className="text-white/25 text-xs text-center">
           {totalSlides} slides · {(config.slideDuration * totalSlides).toFixed(0)}s+ · 1080×1920 full res

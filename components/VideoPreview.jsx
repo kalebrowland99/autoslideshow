@@ -18,6 +18,16 @@ export function getSlideInfo(config, slideIndex) {
   };
 }
 
+function SlideRenderer({ config, info, S }) {
+  return (
+    <>
+      {info.type === "collage" && <CollageSlide config={config} S={S} />}
+      {info.type === "reveal" && <ItemRevealSlide slot={info.slot} S={S} captionSize={config.captionSize} />}
+      {info.type === "thrifty" && <ThriftySlide slot={info.slot} S={S} captionSize={config.captionSize} />}
+    </>
+  );
+}
+
 export default function VideoPreview({ config, currentSlide, setCurrentSlide, totalSlides, isGenerating, onRefreshSlide }) {
   const S = DISPLAY_SCALE;
   const W = Math.round(1080 * S);
@@ -68,9 +78,7 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
           id="video-preview-root"
           style={{ width: "100%", height: "100%", borderRadius: "inherit", overflow: "hidden", position: "relative" }}
         >
-          {info.type === "collage" && <CollageSlide config={config} S={S} />}
-          {info.type === "reveal" && <ItemRevealSlide slot={info.slot} S={S} />}
-          {info.type === "thrifty" && <ThriftySlide slot={info.slot} S={S} />}
+          <SlideRenderer config={config} info={info} S={S} />
         </div>
 
         {/* Per-slide AI refresh button */}
@@ -82,8 +90,8 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
             position: "absolute",
             bottom: Math.round(14 * S),
             right: Math.round(14 * S),
-            width: Math.round(44 * S),
-            height: Math.round(44 * S),
+            width: Math.round(64 * S),
+            height: Math.round(64 * S),
             borderRadius: "50%",
             background: isGenerating ? "rgba(109,40,217,0.85)" : "rgba(30,30,30,0.75)",
             border: "1.5px solid rgba(255,255,255,0.18)",
@@ -92,7 +100,7 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
             alignItems: "center",
             justifyContent: "center",
             cursor: isGenerating ? "default" : "pointer",
-            fontSize: Math.round(18 * S),
+            fontSize: Math.round(26 * S),
             zIndex: 20,
             boxShadow: "0 2px 12px rgba(0,0,0,0.5)",
             transition: "background 0.2s",
@@ -139,6 +147,7 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block"/>Reveal</span>
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>Thrifty</span>
       </div>
+
     </div>
   );
 }
