@@ -2,6 +2,7 @@
 
 import { useRef, useState, useEffect } from "react";
 import html2canvas from "html2canvas";
+import { getFontEmbedCSS, toCanvas, toJpeg } from "html-to-image";
 import { DISPLAY_SCALE } from "./VideoPreview";
 
 const PRESET_COLORS = [
@@ -187,32 +188,66 @@ export default function ConfigPanel({
 
   const getCaptureNode = () => document.getElementById("video-preview-root");
 
-  const h2cOpts = (bgColor) => ({
+  const getCaptureOptions = (bgColor, fontEmbedCSS) => ({
+    backgroundColor: bgColor,
+    pixelRatio: 1,
+    canvasWidth: 1080,
+    canvasHeight: 1920,
+    cacheBust: true,
+    includeQueryParams: true,
+    skipAutoScale: true,
+    ...(fontEmbedCSS ? { fontEmbedCSS } : {}),
+  });
+
+  const getH2cScale = (el) => {
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !Number.isFinite(rect.width)) return 1;
+    return Math.max(1, 1080 / rect.width);
+  };
+
+  const h2cOpts = (el, bgColor) => ({
     useCORS: true,
     allowTaint: true,
-    scale: 1,
     backgroundColor: bgColor,
     logging: false,
     imageTimeout: 30000,
+    scale: getH2cScale(el),
   });
 
-  const captureSlideCanvas = async (bgColor) => {
+  const captureSlideCanvas = async (bgColor, { forceRaster = false } = {}) => {
     const el = getCaptureNode();
     if (!el) return null;
+
     await waitForPreviewPaint();
     await waitForFonts();
-    return html2canvas(el, h2cOpts(bgColor));
+
+    if (forceRaster) {
+      return html2canvas(el, h2cOpts(el, bgColor));
+    }
+
+    const fontEmbedCSS = await getFontEmbedCSS(el);
+    return toCanvas(el, getCaptureOptions(bgColor, fontEmbedCSS));
   };
 
   const captureLivePreviewThumbnail = async () => {
     const el = getCaptureNode();
     if (!el) return null;
     const bgColor = currentSlide === 0 ? "#111111" : "#ffffff";
+
     try {
       await waitForPreviewPaint();
       await waitForFonts();
-      const canvas = await html2canvas(el, h2cOpts(bgColor));
-      return canvas.toDataURL("image/jpeg", 0.92);
+
+      if (currentSlide === 0) {
+        const canvas = await html2canvas(el, h2cOpts(el, bgColor));
+        return canvas.toDataURL("image/jpeg", 0.92);
+      }
+
+      const fontEmbedCSS = await getFontEmbedCSS(el);
+      return toJpeg(el, {
+        ...getCaptureOptions(bgColor, fontEmbedCSS),
+        quality: 0.92,
+      });
     } catch (err) {
       console.error("Preview thumbnail capture failed", err);
       return null;
@@ -613,7 +648,7 @@ Do NOT add any external overlays: no captions, subtitles, price tags, watermarks
         setExportStatus(`Capturing slide ${i + 1}…`);
         await new Promise((r) => setTimeout(r, 60));
         try {
-          const canvas = await captureSlideCanvas(bg);
+          const canvas = await captureSlideCanvas(bg, { forceRaster: i === 0 });
           if (!canvas) throw new Error("Preview node not found");
           allSlideFrames.push([canvas]);
         } catch (err) {
@@ -623,7 +658,7 @@ Do NOT add any external overlays: no captions, subtitles, price tags, watermarks
       } else {
         await new Promise((r) => setTimeout(r, 80));
         try {
-          const canvas = await captureSlideCanvas(bg);
+          const canvas = await captureSlideCanvas(bg, { forceRaster: i === 0 });
           if (!canvas) throw new Error("Preview node not found");
           allSlideFrames.push([canvas]);
         } catch (err) {
@@ -875,7 +910,7 @@ Do NOT add any external overlays: no captions, subtitles, price tags, watermarks
     setIsExporting(true);
     setExportProgress(20);
     try {
-      const canvas = await captureSlideCanvas(currentSlide === 0 ? "#111111" : "#ffffff");
+      const canvas = await captureSlideCanvas(currentSlide === 0 ? "#111111" : "#ffffff", { forceRaster: currentSlide === 0 });
       if (!canvas) throw new Error("Preview node not found");
       setExportProgress(80);
       canvas.toBlob((blob) => {
