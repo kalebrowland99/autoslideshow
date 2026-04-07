@@ -1,17 +1,11 @@
 "use client";
 
 import { useMemo } from "react";
+import { tiktokCaptionTextStyle } from "@/lib/captionStyles";
+import { captionFontSize1080 } from "@/lib/captionFontSize";
 
 export default function CollageSlide({ config, S }) {
-  const {
-    captionText,
-    captionBg,
-    captionColor,
-    captionSize,
-    captionPosition,
-    captionBold,
-    slots,
-  } = config;
+  const { captionText, captionPosition, captionBold, slots } = config;
 
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
@@ -35,6 +29,11 @@ export default function CollageSlide({ config, S }) {
     const r3 = (h2 / 0xffffffff) - 0.5; // -0.5 to 0.5 → ±2 degrees
     return { x: Math.round(r1 * 16 * S), y: Math.round(r2 * 16 * S), rot: r3 * 4 };
   }, [captionText, S]);
+
+  const captionSizePx = useMemo(
+    () => captionFontSize1080(captionText || "collage"),
+    [captionText]
+  );
 
   return (
     <div style={{ width: W, height: H, position: "relative", background: "#111", overflow: "hidden" }}>
@@ -83,7 +82,7 @@ export default function CollageSlide({ config, S }) {
             style={{
               marginLeft: jitter.x,
               transform: `rotate(${jitter.rot.toFixed(2)}deg)`,
-              background: captionBg,
+              background: "transparent",
               borderRadius: Math.round(12 * S),
               padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
               maxWidth: Math.round(W * 0.8),
@@ -91,24 +90,18 @@ export default function CollageSlide({ config, S }) {
               flexDirection: "column",
               alignItems: "center",
               gap: Math.round(2 * S),
-              boxShadow: `0 ${Math.round(4 * S)}px ${Math.round(20 * S)}px rgba(0,0,0,0.55)`,
+              boxShadow: "none",
             }}
           >
             {captionText.split("\n").map((line, i) => (
               <span
                 key={i}
-                style={{
-                  display: "block",
-                  color: captionColor,
-                  fontSize: Math.round(captionSize * S),
-                  fontWeight: captionBold ? "900" : "600",
-                  lineHeight: 1.2,
-                  fontFamily: "Arial, Helvetica, sans-serif",
-                  letterSpacing: "-0.01em",
-                  textAlign: "center",
-                }}
+                style={tiktokCaptionTextStyle(S, {
+                  fontSize: Math.round(captionSizePx * S),
+                  fontWeight: captionBold ? "800" : "600",
+                })}
               >
-                {line.toLowerCase()}
+                {line}
               </span>
             ))}
           </div>

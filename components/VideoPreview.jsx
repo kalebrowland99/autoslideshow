@@ -3,27 +3,25 @@
 import CollageSlide from "./slides/CollageSlide";
 import ItemRevealSlide from "./slides/ItemRevealSlide";
 import ThriftySlide from "./slides/ThriftySlide";
+import FullBleedSlide from "./slides/FullBleedSlide";
+import IMessageMomSlide from "./slides/IMessageMomSlide";
+import VoicemailMomSlide from "./slides/VoicemailMomSlide";
+import { getSlideInfo } from "@/lib/slideLayout";
 
 // At 0.28 scale → 1080×1920 renders as ~302×538px in browser
 export const DISPLAY_SCALE = 0.28;
 
-export function getSlideInfo(config, slideIndex) {
-  if (slideIndex === 0) return { type: "collage" };
-  const itemIndex = Math.floor((slideIndex - 1) / 2);
-  const isReveal = (slideIndex - 1) % 2 === 0;
-  return {
-    type: isReveal ? "reveal" : "thrifty",
-    slot: config.slots[itemIndex],
-    itemIndex,
-  };
-}
+export { getSlideInfo };
 
 function SlideRenderer({ config, info, S }) {
   return (
     <>
       {info.type === "collage" && <CollageSlide config={config} S={S} />}
-      {info.type === "reveal" && <ItemRevealSlide slot={info.slot} S={S} captionSize={config.captionSize} />}
-      {info.type === "thrifty" && <ThriftySlide slot={info.slot} S={S} captionSize={config.captionSize} />}
+      {info.type === "reveal" && <ItemRevealSlide slot={info.slot} S={S} />}
+      {info.type === "thrifty" && <ThriftySlide slot={info.slot} S={S} />}
+      {info.type === "fullBleed" && <FullBleedSlide slot={info.slot} S={S} />}
+      {info.type === "imessage" && <IMessageMomSlide slot={info.slot} S={S} config={config} />}
+      {info.type === "voicemail" && <VoicemailMomSlide slot={info.slot} S={S} config={config} />}
     </>
   );
 }
@@ -35,8 +33,21 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
 
   const info = getSlideInfo(config, currentSlide);
 
+  const fmt = config.outputFormat ?? "standard";
+
   const slideLabel = () => {
+    if (fmt === "posePerson") {
+      return `Pose ${currentSlide + 1}`;
+    }
     if (currentSlide === 0) return "Collage";
+    if (fmt === "appOnly") {
+      return `Item ${currentSlide} — App`;
+    }
+    if (fmt === "imessageMom") {
+      if (currentSlide === 0) return "iMessage";
+      if (currentSlide === 1) return "Voicemail";
+      return "Thrifty Price";
+    }
     const item = Math.floor((currentSlide - 1) / 2) + 1;
     const type = (currentSlide - 1) % 2 === 0 ? "Reveal" : "Thrifty Price";
     return `Item ${item} — ${type}`;
@@ -122,9 +133,25 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
       {/* Slide dots */}
       <div className="flex gap-1 flex-wrap justify-center max-w-[340px]">
         {Array.from({ length: totalSlides }).map((_, i) => {
-          const isCollage = i === 0;
-          const isReveal = i > 0 && (i - 1) % 2 === 0;
-          const dotColor = isCollage
+          const isCollage = fmt !== "posePerson" && fmt !== "imessageMom" && i === 0;
+          const isReveal =
+            fmt === "standard" && i > 0 && (i - 1) % 2 === 0;
+          const momPhoto = false;
+          const momMsg = fmt === "imessageMom" && i === 0;
+          const momVm = fmt === "imessageMom" && i === 1;
+          const momThrifty = fmt === "imessageMom" && i === 2;
+          const isPose = fmt === "posePerson";
+          const dotColor = isPose
+            ? "bg-sky-400"
+            : momPhoto
+            ? "bg-slate-400"
+            : momMsg
+            ? "bg-fuchsia-400"
+            : momVm
+            ? "bg-amber-400"
+            : momThrifty
+            ? "bg-emerald-400"
+            : isCollage
             ? "bg-violet-500"
             : isReveal
             ? "bg-orange-400"
@@ -142,11 +169,30 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
           );
         })}
       </div>
-      <div className="flex gap-4 text-xs text-white/30">
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-violet-500 inline-block"/>Collage</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block"/>Reveal</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>Thrifty</span>
-      </div>
+      {fmt === "posePerson" ? (
+        <div className="flex gap-4 text-xs text-white/30">
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-400 inline-block"/>Pose</span>
+        </div>
+      ) : (
+        <div className="flex gap-4 text-xs text-white/30 flex-wrap justify-center">
+          {fmt === "imessageMom" ? (
+            <>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-slate-400 inline-block"/>Photo</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-fuchsia-400 inline-block"/>iMessage</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block"/>Voicemail</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>Thrifty</span>
+            </>
+          ) : (
+            <>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-violet-500 inline-block"/>Collage</span>
+              {fmt === "standard" && (
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block"/>Reveal</span>
+              )}
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>Thrifty</span>
+            </>
+          )}
+        </div>
+      )}
 
     </div>
   );

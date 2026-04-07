@@ -1,6 +1,8 @@
 "use client";
 
-import { useMemo, useEffect, useRef } from "react";
+import { useMemo } from "react";
+import { tiktokCaptionTextStyle } from "@/lib/captionStyles";
+import { captionFontSize1080 } from "@/lib/captionFontSize";
 
 /**
  * ThriftySlide — pixel-faithful recreation of SongEditView.
@@ -45,93 +47,10 @@ function randomPastDate(seed) {
   return `${mon} ${base.getDate()}, ${base.getFullYear()}`;
 }
 
-// ── Canvas confetti (mirrors Thrifty iOS confettiCannon) ─────────────────────
-const CONFETTI_COLORS = ["#ef4444","#f59e0b","#3b82f6","#22c55e","#a855f7","#ec4899","#f97316","#06b6d4"];
-
-function fireConfetti(canvas) {
-  if (!canvas) return;
-  const W = canvas.width;
-  const H = canvas.height;
-  const ctx = canvas.getContext("2d");
-
-  // Two burst origins: badge area (~38% down) and price card (~50% down)
-  const origins = [
-    { x: W * 0.5, y: H * 0.38 },
-    { x: W * 0.5, y: H * 0.50 },
-  ];
-
-  const NUM = 40;
-  const rng = () => Math.random();
-
-  const particles = Array.from({ length: NUM }, (_, i) => {
-    const o = origins[i % origins.length];
-    const angle = rng() * Math.PI * 2;
-    const speed = 3 + rng() * (H * 0.05);
-    return {
-      x: o.x + (rng() - 0.5) * W * 0.06,
-      y: o.y,
-      vx: Math.cos(angle) * speed * 0.25,
-      vy: -(rng() * speed * 0.35 + speed * 0.1),
-      color: CONFETTI_COLORS[Math.floor(rng() * CONFETTI_COLORS.length)],
-      w: 2 + rng() * 4,
-      h: 1.5 + rng() * 3,
-      rot: rng() * Math.PI * 2,
-      rotV: (rng() - 0.5) * 0.25,
-      opacity: 1,
-      offscreen: false,
-      shape: rng() > 0.45 ? "rect" : "circle",
-    };
-  });
-
-  let rafId;
-  function tick() {
-    ctx.clearRect(0, 0, W, H);
-    let any = false;
-    for (const p of particles) {
-      if (p.offscreen) continue;
-      any = true;
-      p.x  += p.vx;
-      p.y  += p.vy;
-      p.vy += H * 0.0008;   // gravity proportional to canvas height
-      p.vx *= 0.985;
-      p.rot += p.rotV;
-      // Mark offscreen once fully past bottom (no opacity fade)
-      if (p.y > H + 20) { p.offscreen = true; continue; }
-
-      ctx.save();
-      ctx.globalAlpha = 1;
-      ctx.translate(p.x, p.y);
-      ctx.rotate(p.rot);
-      ctx.fillStyle = p.color;
-      if (p.shape === "rect") {
-        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
-      } else {
-        ctx.beginPath();
-        ctx.ellipse(0, 0, p.w / 2, p.h / 2, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
-    }
-    if (any) rafId = requestAnimationFrame(tick);
-  }
-
-  tick();
-  return () => cancelAnimationFrame(rafId);
-}
-
-export default function ThriftySlide({ slot, S, captionSize: globalCaptionSize }) {
+export default function ThriftySlide({ slot, S }) {
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
   const px = (n) => Math.round(n * IPHONE_SCALE * S);
-
-  const canvasRef = useRef(null);
-  useEffect(() => {
-    const t = setTimeout(() => {
-      const cleanup = fireConfetti(canvasRef.current);
-      return cleanup;
-    }, 300);
-    return () => clearTimeout(t);
-  }, []);  // fires once per mount = once per slide-in
 
   // Stable seed derived from slot content — same layout every render & export
   // (no useEffect/Math.random so the output never changes between preview and video)
@@ -182,23 +101,11 @@ export default function ThriftySlide({ slot, S, captionSize: globalCaptionSize }
     return null;
   })();
 
-  // Randomised caption colors
-  const CAPTION_COMBOS = [
-    { bg: "#e03030", color: "#ffffff" },
-    { bg: "#1a5cbf", color: "#ffffff" },
-    { bg: "#1a8a3a", color: "#ffffff" },
-    { bg: "#7c22cc", color: "#ffffff" },
-    { bg: "#e05c20", color: "#ffffff" },
-    { bg: "#000000", color: "#ffffff" },
-    { bg: "#ffffff", color: "#000000" },
-    { bg: "#d4a017", color: "#000000" },
-    { bg: "#ec4899", color: "#ffffff" },
-    { bg: "#0891b2", color: "#ffffff" },
-  ];
-  const randomCombo = useMemo(
-    () => CAPTION_COMBOS[randInt(seed + 30, 0, CAPTION_COMBOS.length - 1)],
-    [seed]
+  const captionFontPx = useMemo(
+    () => captionFontSize1080(`${slot.itemName}|${slot.spentPrice}|${slot.soldPrice}|thrifty`),
+    [slot.itemName, slot.spentPrice, slot.soldPrice]
   );
+
   // Per-mount jitter + tilt (stable per render, dodges TikTok pattern detection)
   const captionJitter = useMemo(() => ({
     x:   Math.round((rand(seed + 20) - 0.5) * 16 * S),
@@ -209,7 +116,7 @@ export default function ThriftySlide({ slot, S, captionSize: globalCaptionSize }
   // Random safe zones — avoids logo (H×0.05-0.18) and price card (H×0.38-0.54)
   // Max zone capped so caption box never overflows the bottom edge
   const THRIFTY_SAFE_ZONES = [0.22, 0.30, 0.60, 0.68, 0.75];
-  const captionBoxHeight = Math.round(10 * S) * 2 + Math.round(60 * S * 1.2);
+  const captionBoxHeight = Math.round(10 * S) * 2 + Math.round(captionFontPx * S * 1.2);
   const maxCaptionTop = H - captionBoxHeight - Math.round(H * 0.02);
   const rawCaptionTop = Math.round(H * THRIFTY_SAFE_ZONES[randInt(seed + 50, 0, THRIFTY_SAFE_ZONES.length - 1)]) + captionJitter.y;
   const captionTop = Math.min(rawCaptionTop, maxCaptionTop);
@@ -236,38 +143,21 @@ export default function ThriftySlide({ slot, S, captionSize: globalCaptionSize }
           <div style={{
             marginLeft: captionJitter.x,
             transform: `rotate(${captionJitter.rot}deg)`,
-            background: randomCombo.bg,
+            background: "transparent",
             borderRadius: Math.round(12 * S),
             padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
             maxWidth: Math.round(W * 0.8),
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            boxShadow: `0 ${Math.round(4 * S)}px ${Math.round(20 * S)}px rgba(0,0,0,0.55)`,
+            boxShadow: "none",
           }}>
-            <span style={{
-              display: "block",
-              color: randomCombo.color,
-              fontSize: Math.round((globalCaptionSize ?? 60) * S),
-              fontWeight: "800",
-              lineHeight: 1.2,
-              fontFamily: "Arial, Helvetica, sans-serif",
-              letterSpacing: "-0.01em",
-              textAlign: "center",
-            }}>
+            <span style={tiktokCaptionTextStyle(S, { fontSize: Math.round(captionFontPx * S), fontWeight: "800" })}>
               {captionText}
             </span>
           </div>
         </div>
       )}
-
-      {/* Confetti canvas — sits on top, pointer-events off so clicks pass through */}
-      <canvas
-        ref={canvasRef}
-        width={W}
-        height={H}
-        style={{ position: "absolute", inset: 0, zIndex: 9999, pointerEvents: "none" }}
-      />
 
       <StatusBar px={px} values={statusBar} />
 
@@ -286,20 +176,8 @@ export default function ThriftySlide({ slot, S, captionSize: globalCaptionSize }
             </svg>
           </div>
 
-          {/* "thrifty" — large serif logo */}
-          <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center", minHeight: px(44) }}>
-            <span style={{
-              display: "block",
-              fontSize: px(42),
-              fontWeight: "900",
-              color: "#7B4F2E",
-              fontFamily: "Georgia, 'Times New Roman', serif",
-              letterSpacing: "-1px",
-              lineHeight: 1.02,
-            }}>
-              thrifty
-            </span>
-          </div>
+          {/* Center spacer — logo moved to Thrifty Price card */}
+          <div style={{ flex: 1, minHeight: px(44) }} />
 
           {/* Ellipsis */}
           <svg width={px(22)} height={px(22)} viewBox="0 0 24 24" fill="#111">
@@ -360,16 +238,28 @@ export default function ThriftySlide({ slot, S, captionSize: globalCaptionSize }
           marginLeft: px(16), marginRight: px(16),
           paddingTop: px(20), paddingBottom: px(20),
           display: "flex", flexDirection: "column", alignItems: "center", gap: px(6) }}>
-          <div style={{ display: "flex", alignItems: "center", gap: px(6) }}>
-            <span style={{ display: "block", fontSize: px(14), fontWeight: "500", color: "#888", lineHeight: 1.1,
-              letterSpacing: px(1), textTransform: "uppercase" }}>Thrifty Price</span>
-            <div style={{ width: px(18), height: px(18), borderRadius: "50%", background: "#3b82f6",
-              display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <span style={{ color: "#fff", fontSize: px(11), fontWeight: "700" }}>i</span>
-            </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: px(44) }}>
+            <span style={{
+              display: "block",
+              fontSize: px(42),
+              fontWeight: "900",
+              color: "#7B4F2E",
+              fontFamily: "Georgia, 'Times New Roman', serif",
+              letterSpacing: "-1px",
+              lineHeight: 1.02,
+            }}>
+              thrifty
+            </span>
           </div>
-          <span style={{ display: "block", fontSize: px(56), fontWeight: "700", letterSpacing: "-1px", lineHeight: 0.96,
-            color: slot.soldPrice ? "#000" : "#aaa" }}>
+          <span style={{
+            display: "block",
+            fontSize: px(38),
+            fontWeight: "700",
+            letterSpacing: "-0.5px",
+            lineHeight: 0.96,
+            color: slot.soldPrice ? "#000" : "#aaa",
+            marginLeft: px(-12),
+          }}>
             {soldPrice}
           </span>
         </div>

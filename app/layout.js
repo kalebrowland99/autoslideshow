@@ -1,4 +1,6 @@
 import "./globals.css";
+import "@fontsource/tiktok-sans/latin-700.css";
+import "@fontsource/tiktok-sans/latin-400.css";
 
 export const metadata = {
   title: "Thrifty Slideshows – Video Generator",

@@ -14,13 +14,15 @@ function mimeFromPath(filePath) {
 }
 
 // ── Gemini handler ────────────────────────────────────────────────────────────
-async function generateWithGemini({ prompt, referenceFile, geminiApiKey }) {
+async function generateWithGemini({ prompt, referenceFile, referenceInline, geminiApiKey }) {
   if (!geminiApiKey?.trim()) {
     return { error: "Google AI API key required.", status: 400 };
   }
 
   let parts;
-  if (referenceFile) {
+  if (referenceInline?.base64 && referenceInline?.mimeType) {
+    parts = [{ text: prompt }, { inlineData: { mimeType: referenceInline.mimeType, data: referenceInline.base64 } }];
+  } else if (referenceFile) {
     const filePath = join(process.cwd(), "public", "references", referenceFile);
     let fileBuffer;
     try { fileBuffer = await readFile(filePath); }
@@ -68,7 +70,7 @@ async function generateWithGemini({ prompt, referenceFile, geminiApiKey }) {
 }
 
 // ── GPT-Image-1 handler ───────────────────────────────────────────────────────
-async function generateWithGptImage1({ prompt, referenceFile, openaiApiKey }) {
+async function generateWithGptImage1({ prompt, referenceFile, referenceInline, openaiApiKey }) {
   if (!openaiApiKey?.trim()) {
     return { error: "OpenAI API key required.", status: 400 };
   }
@@ -77,7 +79,24 @@ async function generateWithGptImage1({ prompt, referenceFile, openaiApiKey }) {
 
   let res, data;
 
-  if (referenceFile) {
+  if (referenceInline?.base64 && referenceInline?.mimeType) {
+    const buf = Buffer.from(referenceInline.base64, "base64");
+    const mimeType = referenceInline.mimeType;
+    const blob = new Blob([buf], { type: mimeType });
+    const ext = mimeType.includes("png") ? "png" : mimeType.includes("webp") ? "webp" : "jpg";
+    const fileName = `reference.${ext}`;
+
+    const form = new FormData();
+    form.append("image", blob, fileName);
+    form.append("prompt", prompt);
+    form.append("model", "gpt-image-1.5");
+    form.append("size", "1024x1536");
+    form.append("quality", "low");
+    form.append("n", "1");
+
+    res = await fetch(OPENAI_EDITS, { method: "POST", headers, body: form });
+    data = await res.json();
+  } else if (referenceFile) {
     // Image edit mode — pass reference photo as the base image
     const filePath = join(process.cwd(), "public", "references", referenceFile);
     let fileBuffer;
@@ -186,6 +205,40 @@ Be decisive. Think like a reseller trying to make money.` },
   }
 }
 
+async function rewordCaptionWithOpenAI({ text, openaiApiKey }) {
+  if (!openaiApiKey?.trim()) {
+    return { error: "OpenAI API key is not configured on the server.", status: 500 };
+  }
+  const res = await fetch(OPENAI_CHAT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${openaiApiKey}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "user",
+          content: `You lightly reword this short TikTok slideshow hook so it feels fresh but keeps the same meaning, energy, and emojis. Preserve line breaks as \\n if there are multiple lines. Max 2 lines. Output ONLY the new caption text, no quotes or explanation:\n\n${text}`,
+        },
+      ],
+      max_tokens: 120,
+    }),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    return { error: data?.error?.message || `OpenAI error ${res.status}`, status: res.status };
+  }
+
+  const data = await res.json();
+  let out = data.choices?.[0]?.message?.content?.trim() || "";
+  out = out.replace(/^["']|["']$/g, "").trim();
+  if (!out) return { error: "Empty reword response.", status: 502 };
+  return { text: out };
+}
+
 // ── Route handler ─────────────────────────────────────────────────────────────
 export async function POST(req) {
   try {
@@ -193,10 +246,12 @@ export async function POST(req) {
       action = "generate",
       prompt,
       referenceFile,
+      referenceInline,
       imageUrl,
       geminiApiKey: requestGeminiApiKey,
       openaiApiKey: requestOpenaiApiKey,
       model = "gemini",
+      text,
     } = await req.json();
 
     const openaiApiKey = process.env.OPENAI_API_KEY?.trim() || requestOpenaiApiKey?.trim();
@@ -211,10 +266,18 @@ export async function POST(req) {
       return NextResponse.json({ title: result.title, price: result.price });
     }
 
+    if (action === "rewordCaption") {
+      result = await rewordCaptionWithOpenAI({ text: text ?? "", openaiApiKey });
+      if (result.error) {
+        return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
+      }
+      return NextResponse.json({ text: result.text });
+    }
+
     if (model === "gpt-image-1") {
-      result = await generateWithGptImage1({ prompt, referenceFile, openaiApiKey });
+      result = await generateWithGptImage1({ prompt, referenceFile, referenceInline, openaiApiKey });
     } else {
-      result = await generateWithGemini({ prompt, referenceFile, geminiApiKey });
+      result = await generateWithGemini({ prompt, referenceFile, referenceInline, geminiApiKey });
     }
 
     if (result.error) {

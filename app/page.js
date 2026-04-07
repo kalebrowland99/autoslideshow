@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import VideoPreview from "@/components/VideoPreview";
 import ConfigPanel from "@/components/ConfigPanel";
+import { getTotalSlides } from "@/lib/slideLayout";
 
 export const emptySlot = (i) => ({
   imageUrl: null,
@@ -28,6 +29,8 @@ export const emptySlot = (i) => ({
   thriftyCaptionPosition: "top",     // "top" | "middle" | "bottom"
   thriftyCaptionSize:     72,
   thriftyCaptionBold:     true,
+  /** iMessage mom — voicemail slide transcript (empty → auto from item name) */
+  voicemailTranscript: "",
 });
 
 export const defaultConfig = {
@@ -35,7 +38,6 @@ export const defaultConfig = {
   captionText: "My top 6 Most Favorite\nGoodwill Finds",
   captionBg: "#e03030",
   captionColor: "#ffffff",
-  captionSize: 72, // in 1080px space — at preview (×0.28) = ~20px, at export (×1) = 72px
   captionPosition: "middle",
   captionBold: true,
 
@@ -45,6 +47,14 @@ export const defaultConfig = {
   // Video settings
   slideDuration: 2,    // seconds per slide
   transitionMs: 220,   // swipe transition duration ms
+
+  /** Shown on iMessage-mom slides (TikTok-style corner). Empty → "@mom". */
+  tiktokWatermark: "",
+  /** Voicemail header number (iMessage mom format). */
+  voicemailDisplayNumber: "+1 (225) 427-8071",
+  outputFormat: "standard", // "standard" | "appOnly" | "posePerson" | "imessageMom"
+  /** @type {{ id: string, dataUrl: string }[]} */
+  poseReferenceImages: [],
 };
 
 export default function Home() {
@@ -69,16 +79,29 @@ export default function Home() {
   }, []);
 
   const loadShow = useCallback((showData, idx) => {
-    setConfig((prev) => ({ ...prev, slots: showData.slots, captionText: showData.captionText }));
+    setConfig((prev) => ({
+      ...prev,
+      slots: showData.slots,
+      captionText: showData.captionText,
+      ...(showData.outputFormat != null ? { outputFormat: showData.outputFormat } : {}),
+    }));
     setActiveShowIdx(idx);
     setCurrentSlide(0);
   }, []);
 
-  // Total slides = 1 (collage) + 6 × 2 (reveal + thrifty)
-  const totalSlides = 1 + config.slots.length * 2;
+  const totalSlides = useMemo(() => getTotalSlides(config), [config]);
 
   const updateConfig = useCallback((key, value) => {
-    setConfig((prev) => ({ ...prev, [key]: value }));
+    setConfig((prev) => {
+      const next = { ...prev, [key]: value };
+      if (key === "outputFormat") {
+        const maxSlide = Math.max(0, getTotalSlides(next) - 1);
+        Promise.resolve().then(() => {
+          setCurrentSlide((s) => Math.min(s, maxSlide));
+        });
+      }
+      return next;
+    });
   }, []);
 
   const updateSlot = useCallback((index, updates) => {
@@ -142,6 +165,7 @@ export default function Home() {
             onBusyChange={setIsGenerating}
             registerRefreshSlide={(fn) => { refreshHandlerRef.current = fn; }}
             onSlideshowSaved={handleSlideshowSaved}
+            savedSlideshows={savedSlideshows}
           />
         </aside>
 

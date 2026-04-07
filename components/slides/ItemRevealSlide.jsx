@@ -1,20 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-
-// Same color palette used by ThriftySlide captions
-const REVEAL_CAPTION_COMBOS = [
-  { bg: "#000000", color: "#ffffff" },
-  { bg: "#e03030", color: "#ffffff" },
-  { bg: "#1a5cbf", color: "#ffffff" },
-  { bg: "#1a8a3a", color: "#ffffff" },
-  { bg: "#7c22cc", color: "#ffffff" },
-  { bg: "#d4a017", color: "#000000" },
-  { bg: "#ffffff", color: "#000000" },
-  { bg: "#111111", color: "#f5e642" },
-  { bg: "#e05c20", color: "#ffffff" },
-  { bg: "#0d7377", color: "#ffffff" },
-];
+import { tiktokCaptionTextStyle } from "@/lib/captionStyles";
+import { captionFontSize1080 } from "@/lib/captionFontSize";
 
 // Stable seeded PRNG — same output for same seed, no re-randomisation on re-render
 function seededRand(seed) {
@@ -31,7 +19,7 @@ function slotSeed(slot) {
   return Math.abs(h);
 }
 
-export default function ItemRevealSlide({ slot, S, captionSize: globalCaptionSize }) {
+export default function ItemRevealSlide({ slot, S }) {
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
   const px = (n) => Math.round(n * S);
@@ -39,16 +27,18 @@ export default function ItemRevealSlide({ slot, S, captionSize: globalCaptionSiz
   const spentLine = (slot.spentPrice ? `spent $${slot.spentPrice}` : "spent $?");
   const itemLine  = slot.itemName ? `(${slot.itemName.toLowerCase()})` : null;
 
-  const captionSize = globalCaptionSize ?? slot.revealCaptionSize ?? 72;
-
   // All random values derived from a stable seed — same layout every render/export
   const seed = useMemo(() => slotSeed(slot), [slot.itemName, slot.spentPrice, slot.soldPrice]);
 
+  const captionSizePx = useMemo(
+    () => captionFontSize1080(`${slot.itemName}|${slot.spentPrice}|${slot.soldPrice}|reveal`),
+    [slot.itemName, slot.spentPrice, slot.soldPrice]
+  );
+
   const REVEAL_SAFE_ZONES = [0.06, 0.14, 0.28, 0.42, 0.56, 0.68, 0.76];
-  const captionBoxH = Math.round(10 * S) * 2 + Math.round(captionSize * S * 1.2) * 2 + Math.round(5 * S);
+  const captionBoxH = Math.round(10 * S) * 2 + Math.round(captionSizePx * S * 1.2) * 2 + Math.round(5 * S);
   const maxTop = H - captionBoxH - Math.round(H * 0.02);
 
-  const combo = useMemo(() => REVEAL_CAPTION_COMBOS[Math.floor(seededRand(seed)     * REVEAL_CAPTION_COMBOS.length)], [seed]);
   const zoneIdx = useMemo(() => Math.floor(seededRand(seed + 1) * REVEAL_SAFE_ZONES.length), [seed]);
   const jitterX = useMemo(() => Math.round((seededRand(seed + 2) - 0.5) * 16 * S),  [seed, S]);
   const jitterY = useMemo(() => Math.round((seededRand(seed + 3) - 0.5) * 16 * S),  [seed, S]);
@@ -103,7 +93,7 @@ export default function ItemRevealSlide({ slot, S, captionSize: globalCaptionSiz
         style={{
           marginLeft: jitterX,
           transform: `rotate(${tilt}deg)`,
-          background: combo.bg,
+          background: "transparent",
           borderRadius: Math.round(12 * S),
           padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
           maxWidth: Math.round(W * 0.8),
@@ -111,32 +101,14 @@ export default function ItemRevealSlide({ slot, S, captionSize: globalCaptionSiz
           flexDirection: "column",
           alignItems: "center",
           gap: Math.round(4 * S),
-          boxShadow: `0 ${Math.round(4 * S)}px ${Math.round(20 * S)}px rgba(0,0,0,0.55)`,
+          boxShadow: "none",
         }}
       >
-        <span style={{
-          display: "block",
-          color: combo.color,
-          fontSize: Math.round(captionSize * S),
-          fontWeight: "800",
-          lineHeight: 1.2,
-          fontFamily: "Arial, Helvetica, sans-serif",
-          letterSpacing: "-0.01em",
-          textAlign: "center",
-        }}>
+        <span style={tiktokCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800" })}>
           {spentLine}
         </span>
         {itemLine && (
-          <span style={{
-            display: "block",
-            color: combo.color,
-            fontSize: Math.round(captionSize * S),
-            fontWeight: "800",
-            lineHeight: 1.2,
-            fontFamily: "Arial, Helvetica, sans-serif",
-            letterSpacing: "-0.01em",
-            textAlign: "center",
-          }}>
+          <span style={tiktokCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800" })}>
             {itemLine}
           </span>
         )}
