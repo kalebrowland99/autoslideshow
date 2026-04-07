@@ -21,28 +21,12 @@ function hashStr(s) {
   return h;
 }
 
-// Rival fast-food pairs that always spark debate
-const FOOD_PAIRS = [
-  ["McDonald's", "Burger King"],
-  ["Chick-fil-A", "Popeyes"],
-  ["Taco Bell", "Chipotle"],
-  ["Whataburger", "Five Guys"],
-  ["Wendy's", "McDonald's"],
-  ["Domino's", "Pizza Hut"],
-  ["Little Caesars", "Domino's"],
-  ["Raising Cane's", "Zaxby's"],
-  ["In-N-Out", "Shake Shack"],
-  ["KFC", "Popeyes"],
-  ["Panda Express", "Wingstop"],
-  ["Buffalo Wild Wings", "Wingstop"],
-];
-
 const THRIFTY_VARIANTS = [
-  (n, a, b) => `Okay honey it's mom. I found a ${n} at Goodwill today and I looked it up on Thrifty and it said it's worth real money — so I went back and hid it under rack 4 before anyone else could grab it. Go get it after class, it's still there. Also do you want ${a} or ${b} tonight? And one more thing — your father's lawyer finally sent over those custody papers, which honestly doesn't surprise me, you know how he is. We need to talk when you get home. Love you.`,
-  (n, a, b) => `Hey sweetie it's mom, listen. I was at Goodwill and found this ${n} and I Thrifty'd it right there in the aisle — honey it came back worth something. I hid it under rack 4 so it's waiting for you, just grab it after school. Text me back — ${a} or ${b} for dinner? Oh, and your father — surprise surprise — is dragging his feet on the divorce papers again, so I need to sit down with you about the custody stuff. Call me. Love you.`,
-  (n, a, b) => `Hi honey it's mom. So guess what I found at Goodwill — a ${n}. I put it in Thrifty and oh my gosh it says it's worth money. I ran back in and tucked it under rack 4, nobody will find it before you do. Pick it up after class okay? Also I need to know — ${a} or ${b} tonight? And I hate to bring this up but your father is being impossible about the custody agreement, per usual, so we need to talk about the paperwork. Love you to pieces.`,
-  (n, a, b) => `It's mom, don't ignore this one. I found a ${n} at Goodwill and the Thrifty app said it's legitimately worth something, so I went back and hid it under rack 4 for you — go after class before someone finds it. Dinner tonight: ${a} or ${b}, just pick one. Also, your father's attorney sent new custody papers and honestly the nerve of that man — I'll fill you in when you're home. We need to go through it together. Love you, call me back.`,
-  (n, a, b) => `Hey it's your mom. Okay so I found a ${n} at the Goodwill and I Thrifty'd it on the spot — it said it's worth money honey. I went back and hid it under rack 4 so it's safe, just swing by after you're done with class. Let me know about dinner, I'm thinking ${a} or maybe ${b}. And I need to talk to you tonight about the divorce papers — your father finally signed some things but of course there's drama, because it's him. Love you.`,
+  (n) => `Okay honey it's mom. I found a ${n} at Goodwill today and I looked it up on Thrifty and it said it's worth real money — so I went back and hid it under rack 4 before anyone else could grab it. Go get it after class, it's still there. And one more thing — your father's lawyer finally sent over those divorce papers, which honestly doesn't surprise me, you know how he is. We need to talk when you get home. Love you.`,
+  (n) => `Hey sweetie it's mom, listen. I was at Goodwill and found this ${n} and I Thrifty'd it right there in the aisle — honey it came back worth something. I hid it under rack 4 so it's waiting for you, just grab it after school. Oh, and your father — surprise surprise — is dragging his feet on the divorce papers again, so I need to sit down with you about all of it. Call me. Love you.`,
+  (n) => `Hi honey it's mom. So guess what I found at Goodwill — a ${n}. I put it in Thrifty and oh my gosh it says it's worth money. I ran back in and tucked it under rack 4, nobody will find it before you do. Pick it up after class okay? And I hate to bring this up but your father is being impossible about the divorce, per usual, so we need to talk about the paperwork tonight. Love you to pieces.`,
+  (n) => `It's mom, don't ignore this one. I found a ${n} at Goodwill and the Thrifty app said it's legitimately worth something, so I went back and hid it under rack 4 for you — go after class before someone finds it. Also, your father's attorney sent new divorce papers and honestly the nerve of that man — I'll fill you in when you're home. We need to go through it together. Love you, call me back.`,
+  (n) => `Hey it's your mom. Okay so I found a ${n} at the Goodwill and I Thrifty'd it on the spot — it said it's worth money honey. I went back and hid it under rack 4 so it's safe, just swing by after you're done with class. And I need to talk to you tonight about the divorce papers — your father finally signed some things but of course there's drama, because it's him. Love you.`,
 ];
 
 /**
@@ -68,8 +52,7 @@ function momName(itemName) {
 function defaultTranscript(itemName, seed) {
   const n = momName(itemName) || "that thing";
   const pick = (seed >>> 0) % THRIFTY_VARIANTS.length;
-  const foodPair = FOOD_PAIRS[(seed >>> 3) % FOOD_PAIRS.length];
-  return THRIFTY_VARIANTS[pick](n, foodPair[0], foodPair[1]);
+  return THRIFTY_VARIANTS[pick](n);
 }
 
 const CONTACT_NAMES = [
