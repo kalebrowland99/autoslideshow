@@ -50,8 +50,10 @@ export const defaultConfig = {
 
   /** Shown on iMessage-mom slides (TikTok-style corner). Empty → "@mom". */
   tiktokWatermark: "",
-  /** Voicemail header number (iMessage mom format). */
-  voicemailDisplayNumber: "+1 (225) 427-8071",
+  /** Voicemail caller ID override (iMessage mom format). Empty → dynamic contact name. */
+  voicemailDisplayNumber: "",
+  /** Add a random track from public/audio/ to the exported video. */
+  useRandomAudio: false,
   outputFormat: "standard", // "standard" | "appOnly" | "posePerson" | "imessageMom"
   /** @type {{ id: string, dataUrl: string }[]} */
   poseReferenceImages: [],

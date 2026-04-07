@@ -767,14 +767,42 @@ ${SHARED_RULES_OUTRO}`;
     scaleCanvas.height = OUT_H;
     const sctx = scaleCanvas.getContext("2d");
 
+    // ── Optional audio: fetch, decode, prepare ─────────────────────────────
+    let decodedAudio = null;   // AudioBuffer | null
+    let audioSampleRate = 44100;
+    let audioChannels = 2;
+
+    if (config.useRandomAudio && typeof AudioEncoder !== "undefined") {
+      try {
+        setExportStatus("Loading audio…");
+        const { files: audioFiles } = await fetch("/api/audio").then((r) => r.json());
+        if (audioFiles?.length > 0) {
+          const pick = audioFiles[Math.floor(Math.random() * audioFiles.length)];
+          const ab = await fetch(pick).then((r) => r.arrayBuffer());
+          const ac = new AudioContext();
+          decodedAudio = await ac.decodeAudioData(ab);
+          audioSampleRate = decodedAudio.sampleRate;
+          audioChannels = Math.min(decodedAudio.numberOfChannels, 2);
+          await ac.close();
+        }
+      } catch (e) {
+        console.warn("Audio load failed, exporting without audio:", e);
+        decodedAudio = null;
+      }
+    }
+
     // mp4-muxer setup (pure JS, in-memory)
     const { Muxer, ArrayBufferTarget } = await import("mp4-muxer");
     const target = new ArrayBufferTarget();
-    const muxer  = new Muxer({
+    const muxerOpts = {
       target,
       video: { codec: "avc", width: OUT_W, height: OUT_H },
       fastStart: "in-memory",
-    });
+    };
+    if (decodedAudio) {
+      muxerOpts.audio = { codec: "aac", numberOfChannels: audioChannels, sampleRate: audioSampleRate };
+    }
+    const muxer = new Muxer(muxerOpts);
 
     // VideoEncoder (browser-native H.264)
     let encoderError = null;
@@ -853,6 +881,61 @@ ${SHARED_RULES_OUTRO}`;
     setExportStatus("Finalizing MP4…");
     setExportProgress(97);
     await encoder.flush();
+
+    // ── Encode audio track (if loaded) ────────────────────────────────────
+    if (decodedAudio) {
+      try {
+        setExportStatus("Encoding audio…");
+        const totalVideoDurationSec = (pts) / 1_000_000;
+        const totalAudioSamples = Math.ceil(totalVideoDurationSec * audioSampleRate);
+        const CHUNK = 4096;
+
+        const channelData = Array.from({ length: audioChannels }, (_, ch) =>
+          decodedAudio.getChannelData(ch)
+        );
+        const srcLen = channelData[0].length;
+
+        let audioError = null;
+        const audioEncoder = new AudioEncoder({
+          output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+          error:  (e) => { audioError = e; console.error("AudioEncoder:", e); },
+        });
+        await audioEncoder.configure({
+          codec:            "mp4a.40.2",   // AAC-LC
+          sampleRate:       audioSampleRate,
+          numberOfChannels: audioChannels,
+          bitrate:          192_000,
+        });
+
+        let audioOffset = 0;
+        while (audioOffset < totalAudioSamples && !audioError) {
+          const size = Math.min(CHUNK, totalAudioSamples - audioOffset);
+          // Build planar float32 buffer: [ch0 samples … ch1 samples …]
+          const buf = new Float32Array(size * audioChannels);
+          for (let ch = 0; ch < audioChannels; ch++) {
+            for (let i = 0; i < size; i++) {
+              buf[ch * size + i] = channelData[ch][(audioOffset + i) % srcLen];
+            }
+          }
+          const timestampUs = Math.round((audioOffset / audioSampleRate) * 1_000_000);
+          const audioData = new AudioData({
+            format:           "f32-planar",
+            sampleRate:       audioSampleRate,
+            numberOfChannels: audioChannels,
+            numberOfFrames:   size,
+            timestamp:        timestampUs,
+            data:             buf,
+          });
+          audioEncoder.encode(audioData);
+          audioData.close();
+          audioOffset += size;
+        }
+        await audioEncoder.flush();
+      } catch (e) {
+        console.warn("Audio encode failed, video will be silent:", e);
+      }
+    }
+
     muxer.finalize();
 
     // Randomised filename for uniqueness
@@ -1237,6 +1320,27 @@ ${SHARED_RULES_OUTRO}`;
       {/* ── EXPORT ── */}
       <div className="space-y-2 pb-8">
         <h3 className="text-white/50 text-xs uppercase tracking-widest font-bold mb-3">Export</h3>
+        {/* ── Background music toggle ── */}
+        <div className="bg-white/4 border border-white/10 rounded-xl p-3 flex items-start gap-3">
+          <button
+            type="button"
+            onClick={() => updateConfig("useRandomAudio", !config.useRandomAudio)}
+            className={`mt-0.5 w-9 h-5 rounded-full flex-shrink-0 transition-colors relative ${config.useRandomAudio ? "bg-violet-500" : "bg-white/15"}`}
+          >
+            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${config.useRandomAudio ? "left-[18px]" : "left-0.5"}`} />
+          </button>
+          <div>
+            <div className="text-xs font-semibold text-white/80">Background music</div>
+            <div className="text-[10px] text-white/35 mt-0.5 leading-relaxed">
+              Drop <span className="text-white/55">.mp3 / .wav / .m4a</span> files into{" "}
+              <span className="text-white/55">public/audio/</span> — a random track is mixed in on export.
+              {config.useRandomAudio && typeof window !== "undefined" && typeof AudioEncoder === "undefined" && (
+                <span className="text-amber-400"> AudioEncoder not supported in this browser — use Chrome.</span>
+              )}
+            </div>
+          </div>
+        </div>
+
         {(isExporting || exportStatus) && (
           <div className="mb-3">
             <div className="flex justify-between text-xs text-white/50 mb-1">

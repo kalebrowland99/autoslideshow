@@ -18,6 +18,97 @@ function slotSeed(slot) {
   return Math.abs(h);
 }
 
+function seededRand(seed, i = 0) {
+  const x = Math.sin(seed * 0.001 + i * 12.9898) * 10000;
+  return x - Math.floor(x);
+}
+
+/** Blurred fake iMessage thread (blue + grey bubbles) — layout varies by seed. */
+function IMessageThreadBackdrop({ seed, px }) {
+  const variant = seed % 5;
+  const baseGrad = [
+    "linear-gradient(165deg, #0a0a0f 0%, #12121a 40%, #0d1520 100%)",
+    "linear-gradient(180deg, #08080c 0%, #141820 55%, #0a1018 100%)",
+    "linear-gradient(195deg, #0c0c12 0%, #101820 45%, #0e1420 100%)",
+    "linear-gradient(170deg, #0a0b10 0%, #121a24 50%, #0b121c 100%)",
+    "linear-gradient(180deg, #09090e 0%, #0f1620 40%, #0a121c 100%)",
+  ][variant];
+
+  const blueTints = ["#0A84FF", "#2B95FF", "#1a7fe0", "#3d8fd9", "#0070e0"];
+  const greyTints = ["#3A3A3C", "#48484A", "#2C2C2E", "#545456", "#636366"];
+
+  const bubbles = useMemo(() => {
+    const list = [];
+    const n = 9 + (seed % 4);
+    for (let i = 0; i < n; i++) {
+      const isBlue = seededRand(seed, i * 3) > 0.4;
+      list.push({
+        isBlue,
+        topPct: seededRand(seed, i * 11 + 2) * 72,
+        wPct: 32 + seededRand(seed, i * 5 + 3) * 35,
+        hPt: 16 + seededRand(seed, i * 13 + 4) * 44,
+        edge: seededRand(seed, i * 19 + 6) * 14,
+        opacity: 0.38 + seededRand(seed, i * 17 + 5) * 0.42,
+      });
+    }
+    return list;
+  }, [seed]);
+
+  const blurPx = 8 + (seed % 6);
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        overflow: "hidden",
+        background: baseGrad,
+        borderRadius: 0,
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          inset: px(-28),
+          filter: `blur(${blurPx}px)`,
+          WebkitFilter: `blur(${blurPx}px)`,
+          transform: "scale(1.1)",
+          transformOrigin: "center center",
+        }}
+      >
+        {bubbles.map((b, i) => (
+          <div
+            key={i}
+            style={{
+              position: "absolute",
+              ...(b.isBlue
+                ? { right: `${b.edge}%`, left: "auto" }
+                : { left: `${b.edge}%`, right: "auto" }),
+              top: `${b.topPct}%`,
+              width: `${b.wPct}%`,
+              maxWidth: "78%",
+              height: px(b.hPt),
+              borderRadius: px(18),
+              background: b.isBlue ? blueTints[(seed + i) % blueTints.length] : greyTints[(seed + i) % greyTints.length],
+              opacity: b.opacity,
+              boxShadow: "0 1px 8px rgba(0,0,0,0.35)",
+            }}
+          />
+        ))}
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background:
+            "radial-gradient(ellipse 92% 78% at 50% 42%, transparent 25%, rgba(0,0,0,0.5) 100%)",
+          pointerEvents: "none",
+        }}
+      />
+    </div>
+  );
+}
+
 function MenuIconReply({ size }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -81,10 +172,10 @@ export default function IMessageMomSlide({ slot, S, config }) {
 
   const watermark = (config?.tiktokWatermark ?? "").trim();
 
-  const selectedTapback = useMemo(() => {
-    const seed = slotSeed(slot);
-    return seed % 5 === 0 ? 0 : 1; // mostly thumbs-up
-  }, [slot]);
+  const seed = useMemo(() => slotSeed(slot), [slot]);
+
+  /** Which tapback gets the blue circle — any of the 6, changes per slot/seed. */
+  const selectedTapback = useMemo(() => seed % TAPBACK_ITEMS.length, [seed]);
 
   // ── Layout constants (all in iPhone pts) ──────────────────────────────
   const padX       = 14;   // horizontal padding (pts)
@@ -97,7 +188,6 @@ export default function IMessageMomSlide({ slot, S, config }) {
   const menuH      = MENU_ROWS.length * menuRowH;
   const menuRadius = 14;
 
-  // Image fills remaining vertical space
   const totalPt = H / (IPHONE_SCALE * S);
   const imgH_pt = totalPt - padTop - tbH - gapAfterTb - gapAfterImg - menuH - padBottom;
   const imgW_pt = 390 - padX * 2;
@@ -112,10 +202,16 @@ export default function IMessageMomSlide({ slot, S, config }) {
       position: "relative",
       overflow: "hidden",
     }}>
+      {/* ── Full-screen iMessage thread backdrop ── */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 0 }}>
+        <IMessageThreadBackdrop seed={seed} px={px} />
+      </div>
+
       <div style={{
         position: "absolute",
         left: 0, right: 0,
         top: px(padTop),
+        zIndex: 1,
         display: "flex",
         flexDirection: "column",
         alignItems: "stretch",
@@ -123,66 +219,83 @@ export default function IMessageMomSlide({ slot, S, config }) {
         paddingRight: px(padX),
       }}>
 
-        {/* ── Tapback pill ─────────────────────────────────── */}
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: px(gapAfterTb) }}>
-          <div style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: px(4),
-            padding: `${px(5)}px ${px(10)}px`,
-            borderRadius: 9999,
-            background: "rgba(52,52,52,0.96)",
-            boxShadow: "0 4px 24px rgba(0,0,0,0.5)",
-          }}>
-            {TAPBACK_ITEMS.map((item, i) => {
-              const sel = i === selectedTapback;
-              return (
-                <div key={i} style={{
-                  width: tbItemSize,
-                  height: tbItemSize,
-                  borderRadius: tbItemSize / 2,
-                  background: sel ? IOS_BLUE : "transparent",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: px(20),
-                  lineHeight: 1,
+        {/* ── Tapback + photo ── */}
+        <div
+          style={{
+            width: "100%",
+            alignSelf: "center",
+            maxWidth: px(imgW_pt),
+            marginBottom: px(gapAfterImg),
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: px(gapAfterTb) }}>
+              <div style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: px(4),
+                padding: `${px(5)}px ${px(10)}px`,
+                borderRadius: 9999,
+                background: "rgba(52,52,52,0.96)",
+                boxShadow: "0 4px 24px rgba(0,0,0,0.5)",
+              }}>
+                {TAPBACK_ITEMS.map((item, i) => {
+                  const sel = i === selectedTapback;
+                  return (
+                    <div key={i} style={{
+                      width: tbItemSize,
+                      height: tbItemSize,
+                      borderRadius: tbItemSize / 2,
+                      background: sel ? IOS_BLUE : "transparent",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: px(20),
+                      lineHeight: 1,
+                    }}>
+                      {item.t}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{
+              height: px(imgH_pt),
+              width: "100%",
+              maxWidth: px(imgW_pt),
+              borderRadius: px(18),
+              overflow: "hidden",
+              background: "#1c1c1c",
+              position: "relative",
+              alignSelf: "center",
+              boxShadow: "0 4px 24px rgba(0,0,0,0.45), inset 0 0 0 0.5px rgba(255,255,255,0.08)",
+            }}>
+              {slot?.imageUrl
+                ? <img src={slot.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.2)", fontSize: px(14) }}>No photo</div>
+              }
+              {watermark && (
+                <div style={{
+                  position: "absolute", right: px(8), bottom: px(6),
+                  fontSize: px(11), fontWeight: 600,
+                  color: "rgba(255,255,255,0.9)",
+                  textShadow: "0 1px 3px rgba(0,0,0,0.8)",
                 }}>
-                  {item.t}
+                  {watermark}
                 </div>
-              );
-            })}
+              )}
+            </div>
           </div>
         </div>
 
-        {/* ── Photo ─────────────────────────────────────────── */}
-        <div style={{
-          height: px(imgH_pt),
-          width: px(imgW_pt),
-          borderRadius: px(18),
-          overflow: "hidden",
-          background: "#1c1c1c",
-          position: "relative",
-          alignSelf: "center",
-        }}>
-          {slot?.imageUrl
-            ? <img src={slot.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-            : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.2)", fontSize: px(14) }}>No photo</div>
-          }
-          {watermark && (
-            <div style={{
-              position: "absolute", right: px(8), bottom: px(6),
-              fontSize: px(11), fontWeight: 600,
-              color: "rgba(255,255,255,0.9)",
-              textShadow: "0 1px 3px rgba(0,0,0,0.8)",
-            }}>
-              {watermark}
-            </div>
-          )}
-        </div>
-
-        {/* ── Action sheet ──────────────────────────────────── */}
-        <div style={{ height: px(gapAfterImg) }} />
+        {/* ── Action sheet ── */}
         <div style={{
           borderRadius: px(menuRadius),
           overflow: "hidden",

@@ -67,8 +67,8 @@ function momName(itemName) {
 
 function defaultTranscript(itemName, seed) {
   const n = momName(itemName) || "that thing";
-  const pick = seed % THRIFTY_VARIANTS.length;
-  const foodPair = FOOD_PAIRS[(seed >> 3) % FOOD_PAIRS.length];
+  const pick = (seed >>> 0) % THRIFTY_VARIANTS.length;
+  const foodPair = FOOD_PAIRS[(seed >>> 3) % FOOD_PAIRS.length];
   return THRIFTY_VARIANTS[pick](n, foodPair[0], foodPair[1]);
 }
 
