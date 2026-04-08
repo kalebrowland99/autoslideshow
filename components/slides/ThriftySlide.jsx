@@ -50,6 +50,7 @@ function randomPastDate(seed) {
 export default function ThriftySlide({ slot, S, config = {} }) {
   const captionStyle = config.captionStyle ?? "tiktok";
   const captionBg    = config.captionBg    ?? "#e03030";
+  const hideCaption  = (config.outputFormat ?? "standard") === "imessageMom";
   const captionColor = config.captionColor ?? "#ffffff";
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
@@ -132,7 +133,7 @@ export default function ThriftySlide({ slot, S, config = {} }) {
       display: "flex", flexDirection: "column" }}>
 
       {/* Floating caption — flex-centered wrapper avoids calc() in html2canvas */}
-      {captionText && (
+      {captionText && !hideCaption && (
         <div style={{
           position: "absolute",
           left: 0,
