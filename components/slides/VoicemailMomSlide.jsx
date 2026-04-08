@@ -37,6 +37,8 @@ const THRIFTY_VARIANTS = [
 function momName(itemName) {
   if (!itemName) return "that thing";
   let s = itemName.trim();
+  // Treat placeholder default names like "Item 1", "Item 2" as empty
+  if (/^item\s+\d+$/i.test(s)) return "that thing";
   // Remove parenthetical size/condition notes like "(Size L)" or "(NWT)"
   s = s.replace(/\s*\(.*?\)/g, "").trim();
   // Remove leading articles
@@ -45,6 +47,7 @@ function momName(itemName) {
   s = s.replace(/\b(vintage|authentic|pre-owned|pre owned|used|like-new|like new|gently used)\b/gi, "").trim();
   // Collapse extra spaces
   s = s.replace(/\s+/g, " ").trim();
+  if (!s) return "that thing";
   // Lowercase — mom doesn't know brand capitalization rules
   return s.toLowerCase();
 }

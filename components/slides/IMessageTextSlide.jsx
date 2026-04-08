@@ -30,12 +30,16 @@ const CONTACT_NAMES = MOM_CONTACT_NAMES;
 
 function momName(itemName) {
   if (!itemName) return "that thing";
-  let s = itemName.trim()
+  let s = itemName.trim();
+  // Treat placeholder default names like "Item 1", "Item 2" as empty
+  if (/^item\s+\d+$/i.test(s)) return "that thing";
+  s = s
     .replace(/\s*\(.*?\)/g, "")
     .replace(/^(the|a|an)\s+/i, "")
     .replace(/\b(vintage|authentic|pre-owned|pre owned|used|like-new|like new|gently used)\b/gi, "")
     .replace(/\s+/g, " ")
     .trim();
+  if (!s) return "that thing";
   return s.toLowerCase();
 }
 
