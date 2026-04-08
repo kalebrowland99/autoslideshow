@@ -31,6 +31,8 @@ export const emptySlot = (i) => ({
   thriftyCaptionBold:     true,
   /** iMessage mom — voicemail slide transcript (empty → auto from item name) */
   voicemailTranscript: "",
+  /** iMessage mom — AI-generated text thread [{from:"mom"|"son", text:string}] (null → seeded fallback) */
+  imessageThread: null,
 });
 
 export const defaultConfig = {

@@ -139,10 +139,15 @@ export default function IMessageTextSlide({ slot, S, config }) {
   }, [config?.voicemailDisplayNumber, seed]);
 
   const bubbles = useMemo(() => {
+    // Prefer AI-generated thread stored on the slot
+    if (Array.isArray(slot?.imessageThread) && slot.imessageThread.length >= 3) {
+      return slot.imessageThread.map((m) => ({ from: m.from, text: m.text }));
+    }
+    // Seeded fallback
     const n = momName(slot?.itemName);
     const p = slot?.soldPrice ? slot.soldPrice : "???";
     return THREAD_VARIANTS[(seed >>> 0) % THREAD_VARIANTS.length](n, p, seed);
-  }, [seed, slot?.itemName, slot?.soldPrice]);
+  }, [seed, slot?.itemName, slot?.soldPrice, slot?.imessageThread]);
 
   const timeLabel = TIME_LABELS[(seed >>> 2) % TIME_LABELS.length];
 

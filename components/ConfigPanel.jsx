@@ -422,16 +422,38 @@ ${SHARED_RULES_OUTRO}`;
       updateSlot(index, { imageUrl: url, ...priceUpdates });
       // Auto-title from the new image
       const grail = await autoTitleFromImage(url);
+      let resolvedName  = slot.itemName;
+      let resolvedPrice = priceUpdates.soldPrice ?? slot.soldPrice;
       if (grail?.title) {
-        const resolvedPrice = grail.price ?? priceUpdates.soldPrice ?? slot.soldPrice;
+        resolvedName  = grail.title;
+        resolvedPrice = grail.price ?? resolvedPrice;
         updateSlot(index, {
-          itemName: grail.title,
-          ...(grail.price ? { soldPrice: grail.price } : {}),
-          matchItems: autoSoldListings(grail.title, resolvedPrice),
+          itemName: resolvedName,
+          ...(grail.price ? { soldPrice: resolvedPrice } : {}),
+          matchItems: autoSoldListings(resolvedName, resolvedPrice),
         });
+      }
+      // For iMessage mom format, generate AI text thread
+      if ((config.outputFormat ?? "standard") === "imessageMom") {
+        const thread = await generateImessageThread(resolvedName, resolvedPrice);
+        if (thread) updateSlot(index, { imessageThread: thread });
       }
     }
     setGeneratingSlot(null);
+  };
+
+  // ── AI: generate iMessage thread for imessageMom format ─────────────────────
+  const generateImessageThread = async (itemName, soldPrice) => {
+    try {
+      const res = await fetch("/api/generate-text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "imessageThread", itemName, soldPrice }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.thread ?? null;
+    } catch { return null; }
   };
 
   // ── GPT-4 Vision: generate item title from image ──
