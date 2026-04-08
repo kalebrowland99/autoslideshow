@@ -288,8 +288,9 @@ export default function IMessageTextSlide({ slot, S, config }) {
           const isSon    = msg.from === "son";
           const isVeryLast = idx === bubbles.length - 1;
           // iSpoof exact: sent=18 18 4 18 (BR small), recv=18 18 18 4 (BL small)
-          const r  = px(18);
-          const rt = px(4);
+          // px() returns a number so we must append "px" for CSS shorthand strings
+          const r  = `${px(18)}px`;
+          const rt = `${px(4)}px`;
           const borderRadius = isSon
             ? `${r} ${r} ${rt} ${r}`   // user-bubble
             : `${r} ${r} ${r} ${rt}`;  // contact-bubble
