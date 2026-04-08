@@ -202,7 +202,7 @@ export default function ConfigPanel({
     const bgColor =
       info.type === "collage"
         ? "#111111"
-        : info.type === "fullBleed" || info.type === "imessage"
+        : info.type === "fullBleed" || info.type === "imessage" || info.type === "imessageText"
         ? "#000000"
         : info.type === "voicemail"
         ? "#ffffff"
@@ -701,7 +701,7 @@ ${SHARED_RULES_OUTRO}`;
       const bg =
         info.type === "collage"
           ? "#111111"
-          : info.type === "fullBleed" || info.type === "imessage"
+          : info.type === "fullBleed" || info.type === "imessage" || info.type === "imessageText"
           ? "#000000"
           : info.type === "voicemail"
           ? "#ffffff"
@@ -1016,7 +1016,7 @@ ${SHARED_RULES_OUTRO}`;
       const info = getSlideInfo(config, i);
       const bg =
         info.type === "collage"    ? "#111111"
-        : info.type === "fullBleed" || info.type === "imessage" ? "#000000"
+        : info.type === "fullBleed" || info.type === "imessage" || info.type === "imessageText" ? "#000000"
         : "#ffffff";
 
       try {
@@ -1024,9 +1024,10 @@ ${SHARED_RULES_OUTRO}`;
         if (!canvas) throw new Error("no canvas");
         const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
         const arr  = new Uint8Array(await blob.arrayBuffer());
-        const label = info.type === "collage" ? "collage"
-          : info.type === "imessage"  ? "imessage"
-          : info.type === "voicemail" ? "voicemail"
+        const label = info.type === "collage"      ? "collage"
+          : info.type === "imessage"     ? "imessage"
+          : info.type === "voicemail"    ? "voicemail"
+          : info.type === "imessageText" ? "imessage-texts"
           : `slide-${i + 1}`;
         pngEntries[`${String(i + 1).padStart(2, "0")}-${label}.png`] = arr;
       } catch (e) {

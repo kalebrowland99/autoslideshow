@@ -6,6 +6,7 @@ import ThriftySlide from "./slides/ThriftySlide";
 import FullBleedSlide from "./slides/FullBleedSlide";
 import IMessageMomSlide from "./slides/IMessageMomSlide";
 import VoicemailMomSlide from "./slides/VoicemailMomSlide";
+import IMessageTextSlide from "./slides/IMessageTextSlide";
 import { getSlideInfo } from "@/lib/slideLayout";
 
 // At 0.28 scale → 1080×1920 renders as ~302×538px in browser
@@ -20,8 +21,9 @@ function SlideRenderer({ config, info, S }) {
       {info.type === "reveal" && <ItemRevealSlide slot={info.slot} S={S} config={config} />}
       {info.type === "thrifty" && <ThriftySlide slot={info.slot} S={S} config={config} />}
       {info.type === "fullBleed" && <FullBleedSlide slot={info.slot} S={S} />}
-      {info.type === "imessage" && <IMessageMomSlide slot={info.slot} S={S} config={config} />}
-      {info.type === "voicemail" && <VoicemailMomSlide slot={info.slot} S={S} config={config} />}
+      {info.type === "imessage"     && <IMessageMomSlide  slot={info.slot} S={S} config={config} />}
+      {info.type === "voicemail"    && <VoicemailMomSlide slot={info.slot} S={S} config={config} />}
+      {info.type === "imessageText" && <IMessageTextSlide  slot={info.slot} S={S} config={config} />}
     </>
   );
 }
@@ -44,8 +46,9 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
       return `Item ${currentSlide} — App`;
     }
     if (fmt === "imessageMom") {
-      if (currentSlide === 0) return "iMessage";
+      if (currentSlide === 0) return "iMessage (photo)";
       if (currentSlide === 1) return "Voicemail";
+      if (currentSlide === 2) return "iMessage (texts)";
       return "Thrifty Price";
     }
     const item = Math.floor((currentSlide - 1) / 2) + 1;
@@ -137,9 +140,10 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
           const isReveal =
             fmt === "standard" && i > 0 && (i - 1) % 2 === 0;
           const momPhoto = false;
-          const momMsg = fmt === "imessageMom" && i === 0;
-          const momVm = fmt === "imessageMom" && i === 1;
-          const momThrifty = fmt === "imessageMom" && i === 2;
+          const momMsg     = fmt === "imessageMom" && i === 0;
+          const momVm      = fmt === "imessageMom" && i === 1;
+          const momTxt     = fmt === "imessageMom" && i === 2;
+          const momThrifty = fmt === "imessageMom" && i === 3;
           const isPose = fmt === "posePerson";
           const dotColor = isPose
             ? "bg-sky-400"
@@ -149,6 +153,8 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
             ? "bg-fuchsia-400"
             : momVm
             ? "bg-amber-400"
+            : momTxt
+            ? "bg-pink-400"
             : momThrifty
             ? "bg-emerald-400"
             : isCollage
@@ -177,9 +183,9 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
         <div className="flex gap-4 text-xs text-white/30 flex-wrap justify-center">
           {fmt === "imessageMom" ? (
             <>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-slate-400 inline-block"/>Photo</span>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-fuchsia-400 inline-block"/>iMessage</span>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block"/>Voicemail</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-pink-400 inline-block"/>Text reply</span>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>Thrifty</span>
             </>
           ) : (
