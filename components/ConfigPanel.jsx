@@ -998,6 +998,70 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
+  const handleExportAllPNGs = async () => {
+    setIsExporting(true);
+    setExportProgress(0);
+    setExportStatus("Capturing slides…");
+
+    const previewNode = getCaptureNode();
+    const fontEmbedCSS = previewNode ? await getFontEmbedCSS(previewNode) : undefined;
+
+    const pngEntries = {};
+
+    for (let i = 0; i < totalSlides; i++) {
+      setCurrentSlide(i);
+      await waitForPreviewPaint();
+      await new Promise((r) => setTimeout(r, 80));
+
+      const info = getSlideInfo(config, i);
+      const bg =
+        info.type === "collage"    ? "#111111"
+        : info.type === "fullBleed" || info.type === "imessage" ? "#000000"
+        : "#ffffff";
+
+      try {
+        const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
+        if (!canvas) throw new Error("no canvas");
+        const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
+        const arr  = new Uint8Array(await blob.arrayBuffer());
+        const label = info.type === "collage" ? "collage"
+          : info.type === "imessage"  ? "imessage"
+          : info.type === "voicemail" ? "voicemail"
+          : `slide-${i + 1}`;
+        pngEntries[`${String(i + 1).padStart(2, "0")}-${label}.png`] = arr;
+      } catch (e) {
+        console.warn("Skipping slide", i, e);
+      }
+
+      setExportProgress(Math.round(((i + 1) / totalSlides) * 85));
+      setExportStatus(`Captured ${i + 1} / ${totalSlides}…`);
+    }
+
+    if (Object.keys(pngEntries).length === 0) {
+      setIsExporting(false);
+      setExportStatus("Nothing to export.");
+      return;
+    }
+
+    setExportStatus("Building ZIP…");
+    setExportProgress(90);
+
+    const { zipSync } = await import("fflate");
+    const zipData = zipSync(pngEntries, { level: 1 });
+    const blob = new Blob([zipData], { type: "application/zip" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `thrifty_slides_${Date.now()}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    setIsExporting(false);
+    setExportProgress(100);
+    setExportStatus("Done! ZIP downloaded.");
+    setTimeout(() => { setExportStatus(""); setExportProgress(0); }, 3000);
+  };
+
   // Register the per-slide refresh handler so VideoPreview can trigger generation
   // No deps — runs after every render to keep the latest closure registered
   useEffect(() => {
@@ -1406,6 +1470,10 @@ ${SHARED_RULES_OUTRO}`;
         <button onClick={handleExportPNG} disabled={isExporting}
           className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 disabled:opacity-40 text-white text-sm font-semibold border border-white/10 transition-colors">
           📸 Export Current Slide as PNG
+        </button>
+        <button onClick={handleExportAllPNGs} disabled={isExporting}
+          className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 disabled:opacity-40 text-white text-sm font-semibold border border-white/10 transition-colors">
+          🗂️ Export All Slides as PNG (ZIP)
         </button>
         <button onClick={handleExportVideo} disabled={isExporting}
           className="w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-semibold transition-colors">
