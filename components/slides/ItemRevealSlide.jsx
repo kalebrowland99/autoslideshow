@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { tiktokCaptionTextStyle } from "@/lib/captionStyles";
+import { tiktokCaptionTextStyle, tickerBoxCaptionTextStyle, captionWrapperStyle } from "@/lib/captionStyles";
 import { captionFontSize1080 } from "@/lib/captionFontSize";
 
 // Stable seeded PRNG — same output for same seed, no re-randomisation on re-render
@@ -19,7 +19,10 @@ function slotSeed(slot) {
   return Math.abs(h);
 }
 
-export default function ItemRevealSlide({ slot, S }) {
+export default function ItemRevealSlide({ slot, S, config = {} }) {
+  const captionStyle = config.captionStyle ?? "tiktok";
+  const captionBg    = config.captionBg    ?? "#e03030";
+  const captionColor = config.captionColor ?? "#ffffff";
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
   const px = (n) => Math.round(n * S);
@@ -91,24 +94,28 @@ export default function ItemRevealSlide({ slot, S }) {
       >
       <div
         style={{
-          marginLeft: jitterX,
-          transform: `rotate(${tilt}deg)`,
-          background: "transparent",
-          borderRadius: Math.round(12 * S),
+          marginLeft: captionStyle === "tickerBox" ? 0 : jitterX,
+          transform: captionStyle === "tickerBox" ? "none" : `rotate(${tilt}deg)`,
+          ...captionWrapperStyle(S, { captionStyle, captionBg }),
           padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
-          maxWidth: Math.round(W * 0.8),
+          maxWidth: Math.round(W * 0.85),
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
           gap: Math.round(4 * S),
-          boxShadow: "none",
         }}
       >
-        <span style={tiktokCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800" })}>
+        <span style={captionStyle === "tickerBox"
+          ? tickerBoxCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800", color: captionColor })
+          : tiktokCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800" })
+        }>
           {spentLine}
         </span>
         {itemLine && (
-          <span style={tiktokCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800" })}>
+          <span style={captionStyle === "tickerBox"
+            ? tickerBoxCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800", color: captionColor })
+            : tiktokCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800" })
+          }>
             {itemLine}
           </span>
         )}

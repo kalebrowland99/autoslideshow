@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { tiktokCaptionTextStyle } from "@/lib/captionStyles";
+import { tiktokCaptionTextStyle, tickerBoxCaptionTextStyle, captionWrapperStyle } from "@/lib/captionStyles";
 import { captionFontSize1080 } from "@/lib/captionFontSize";
 
 /**
@@ -47,7 +47,10 @@ function randomPastDate(seed) {
   return `${mon} ${base.getDate()}, ${base.getFullYear()}`;
 }
 
-export default function ThriftySlide({ slot, S }) {
+export default function ThriftySlide({ slot, S, config = {} }) {
+  const captionStyle = config.captionStyle ?? "tiktok";
+  const captionBg    = config.captionBg    ?? "#e03030";
+  const captionColor = config.captionColor ?? "#ffffff";
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
   const px = (n) => Math.round(n * IPHONE_SCALE * S);
@@ -141,18 +144,19 @@ export default function ThriftySlide({ slot, S }) {
           pointerEvents: "none",
         }}>
           <div style={{
-            marginLeft: captionJitter.x,
-            transform: `rotate(${captionJitter.rot}deg)`,
-            background: "transparent",
-            borderRadius: Math.round(12 * S),
+            marginLeft: captionStyle === "tickerBox" ? 0 : captionJitter.x,
+            transform: captionStyle === "tickerBox" ? "none" : `rotate(${captionJitter.rot}deg)`,
+            ...captionWrapperStyle(S, { captionStyle, captionBg }),
             padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
-            maxWidth: Math.round(W * 0.8),
+            maxWidth: Math.round(W * 0.85),
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            boxShadow: "none",
           }}>
-            <span style={tiktokCaptionTextStyle(S, { fontSize: Math.round(captionFontPx * S), fontWeight: "800" })}>
+            <span style={captionStyle === "tickerBox"
+              ? tickerBoxCaptionTextStyle(S, { fontSize: Math.round(captionFontPx * S), fontWeight: "800", color: captionColor })
+              : tiktokCaptionTextStyle(S, { fontSize: Math.round(captionFontPx * S), fontWeight: "800" })
+            }>
               {captionText}
             </span>
           </div>

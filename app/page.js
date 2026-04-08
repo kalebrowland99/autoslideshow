@@ -36,6 +36,7 @@ export const emptySlot = (i) => ({
 export const defaultConfig = {
   // Slide 1 — collage caption overlay
   captionText: "My top 6 Most Favorite\nGoodwill Finds",
+  captionStyle: "tiktok",      // "tiktok" | "tickerBox"
   captionBg: "#e03030",
   captionColor: "#ffffff",
   captionPosition: "middle",

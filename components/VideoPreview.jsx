@@ -17,8 +17,8 @@ function SlideRenderer({ config, info, S }) {
   return (
     <>
       {info.type === "collage" && <CollageSlide config={config} S={S} />}
-      {info.type === "reveal" && <ItemRevealSlide slot={info.slot} S={S} />}
-      {info.type === "thrifty" && <ThriftySlide slot={info.slot} S={S} />}
+      {info.type === "reveal" && <ItemRevealSlide slot={info.slot} S={S} config={config} />}
+      {info.type === "thrifty" && <ThriftySlide slot={info.slot} S={S} config={config} />}
       {info.type === "fullBleed" && <FullBleedSlide slot={info.slot} S={S} />}
       {info.type === "imessage" && <IMessageMomSlide slot={info.slot} S={S} config={config} />}
       {info.type === "voicemail" && <VoicemailMomSlide slot={info.slot} S={S} config={config} />}

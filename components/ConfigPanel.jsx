@@ -1105,6 +1105,56 @@ ${SHARED_RULES_OUTRO}`;
           </button>
         </div>
 
+        {/* ── Caption style toggle ── */}
+        <div className="mt-3 flex items-center gap-2">
+          <span className="text-white/40 text-[10px] font-semibold uppercase tracking-wider shrink-0">Style</span>
+          <div className="flex gap-1">
+            {[
+              { id: "tiktok",    label: "TikTok text" },
+              { id: "tickerBox", label: "Ticker box" },
+            ].map(({ id, label }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => updateConfig("captionStyle", id)}
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-all ${
+                  (config.captionStyle ?? "tiktok") === id
+                    ? "border-violet-500 bg-violet-500/20 text-white"
+                    : "border-white/10 bg-white/5 text-white/40 hover:border-white/20"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Color pickers — only visible when tickerBox is selected */}
+        {(config.captionStyle ?? "tiktok") === "tickerBox" && (
+          <div className="mt-2 flex gap-3">
+            <div className="flex items-center gap-1.5">
+              <input
+                type="color"
+                value={config.captionBg ?? "#e03030"}
+                onChange={(e) => updateConfig("captionBg", e.target.value)}
+                className="w-7 h-7 rounded cursor-pointer border border-white/20 bg-transparent"
+                title="Box background color"
+              />
+              <span className="text-white/35 text-[10px]">Box color</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="color"
+                value={config.captionColor ?? "#ffffff"}
+                onChange={(e) => updateConfig("captionColor", e.target.value)}
+                className="w-7 h-7 rounded cursor-pointer border border-white/20 bg-transparent"
+                title="Text color"
+              />
+              <span className="text-white/35 text-[10px]">Text color</span>
+            </div>
+          </div>
+        )}
+
         <div className="mt-2">
           <label className="text-white/35 text-[10px] block mb-1">TikTok @ watermark (iMessage mom slides)</label>
           <input
