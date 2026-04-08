@@ -25,28 +25,8 @@ function hashStr(s) {
 }
 
 // Same contact-name pool as VoicemailMomSlide so they always match
-const CONTACT_NAMES = [
-  "Mom (new iPhone 17)",
-  "Mom (new iphone 17 pro)",
-  "Mom 📱 new phone dont delete",
-  "Mom 💕 (iphone 17)",
-  "Mommy (new number!)",
-  "Mom ❤️ new iphone 17",
-  "Mom (got new phone again lol)",
-  "mama new iphone 17",
-  "Mom (iphone upgrade)",
-  "Mom (resaved new phone)",
-  "Mom 💕 (new number)",
-  "Mommy 📲 new phone",
-  "Mom (iphone 17 pro max)",
-  "Mom - dont lose this number",
-  "mama 💛 new iphone",
-  "Mom (switched phones again)",
-  "Mom new phone 2025",
-  "Mommy new iphone 17",
-  "Mom 🌸 new number",
-  "Mom (finally upgraded)",
-];
+import { MOM_CONTACT_NAMES } from "@/lib/momContactNames";
+const CONTACT_NAMES = MOM_CONTACT_NAMES;
 
 function momName(itemName) {
   if (!itemName) return "that thing";
