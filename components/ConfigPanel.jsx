@@ -157,16 +157,17 @@ export default function ConfigPanel({
     const savedPrompt = localStorage.getItem("ts_global_prompt");
     if (savedPrompt != null) setGlobalPrompt(savedPrompt);
     const savedBrands = localStorage.getItem("ts_brand_items");
-    if (savedBrands) setBrandItemsRaw(savedBrands);
+    if (savedBrands?.trim()) setBrandItemsRaw(savedBrands);
     const savedHooks = localStorage.getItem("ts_hooks");
     if (savedHooks) setHooksRaw(savedHooks);
   }, []);
 
-  // Parsed brand items (non-empty lines)
-  const brandItems = brandItemsRaw
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
+  // Parsed brand items (non-empty lines) — fall back to default if list is empty
+  const brandItems = (() => {
+    const parsed = brandItemsRaw.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (parsed.length > 0) return parsed;
+    return DEFAULT_BRAND_LIST.split("\n").map((l) => l.trim()).filter(Boolean);
+  })();
 
   // Parsed hook captions (non-empty lines)
   const hookItems = hooksRaw
