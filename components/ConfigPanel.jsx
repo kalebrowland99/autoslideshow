@@ -202,10 +202,8 @@ export default function ConfigPanel({
     const bgColor =
       info.type === "collage"
         ? "#111111"
-        : info.type === "fullBleed" || info.type === "imessage" || info.type === "imessageText"
+        : info.type === "fullBleed" || info.type === "imessage"
         ? "#000000"
-        : info.type === "voicemail"
-        ? "#ffffff"
         : "#ffffff";
 
     try {
@@ -723,10 +721,8 @@ ${SHARED_RULES_OUTRO}`;
       const bg =
         info.type === "collage"
           ? "#111111"
-          : info.type === "fullBleed" || info.type === "imessage" || info.type === "imessageText"
+          : info.type === "fullBleed" || info.type === "imessage"
           ? "#000000"
-          : info.type === "voicemail"
-          ? "#ffffff"
           : "#ffffff";
 
       await new Promise((r) => setTimeout(r, 80));
@@ -1038,7 +1034,8 @@ ${SHARED_RULES_OUTRO}`;
       const info = getSlideInfo(config, i);
       const bg =
         info.type === "collage"    ? "#111111"
-        : info.type === "fullBleed" || info.type === "imessage" || info.type === "imessageText" ? "#000000"
+        : info.type === "fullBleed" || info.type === "imessage" ? "#000000"
+        : info.type === "imessageText" ? "#ffffff"
         : "#ffffff";
 
       try {

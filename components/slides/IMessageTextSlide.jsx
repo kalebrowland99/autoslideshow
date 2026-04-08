@@ -9,11 +9,14 @@ import { useMemo } from "react";
  */
 
 const IPHONE_SCALE = 1080 / 390;
-const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif';
-const IOS_BLUE = "#007AFF";
-const BUBBLE_GREY = "#3A3A3C";
-const BG = "#000000";
-const NAV_BG = "rgba(28,28,30,0.94)";
+const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif';
+const IOS_BLUE    = "#007AFF";
+// iSpoof exact values
+const BUBBLE_RECV = "#E5E5EA";   // contact bubble
+const BUBBLE_SENT = "#007AFF";   // user bubble
+const MSG_BG      = "#ffffff";   // messages area — light mode (matches iSpoof download)
+const NAV_BG      = "#f9f9f9";   // nav/header area light
+const STATUS_BG   = "#000000";   // status bar stays dark
 
 function hashStr(s) {
   let h = 2166136261;
@@ -150,319 +153,244 @@ export default function IMessageTextSlide({ slot, S, config }) {
   }, [seed, slot?.itemName, slot?.soldPrice, slot?.imessageThread]);
 
   const timeLabel = TIME_LABELS[(seed >>> 2) % TIME_LABELS.length];
-
-  // Short display name for avatar initial + sender label
-  const shortName = contactName.replace(/\s*\(.*?\)/, "").trim().split(/\s+/)[0]; // "Mom"
+  const shortName   = contactName.replace(/\s*\(.*?\)/, "").trim().split(/\s+/)[0];
   const avatarLetter = shortName[0]?.toUpperCase() ?? "M";
 
-  // ── Layout (all in iPhone pts) ────────────────────────────────────────────
-  const statusH   = 54;
-  const navH      = 88;
-  const inputBarH = 84;
-  const avatarSz  = 32;
-  const avatarGap = 8;   // gap between avatar and bubble
-  const leftPad   = 10;  // left edge padding
-  const rightPad  = 16;
-  const bubbleMaxW = 260;
-  const R  = 20;   // full corner radius
-  const Rs = 5;    // small corner (chained bubbles)
-  const fontSize  = 17;
-  const padV      = 10;
-  const padH      = 14;
-  const sameGap   = 3;   // gap between bubbles of same sender
-  const turnGap   = 18;  // gap between different-sender turns
-  const nameFSize = 12;
-
-  // Group bubbles into sender-runs for name label + avatar logic
-  const groups = [];
-  bubbles.forEach((msg, idx) => {
-    const prev = bubbles[idx - 1];
-    if (!prev || prev.from !== msg.from) {
-      groups.push({ from: msg.from, indices: [idx] });
-    } else {
-      groups[groups.length - 1].indices.push(idx);
-    }
-  });
-  // Build a map: bubbleIdx → { isFirst, isLast, isGroupFirst, isGroupLast }
-  const bubbleMeta = {};
-  groups.forEach((g) => {
-    g.indices.forEach((idx, pos) => {
-      bubbleMeta[idx] = {
-        isGroupFirst: pos === 0,
-        isGroupLast:  pos === g.indices.length - 1,
-        isVeryLast:   idx === bubbles.length - 1,
-        isVeryFirst:  idx === 0,
-      };
-    });
-  });
+  // ── Layout (all in iPhone pts, matching iSpoof) ───────────────────────────
+  const statusH    = 50;
+  const islandH    = 37;   // dynamic island height
+  const navH       = 82;
+  const inputBarH  = 82;
+  const avatarSz   = 40;   // iSpoof: contact-photo 40px
+  const avatarGap  = 8;
+  const leftPad    = 12;
+  const rightPad   = 12;
+  const bubbleMaxW = 255;  // iSpoof: max-width 255px
+  const fontSize   = 17;   // iSpoof: 17px
+  const padV       = 8;    // iSpoof: padding 8px 14px
+  const padH       = 14;
+  const sameGap    = 4;
+  const turnGap    = 16;
 
   return (
     <div style={{
       width: W, height: H,
-      background: BG,
+      background: STATUS_BG,
       fontFamily: FONT,
       position: "relative",
       overflow: "hidden",
     }}>
 
-      {/* ── Status bar ──────────────────────────────────────────────────────── */}
+      {/* ── Status bar (dark) ───────────────────────────────────────────────── */}
       <div style={{
         position: "absolute", top: 0, left: 0, right: 0,
         height: px(statusH),
-        display: "flex", alignItems: "flex-end", justifyContent: "space-between",
-        paddingLeft: px(22), paddingRight: px(18), paddingBottom: px(10),
+        background: STATUS_BG,
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        paddingLeft: px(22), paddingRight: px(18),
         zIndex: 10,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: px(5) }}>
-          <span style={{ color: "#fff", fontSize: px(15), fontWeight: 600, letterSpacing: "-0.02em" }}>10:39</span>
-          {/* Location arrow */}
-          <svg width={px(10)} height={px(12)} viewBox="0 0 24 24" fill="white" opacity="0.9">
-            <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
-          </svg>
-        </div>
+        <span style={{ color: "#fff", fontSize: px(15), fontWeight: 600, letterSpacing: "-0.02em" }}>9:41</span>
         <div style={{ display: "flex", alignItems: "center", gap: px(6) }}>
-          {/* Signal bars */}
-          {[6,9,12,15].map((h, i) => (
-            <div key={i} style={{ width: px(3.5), height: px(h), background: "#fff", borderRadius: px(1) }} />
+          {[6, 9, 12, 15].map((h, i) => (
+            <div key={i} style={{ width: px(3.5), height: px(h), background: "#fff", borderRadius: px(1.5), alignSelf: "flex-end" }} />
           ))}
-          {/* WiFi */}
           <svg width={px(17)} height={px(13)} viewBox="0 0 24 18" fill="white" style={{ marginLeft: px(2) }}>
             <path d="M12 4C7.31 4 3.07 5.9 0 8.98L2.4 11.5C4.83 9.02 8.24 7.5 12 7.5s7.17 1.52 9.6 4L24 9C20.93 5.9 16.69 4 12 4zm0 6c-3.04 0-5.78 1.21-7.78 3.16L6.6 15.5C8.04 14.03 10 13.1 12 13.1s3.96.93 5.4 2.4l2.38-2.34C17.78 11.21 15.04 10 12 10zm0 6a4 4 0 00-2.83 1.17L12 20l2.83-2.83A4 4 0 0012 16z"/>
           </svg>
-          {/* Battery */}
-          <div style={{ display: "flex", alignItems: "center", marginLeft: px(2) }}>
-            <div style={{ width: px(27), height: px(13), borderRadius: px(3.5), border: `${px(1.5)}px solid rgba(255,255,255,0.5)`, position: "relative", overflow: "visible" }}>
-              <div style={{ position: "absolute", inset: px(2), right: "20%", background: "#fff", borderRadius: px(2) }} />
-              <div style={{ position: "absolute", right: px(-4), top: "30%", bottom: "30%", width: px(2.5), background: "rgba(255,255,255,0.5)", borderRadius: "0 2px 2px 0" }} />
+          <div style={{ position: "relative", marginLeft: px(2) }}>
+            <div style={{ width: px(27), height: px(13), borderRadius: px(3), border: `${px(1.5)}px solid rgba(255,255,255,0.45)`, overflow: "hidden" }}>
+              <div style={{ position: "absolute", inset: px(1.5), right: "20%", background: "#fff", borderRadius: px(1.5) }} />
             </div>
+            <div style={{ position: "absolute", right: px(-3.5), top: "30%", bottom: "30%", width: px(2.5), background: "rgba(255,255,255,0.45)", borderRadius: "0 1px 1px 0" }} />
           </div>
         </div>
       </div>
 
-      {/* ── Nav bar ─────────────────────────────────────────────────────────── */}
+      {/* ── Dynamic Island ──────────────────────────────────────────────────── */}
+      <div style={{
+        position: "absolute",
+        top: px(11), left: "50%",
+        transform: "translateX(-50%)",
+        width: px(126), height: px(islandH),
+        background: "#000",
+        borderRadius: px(19),
+        zIndex: 20,
+      }} />
+
+      {/* ── Nav / Header (light, matches iSpoof) ────────────────────────────── */}
       <div style={{
         position: "absolute", top: px(statusH), left: 0, right: 0,
         height: px(navH),
         background: NAV_BG,
-        backdropFilter: "blur(24px)",
-        borderBottom: `${px(0.5)}px solid rgba(255,255,255,0.12)`,
+        borderBottom: `${px(0.5)}px solid #d1d1d6`,
         display: "flex", alignItems: "center",
         paddingLeft: px(10), paddingRight: px(16),
         zIndex: 10,
       }}>
-        {/* Back arrow (no text — matches screenshot) */}
-        <div style={{ minWidth: px(32), display: "flex", alignItems: "center" }}>
-          <svg width={px(12)} height={px(20)} viewBox="0 0 12 20" fill="none" stroke={IOS_BLUE} strokeWidth={px(2)} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M10 2L2 10l8 8"/>
+        {/* Back chevron — iSpoof style */}
+        <div style={{ minWidth: px(36), display: "flex", alignItems: "center" }}>
+          <svg width={px(11)} height={px(19)} viewBox="0 0 11 19" fill="none" stroke={IOS_BLUE} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 1L1 9.5 9 18"/>
           </svg>
         </div>
 
-        {/* Center: avatar + name + chevron */}
+        {/* Center — avatar + name (iSpoof layout) */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: px(3) }}>
-          {/* Avatar circle */}
           <div style={{
-            width: px(42), height: px(42), borderRadius: "50%",
-            background: "#8E8E93",
+            width: px(avatarSz), height: px(avatarSz), borderRadius: "50%",
+            background: "linear-gradient(45deg,#667eea 0%,#764ba2 100%)",
             display: "flex", alignItems: "center", justifyContent: "center",
-            flexShrink: 0,
           }}>
-            <span style={{ color: "#fff", fontSize: px(18), fontWeight: 600 }}>{avatarLetter}</span>
+            <span style={{ color: "#fff", fontSize: px(18), fontWeight: 500 }}>{avatarLetter}</span>
           </div>
-          {/* Name + chevron */}
-          <div style={{ display: "flex", alignItems: "center", gap: px(3) }}>
-            <span style={{ color: "#fff", fontSize: px(13), fontWeight: 500, letterSpacing: "-0.01em" }}>{shortName}</span>
-            <svg width={px(7)} height={px(11)} viewBox="0 0 7 11" fill="none" stroke={IOS_BLUE} strokeWidth={px(1.5)} strokeLinecap="round">
-              <path d="M1 1l5 4.5L1 10"/>
-            </svg>
-          </div>
+          <span style={{ color: "#000", fontSize: px(13), fontWeight: 500 }}>{shortName}</span>
         </div>
 
-        {/* Spacer for symmetry */}
-        <div style={{ minWidth: px(32) }} />
+        {/* Video icon (right) — iSpoof */}
+        <div style={{ minWidth: px(36), display: "flex", justifyContent: "flex-end" }}>
+          <svg width={px(22)} height={px(16)} viewBox="0 0 24 18" fill={IOS_BLUE}>
+            <path d="M15 3H2a1 1 0 00-1 1v10a1 1 0 001 1h13a1 1 0 001-1V4a1 1 0 00-1-1zm7 2.5l-5 3.5 5 3.5V5.5z"/>
+          </svg>
+        </div>
       </div>
 
-      {/* ── Message thread ───────────────────────────────────────────────────── */}
+      {/* ── Messages area (white, light mode — matches iSpoof export) ───────── */}
       <div style={{
         position: "absolute",
         top: px(statusH + navH),
         left: 0, right: 0,
         bottom: px(inputBarH),
+        background: MSG_BG,
         display: "flex",
         flexDirection: "column",
         justifyContent: "flex-end",
-        paddingBottom: px(12),
+        paddingLeft: px(leftPad),
+        paddingRight: px(rightPad),
+        paddingBottom: px(14),
         overflowY: "hidden",
       }}>
-        {/* "iMessage / Today X:XX AM" thread header */}
+        {/* "iMessage / Today X:XX" — iSpoof header */}
         <div style={{
           textAlign: "center",
-          color: "rgba(255,255,255,0.4)",
-          fontSize: px(12),
+          color: "#8E8E93",
+          fontSize: px(13),
           fontWeight: 400,
+          marginBottom: px(14),
           lineHeight: 1.5,
-          marginBottom: px(16),
-          letterSpacing: "0.01em",
         }}>
-          iMessage{"\n"}{timeLabel}
+          <div style={{ fontWeight: 500 }}>iMessage</div>
+          <div>Today {timeLabel}</div>
         </div>
 
-        {/* Render by groups so we can show name labels + avatars correctly */}
-        {groups.map((group, gIdx) => {
-          const isSon = group.from === "son";
-          const prevGroup = groups[gIdx - 1];
-          const marginTop = prevGroup ? px(turnGap) : 0;
+        {/* Bubbles — iSpoof exact radii */}
+        {bubbles.map((msg, idx) => {
+          const isSon    = msg.from === "son";
+          const isVeryLast = idx === bubbles.length - 1;
+          // iSpoof exact: sent=18 18 4 18 (BR small), recv=18 18 18 4 (BL small)
+          const r  = px(18);
+          const rt = px(4);
+          const borderRadius = isSon
+            ? `${r} ${r} ${rt} ${r}`   // user-bubble
+            : `${r} ${r} ${r} ${rt}`;  // contact-bubble
 
           return (
-            <div key={gIdx} style={{ marginTop }}>
-              {/* Sender name label (mom only, above first bubble of group) */}
+            <div key={idx} style={{
+              display: "flex",
+              flexDirection: "row",
+              alignItems: "flex-end",
+              justifyContent: isSon ? "flex-end" : "flex-start",
+              marginTop: idx > 0 ? px(sameGap) : 0,
+              marginBottom: bubbles[idx + 1]?.from !== msg.from ? px(turnGap - sameGap) : 0,
+            }}>
+              {/* Avatar for received — iSpoof: contact-photo beside bubble */}
               {!isSon && (
                 <div style={{
-                  fontSize: px(nameFSize),
-                  color: "rgba(255,255,255,0.45)",
-                  fontWeight: 400,
-                  marginBottom: px(3),
-                  paddingLeft: px(leftPad + avatarSz + avatarGap),
-                  letterSpacing: "0.01em",
+                  width: px(avatarSz), height: px(avatarSz), borderRadius: "50%",
+                  background: "linear-gradient(45deg,#667eea 0%,#764ba2 100%)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  flexShrink: 0, marginRight: px(8),
                 }}>
-                  {shortName}
+                  <span style={{ color: "#fff", fontSize: px(16), fontWeight: 500 }}>{avatarLetter}</span>
                 </div>
               )}
 
-              {/* Row: avatar (mom) + bubbles */}
-              <div style={{
-                display: "flex",
-                flexDirection: "row",
-                alignItems: "flex-end",
-                paddingLeft: isSon ? 0 : px(leftPad),
-                paddingRight: isSon ? px(rightPad) : 0,
-              }}>
-                {/* Avatar — mom only, shown aligned to last bubble */}
-                {!isSon && (
-                  <div style={{
-                    width: px(avatarSz), height: px(avatarSz),
-                    borderRadius: "50%",
-                    background: "#8E8E93",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    flexShrink: 0,
-                    marginRight: px(avatarGap),
-                    marginBottom: 0,
+              <div>
+                <div style={{
+                  maxWidth: px(bubbleMaxW),
+                  background: isSon ? BUBBLE_SENT : BUBBLE_RECV,
+                  borderRadius,
+                  padding: `${px(padV)}px ${px(padH)}px`,
+                  wordWrap: "break-word",
+                }}>
+                  <span style={{
+                    color: isSon ? "#fff" : "#000",
+                    fontSize: px(fontSize),
+                    lineHeight: 1.35,
+                    fontWeight: 400,
+                    display: "block",
                   }}>
-                    <span style={{ color: "#fff", fontSize: px(14), fontWeight: 600 }}>{avatarLetter}</span>
+                    {msg.text}
+                  </span>
+                </div>
+                {/* Delivered under last message — iSpoof: message-status */}
+                {isVeryLast && (
+                  <div style={{
+                    fontSize: px(13),
+                    color: "#8E8E93",
+                    marginTop: px(2),
+                    textAlign: isSon ? "right" : "left",
+                  }}>
+                    Delivered
                   </div>
                 )}
-
-                {/* Bubble stack */}
-                <div style={{
-                  flex: 1,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: isSon ? "flex-end" : "flex-start",
-                  gap: px(sameGap),
-                }}>
-                  {group.indices.map((idx, pos) => {
-                    const msg = bubbles[idx];
-                    const isFirst = pos === 0;
-                    const isLast  = pos === group.indices.length - 1;
-                    const isVeryLast = idx === bubbles.length - 1;
-
-                    // Border radius: TL TR BR BL
-                    const r = px(R), rs = px(Rs);
-                    const borderRadius = isSon
-                      ? `${isFirst ? r : rs} ${r} ${r} ${isLast ? r : rs}`
-                      : `${r} ${isFirst ? r : rs} ${isLast ? r : rs} ${r}`;
-
-                    return (
-                      <div key={idx}>
-                        <div style={{
-                          maxWidth: px(bubbleMaxW),
-                          background: isSon ? IOS_BLUE : BUBBLE_GREY,
-                          borderRadius,
-                          padding: `${px(padV)}px ${px(padH)}px`,
-                        }}>
-                          <span style={{
-                            color: "#fff",
-                            fontSize: px(fontSize),
-                            lineHeight: 1.35,
-                            fontWeight: 400,
-                            letterSpacing: "-0.01em",
-                            display: "block",
-                          }}>
-                            {msg.text}
-                          </span>
-                        </div>
-                        {/* "Delivered" under very last message */}
-                        {isVeryLast && (
-                          <div style={{
-                            fontSize: px(11),
-                            color: "rgba(255,255,255,0.35)",
-                            marginTop: px(3),
-                            textAlign: isSon ? "right" : "left",
-                            paddingRight: isSon ? 0 : 0,
-                          }}>
-                            Delivered
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* ── Input bar ────────────────────────────────────────────────────────── */}
+      {/* ── Input bar (light, matches iSpoof) ───────────────────────────────── */}
       <div style={{
         position: "absolute",
         bottom: 0, left: 0, right: 0,
         height: px(inputBarH),
         background: NAV_BG,
-        backdropFilter: "blur(24px)",
-        borderTop: `${px(0.5)}px solid rgba(255,255,255,0.12)`,
-        display: "flex",
-        alignItems: "center",
-        paddingLeft: px(12),
-        paddingRight: px(14),
+        borderTop: `${px(0.5)}px solid #d1d1d6`,
+        display: "flex", alignItems: "center",
+        paddingLeft: px(12), paddingRight: px(14),
         gap: px(10),
       }}>
-        {/* Camera icon */}
-        <svg width={px(26)} height={px(22)} viewBox="0 0 26 22" fill="none">
-          <rect x="1" y="4" width="24" height="16" rx="4" stroke="rgba(255,255,255,0.55)" strokeWidth="1.8"/>
-          <circle cx="13" cy="12" r="4.5" stroke="rgba(255,255,255,0.55)" strokeWidth="1.8"/>
-          <path d="M9 4l1.5-3h5L17 4" stroke="rgba(255,255,255,0.55)" strokeWidth="1.8" strokeLinecap="round"/>
-        </svg>
-        {/* Apps button */}
+        {/* Camera button — iSpoof style round border */}
         <div style={{
-          width: px(30), height: px(30), borderRadius: "50%",
-          border: `${px(1.8)}px solid rgba(255,255,255,0.5)`,
+          width: px(32), height: px(32), borderRadius: "50%",
+          border: `${px(2)}px solid #8E8E93`,
           display: "flex", alignItems: "center", justifyContent: "center",
+          flexShrink: 0,
         }}>
-          <svg width={px(14)} height={px(14)} viewBox="0 0 14 14" fill="rgba(255,255,255,0.55)">
-            <circle cx="2.5" cy="2.5" r="1.5"/><circle cx="7" cy="2.5" r="1.5"/><circle cx="11.5" cy="2.5" r="1.5"/>
-            <circle cx="2.5" cy="7" r="1.5"/><circle cx="7" cy="7" r="1.5"/><circle cx="11.5" cy="7" r="1.5"/>
-            <circle cx="2.5" cy="11.5" r="1.5"/><circle cx="7" cy="11.5" r="1.5"/><circle cx="11.5" cy="11.5" r="1.5"/>
+          <svg width={px(16)} height={px(14)} viewBox="0 0 24 20" fill="none" stroke="#8E8E93" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M23 17a2 2 0 01-2 2H3a2 2 0 01-2-2V7a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+            <circle cx="12" cy="12" r="4"/>
           </svg>
         </div>
-        {/* iMessage input pill */}
+
+        {/* iMessage text input + mic (iSpoof layout) */}
         <div style={{
-          flex: 1,
-          height: px(36),
-          background: "rgba(255,255,255,0.06)",
-          border: `${px(1)}px solid rgba(255,255,255,0.18)`,
+          flex: 1, height: px(36),
+          background: "#fff",
+          border: `${px(1)}px solid #d1d1d6`,
           borderRadius: px(18),
-          display: "flex",
-          alignItems: "center",
-          paddingLeft: px(14),
-          paddingRight: px(10),
+          display: "flex", alignItems: "center",
+          paddingLeft: px(14), paddingRight: px(10),
           justifyContent: "space-between",
         }}>
-          <span style={{ color: "rgba(255,255,255,0.28)", fontSize: px(16), letterSpacing: "-0.01em" }}>iMessage</span>
-          {/* Audio waveform icon */}
-          <svg width={px(20)} height={px(16)} viewBox="0 0 20 16" fill="none">
-            {[2,5,0,8,3,8,0,5,2].map((h, i) => (
-              <rect key={i} x={i * 2.2 + 0.1} y={(8 - h) / 2} width="1.6" height={Math.max(h, 2)} rx="0.8" fill="rgba(255,255,255,0.45)"/>
-            ))}
+          <span style={{ color: "#8E8E93", fontSize: px(16) }}>iMessage</span>
+          {/* Mic waveform — iSpoof */}
+          <svg width={px(18)} height={px(18)} viewBox="0 0 24 24" fill="none" stroke="#8E8E93" strokeWidth="1.8" strokeLinecap="round">
+            <path d="M12 2a3 3 0 013 3v7a3 3 0 01-6 0V5a3 3 0 013-3z"/>
+            <path d="M19 10v2a7 7 0 01-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
           </svg>
         </div>
       </div>
