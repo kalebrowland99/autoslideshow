@@ -56,32 +56,63 @@ function momName(itemName) {
   return s.toLowerCase();
 }
 
-// 5 variants — 3-bubble conversations, all rage-bait
+// Each variant returns [{from:"mom"|"son", text}] — full conversation thread
+const M = (text) => ({ from: "mom", text });
+const S = (text) => ({ from: "son", text });
+
+// Son reply variants — reference the sold price
+const SON_REPLIES = [
+  (p) => `mom i looked it up on thrifty and you literally gave away a $${p} item`,
+  (p) => `MOM. i just checked thrifty. that was a $${p} item you gave away`,
+  (p) => `mom why would you do that, thrifty says that thing was worth $${p}`,
+  (p) => `you gave away a $${p} item mom. i looked it up on thrifty`,
+  (p) => `mom thrifty says that was $${p}. you gave away $${p}.`,
+];
+
+// Mom's comeback variants
+const MOM_COMEBACKS = [
+  "idc what thrifty says. get a real job and stop reselling things",
+  "i don't care about thrifty. get a job. stop reselling. end of conversation.",
+  "thrifty is not a job. get a real job and stop this reselling nonsense",
+  "i don't want to hear about thrifty. you need to get a job and stop this.",
+  "good. maybe that will teach you to answer your phone. also get a job.",
+];
+
 const THREAD_VARIANTS = [
-  (n) => [
-    "i called you but you didn't pick up 🙄",
-    `we seriously need to talk about your girlfriend's thrift haul videos, they are completely inappropriate and embarrassing for this family`,
-    `since you couldn't bother to answer your phone i went ahead and gave the ${n} away to another lady at the store. hope it was worth it.`,
+  (n, p, seed) => [
+    M("i called you but you didn't pick up 🙄"),
+    M(`we seriously need to talk about your girlfriend's thrift haul videos, they are completely inappropriate and embarrassing for this family`),
+    M(`since you couldn't bother to answer your phone i went ahead and gave the ${n} away to another lady at the store. hope it was worth it.`),
+    S(SON_REPLIES[(seed >>> 1) % SON_REPLIES.length](p)),
+    M(MOM_COMEBACKS[(seed >>> 4) % MOM_COMEBACKS.length]),
   ],
-  (n) => [
-    "you didn't answer so i left a voicemail but i'll say it here too",
-    `your girlfriend's thrift videos are NOT okay and the whole family agrees, it needs to stop`,
-    `also because you didn't call me back i gave your ${n} to someone else at goodwill. it's gone. call me.`,
+  (n, p, seed) => [
+    M("you didn't answer so i left a voicemail but i'll say it here too"),
+    M(`your girlfriend's thrift videos are NOT okay and the whole family agrees, it needs to stop`),
+    M(`also because you didn't call me back i gave your ${n} to someone else at goodwill. it's gone. call me.`),
+    S(SON_REPLIES[(seed >>> 1) % SON_REPLIES.length](p)),
+    M(MOM_COMEBACKS[(seed >>> 4) % MOM_COMEBACKS.length]),
   ],
-  (n) => [
-    "i called. no answer. typical.",
-    `i need you to talk to your girlfriend about her thrift haul videos — they are offensive and she will not be welcome at family events if this continues`,
-    `i waited for you to call back and you didn't so i gave the ${n} away. someone else has it now. that's on you.`,
+  (n, p, seed) => [
+    M("i called. no answer. typical."),
+    M(`i need you to talk to your girlfriend about her thrift haul videos — they are offensive and she will not be welcome at family events if this continues`),
+    M(`i waited for you to call back and you didn't so i gave the ${n} away. someone else has it now. that's on you.`),
+    S(SON_REPLIES[(seed >>> 1) % SON_REPLIES.length](p)),
+    M(MOM_COMEBACKS[(seed >>> 4) % MOM_COMEBACKS.length]),
   ],
-  (n) => [
-    "hey i called you like 3 times, you need to answer your phone",
-    `this is about [GF]'s thrift videos — the whole family has seen them and we are NOT okay with it, she needs to stop`,
-    `and since you ignored me i donated the ${n} i found for you back to goodwill. it's gone. next time answer your phone.`,
+  (n, p, seed) => [
+    M("hey i called you like 3 times, you need to answer your phone"),
+    M(`this is about your girlfriend's thrift videos — the whole family has seen them and we are NOT okay with it, she needs to stop`),
+    M(`and since you ignored me i donated the ${n} i found for you back to goodwill. it's gone. next time answer your phone.`),
+    S(SON_REPLIES[(seed >>> 1) % SON_REPLIES.length](p)),
+    M(MOM_COMEBACKS[(seed >>> 4) % MOM_COMEBACKS.length]),
   ],
-  (n) => [
-    "you didn't pick up so now i'm texting you 🙄",
-    `your girlfriend's little thrift haul videos are embarrassing and inappropriate and i need you to tell her to stop before the next family event`,
-    `i held onto that ${n} for you all day waiting for you to call back and you never did so i gave it away. gone. i hope she posts THAT in a video.`,
+  (n, p, seed) => [
+    M("you didn't pick up so now i'm texting you 🙄"),
+    M(`your girlfriend's little thrift haul videos are embarrassing and inappropriate and i need you to tell her to stop before the next family event`),
+    M(`i held onto that ${n} for you all day waiting for you to call back and you never did so i gave it away. gone. i hope she posts THAT in a video.`),
+    S(SON_REPLIES[(seed >>> 1) % SON_REPLIES.length](p)),
+    M(MOM_COMEBACKS[(seed >>> 4) % MOM_COMEBACKS.length]),
   ],
 ];
 
@@ -109,8 +140,9 @@ export default function IMessageTextSlide({ slot, S, config }) {
 
   const bubbles = useMemo(() => {
     const n = momName(slot?.itemName);
-    return THREAD_VARIANTS[(seed >>> 0) % THREAD_VARIANTS.length](n);
-  }, [seed, slot?.itemName]);
+    const p = slot?.soldPrice ? slot.soldPrice : "???";
+    return THREAD_VARIANTS[(seed >>> 0) % THREAD_VARIANTS.length](n, p, seed);
+  }, [seed, slot?.itemName, slot?.soldPrice]);
 
   const timeLabel = TIME_LABELS[(seed >>> 2) % TIME_LABELS.length];
 
@@ -232,25 +264,33 @@ export default function IMessageTextSlide({ slot, S, config }) {
         </div>
 
         {/* Bubbles */}
-        {bubbles.map((text, idx) => {
+        {bubbles.map((msg, idx) => {
+          const isSon  = msg.from === "son";
           const isLast = idx === bubbles.length - 1;
-          const isFirst = idx === 0;
-          // Tail on the last bubble only
-          const borderRadiusTL = px(isFirst ? bubbleR : bubbleRSmall);
-          const borderRadiusBL = px(isLast  ? bubbleRSmall : bubbleRSmall);
+
+          // Group-shape radius: smaller corner where bubbles from same sender chain
+          const prevSame = idx > 0 && bubbles[idx - 1].from === msg.from;
+          const nextSame = idx < bubbles.length - 1 && bubbles[idx + 1].from === msg.from;
+          const r  = px(bubbleR);
+          const rs = px(bubbleRSmall);
+
+          // TL TR BR BL
+          const borderRadius = isSon
+            ? `${prevSame ? rs : r} ${rs} ${nextSame ? rs : r} ${r}`
+            : `${rs} ${prevSame ? rs : r} ${nextSame ? rs : r} ${rs}`;
+
           return (
             <div key={idx} style={{
               display: "flex",
               flexDirection: "column",
-              alignItems: "flex-start",
+              alignItems: isSon ? "flex-end" : "flex-start",
               gap: 0,
             }}>
               <div style={{
                 maxWidth: px(bubbleMaxW),
-                background: BUBBLE_GREY,
-                borderRadius: `${borderRadiusTL} ${px(bubbleR)} ${px(bubbleR)} ${borderRadiusBL}`,
+                background: isSon ? IOS_BLUE : BUBBLE_GREY,
+                borderRadius,
                 padding: `${px(padV)}px ${px(padHoriz)}px`,
-                position: "relative",
               }}>
                 <span style={{
                   color: "#ffffff",
@@ -260,11 +300,11 @@ export default function IMessageTextSlide({ slot, S, config }) {
                   letterSpacing: "-0.01em",
                   display: "block",
                 }}>
-                  {text}
+                  {msg.text}
                 </span>
               </div>
-              {/* "Delivered" under last bubble */}
-              {isLast && (
+              {/* "Read" under the last mom bubble (last message) */}
+              {isLast && !isSon && (
                 <span style={{
                   color: "rgba(255,255,255,0.35)",
                   fontSize: px(11),
