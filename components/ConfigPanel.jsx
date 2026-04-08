@@ -437,6 +437,8 @@ ${SHARED_RULES_OUTRO}`;
         if (thread) updateSlot(index, { imessageThread: thread });
       }
     }
+    // Refresh jitter seed so every generation produces unique pixel-level layout
+    setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
     setGeneratingSlot(null);
   };
 

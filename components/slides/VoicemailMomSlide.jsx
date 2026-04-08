@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { makeJitter } from "@/lib/jitter";
 
 /**
  * iOS Phone app — Voicemail playback screen (light mode).
@@ -63,6 +64,7 @@ const CONTACT_NAMES = MOM_CONTACT_NAMES;
 
 export default function VoicemailMomSlide({ slot, S, config }) {
   const px = (n) => Math.round(n * IPHONE_SCALE * S);
+  const J  = makeJitter(config?.jitterSeed ?? 0);
 
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
@@ -89,15 +91,15 @@ export default function VoicemailMomSlide({ slot, S, config }) {
     return defaultTranscript(slot?.itemName, seed);
   }, [slot?.voicemailTranscript, slot?.itemName, slot?.spentPrice, slot?.soldPrice]);
 
-  // ── Heights (iPhone pts) ──────────────────────────────────────────────
-  const statusH  = 54;
-  const navH     = 88;
-  const metaH    = 36;
-  const scrubH   = 52;
-  const ctrlH    = 72;
-  const pillsH   = 50;
-  const pillGap  = 8;
-  const tabH     = 82;
+  // ── Heights (iPhone pts) — J(id) adds ±2pt per-generation for anti-fingerprint
+  const statusH  = 54  + J(30, 2);
+  const navH     = 88  + J(31, 2);
+  const metaH    = 36  + J(32, 1);
+  const scrubH   = 52  + J(33, 1);
+  const ctrlH    = 72  + J(34, 2);
+  const pillsH   = 50  + J(35, 1);
+  const pillGap  = 8   + J(36, 1);
+  const tabH     = 82  + J(37, 2);
 
   // Total fixed = statusH + navH + metaH + scrubH + ctrlH + pillsH + tabH
   const fixedPt = statusH + navH + metaH + scrubH + ctrlH + pillsH + tabH;

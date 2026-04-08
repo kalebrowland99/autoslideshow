@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { makeJitter } from "@/lib/jitter";
 
 /**
  * iOS iMessage long-press screenshot — dark mode.
@@ -166,6 +167,7 @@ const TAPBACK_ITEMS = [
 export default function IMessageMomSlide({ slot, S, config }) {
   // px() converts iPhone pts → canvas pixels
   const px = (n) => Math.round(n * IPHONE_SCALE * S);
+  const J  = makeJitter(config?.jitterSeed ?? 0);
 
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
@@ -177,16 +179,16 @@ export default function IMessageMomSlide({ slot, S, config }) {
   /** Which tapback gets the blue circle — any of the 6, changes per slot/seed. */
   const selectedTapback = useMemo(() => seed % TAPBACK_ITEMS.length, [seed]);
 
-  // ── Layout constants (all in iPhone pts) ──────────────────────────────
-  const padX       = 14;   // horizontal padding (pts)
-  const padTop     = 24;   // top padding
-  const padBottom  = 18;   // bottom padding
-  const gapAfterTb = 10;   // gap between tapback and image
-  const gapAfterImg = 10;  // gap between image and menu
-  const tbH        = 46;   // tapback pill height
-  const menuRowH   = 54;   // each menu row height
+  // ── Layout constants (all in iPhone pts) — J(id) = ±Npt per generation ──
+  const padX       = 14   + J(50, 2);
+  const padTop     = 24   + J(51, 2);
+  const padBottom  = 18   + J(52, 2);
+  const gapAfterTb = 10   + J(53, 1);
+  const gapAfterImg = 10  + J(54, 1);
+  const tbH        = 46   + J(55, 1);
+  const menuRowH   = 54   + J(56, 1);
   const menuH      = MENU_ROWS.length * menuRowH;
-  const menuRadius = 14;
+  const menuRadius = 14   + J(57, 1);
 
   const totalPt = H / (IPHONE_SCALE * S);
   const imgH_pt = totalPt - padTop - tbH - gapAfterTb - gapAfterImg - menuH - padBottom;

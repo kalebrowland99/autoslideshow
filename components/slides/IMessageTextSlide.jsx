@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { makeJitter } from "@/lib/jitter";
 
 /**
  * iOS Messages dark-mode chat screenshot.
@@ -111,6 +112,7 @@ const TIME_LABELS = [
 
 export default function IMessageTextSlide({ slot, S, config }) {
   const px = (n) => Math.round(n * IPHONE_SCALE * S);
+  const J  = makeJitter(config?.jitterSeed ?? 0);
 
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
@@ -141,20 +143,21 @@ export default function IMessageTextSlide({ slot, S, config }) {
   const avatarLetter = shortName[0]?.toUpperCase() ?? "M";
 
   // ── Layout (all in iPhone pts, matching iSpoof) ───────────────────────────
-  const statusH    = 50;
-  const islandH    = 37;   // dynamic island height
-  const navH       = 82;
-  const inputBarH  = 82;
-  const avatarSz   = 40;   // iSpoof: contact-photo 40px
-  const avatarGap  = 8;
-  const leftPad    = 12;
-  const rightPad   = 12;
-  const bubbleMaxW = 255;  // iSpoof: max-width 255px
-  const fontSize   = 17;   // iSpoof: 17px
-  const padV       = 8;    // iSpoof: padding 8px 14px
-  const padH       = 14;
-  const sameGap    = 4;
-  const turnGap    = 16;
+  // J(id, maxPt) adds ±maxPt pt per-generation so each export is pixel-unique
+  const statusH    = 50   + J(10, 2);
+  const islandH    = 37;
+  const navH       = 82   + J(11, 2);
+  const inputBarH  = 82   + J(12, 2);
+  const avatarSz   = 40   + J(13, 1);
+  const avatarGap  = 8    + J(14, 1);
+  const leftPad    = 12   + J(15, 2);
+  const rightPad   = 12   + J(16, 2);
+  const bubbleMaxW = 255  + J(17, 3);
+  const fontSize   = 17   + J(18, 1);
+  const padV       = 8    + J(19, 1);
+  const padH       = 14   + J(20, 1);
+  const sameGap    = 4    + J(21, 1);
+  const turnGap    = 16   + J(22, 2);
 
   return (
     <div style={{

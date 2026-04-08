@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { makeJitter } from "@/lib/jitter";
 import { tiktokCaptionTextStyle, tickerBoxCaptionTextStyle, captionWrapperStyle } from "@/lib/captionStyles";
 import { captionFontSize1080 } from "@/lib/captionFontSize";
 
@@ -111,11 +112,13 @@ export default function ThriftySlide({ slot, S, config = {} }) {
   );
 
   // Per-mount jitter + tilt (stable per render, dodges TikTok pattern detection)
+  // makeJitter adds a per-generation layer on top of the content-based jitter
+  const J = makeJitter(config.jitterSeed ?? 0);
   const captionJitter = useMemo(() => ({
-    x:   Math.round((rand(seed + 20) - 0.5) * 16 * S),
-    y:   Math.round((rand(seed + 21) - 0.5) * 16 * S),
-    rot: ((rand(seed + 22) - 0.5) * 4).toFixed(2), // ±2 degrees
-  }), [seed, S]);
+    x:   Math.round((rand(seed + 20) - 0.5) * 16 * S) + J(70, 3),
+    y:   Math.round((rand(seed + 21) - 0.5) * 16 * S) + J(71, 3),
+    rot: (((rand(seed + 22) - 0.5) * 4) + J(72, 1) * 0.3).toFixed(2),
+  }), [seed, S, config.jitterSeed]);
 
   // Random safe zones — avoids logo (H×0.05-0.18) and price card (H×0.38-0.54)
   // Max zone capped so caption box never overflows the bottom edge
