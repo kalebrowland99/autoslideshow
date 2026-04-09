@@ -456,6 +456,45 @@ ${SHARED_RULES_OUTRO}`;
     } catch { return null; }
   };
 
+  const generateStarterPackText = async () => {
+    try {
+      const res = await fetch("/api/generate-text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "starterPackThrifting" }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const headline = typeof data.headline === "string" ? data.headline : "";
+      const items = Array.isArray(data.items) ? data.items : [];
+      if (!headline || items.length !== 3) return null;
+      return { headline, items };
+    } catch { return null; }
+  };
+
+  const ensureStarterPackAutofill = async () => {
+    const headlineEmpty = !(config.starterPackHeadline ?? "").trim();
+    const slot0 = (config.slots?.[0]?.itemName ?? "").trim();
+    const slot1 = (config.slots?.[1]?.itemName ?? "").trim();
+    const slot2 = (config.slots?.[2]?.itemName ?? "").trim();
+    const allDefaultOrEmpty =
+      (!slot0 || /^item\s+\d+$/i.test(slot0)) &&
+      (!slot1 || /^item\s+\d+$/i.test(slot1)) &&
+      (!slot2 || /^item\s+\d+$/i.test(slot2));
+
+    if (!headlineEmpty && !allDefaultOrEmpty) return;
+
+    const sp = await generateStarterPackText();
+    if (!sp) return;
+
+    if (headlineEmpty) updateConfig("starterPackHeadline", sp.headline);
+    if (allDefaultOrEmpty) {
+      updateSlot(0, { itemName: sp.items[0] });
+      updateSlot(1, { itemName: sp.items[1] });
+      updateSlot(2, { itemName: sp.items[2] });
+    }
+  };
+
   // ── GPT-4 Vision: generate item title from image ──
   // ── Grail Identifier: returns { title, price } from image ───────────────────
   const autoTitleFromImage = async (imageUrl) => {
@@ -710,6 +749,12 @@ ${SHARED_RULES_OUTRO}`;
     setIsExporting(true);
     setExportProgress(0);
     setExportStatus("Capturing slides…");
+
+    if ((config.outputFormat ?? "standard") === "starterPack") {
+      setExportStatus("Generating starter pack text…");
+      await ensureStarterPackAutofill();
+      setExportStatus("Capturing slides…");
+    }
 
     const allSlideFrames = [];
     const previewNode = getCaptureNode();
@@ -1007,6 +1052,10 @@ ${SHARED_RULES_OUTRO}`;
     setIsExporting(true);
     setExportProgress(20);
     try {
+      if ((config.outputFormat ?? "standard") === "starterPack") {
+        setExportStatus("Generating starter pack text…");
+        await ensureStarterPackAutofill();
+      }
       const fontEmbedCSS = await getFontEmbedCSS(el);
       const capInfo = getSlideInfo(config, currentSlide);
       const capBg =
@@ -1045,6 +1094,12 @@ ${SHARED_RULES_OUTRO}`;
     setIsExporting(true);
     setExportProgress(0);
     setExportStatus("Capturing slides…");
+
+    if ((config.outputFormat ?? "standard") === "starterPack") {
+      setExportStatus("Generating starter pack text…");
+      await ensureStarterPackAutofill();
+      setExportStatus("Capturing slides…");
+    }
 
     const previewNode = getCaptureNode();
     const fontEmbedCSS = previewNode ? await getFontEmbedCSS(previewNode) : undefined;
@@ -1172,6 +1227,22 @@ ${SHARED_RULES_OUTRO}`;
               Headline stays static. Each of the 3 items + Thrifty dissolves in over 5 seconds.
               Use the image slots below to generate/upload photos for items 1–3.
             </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsExporting(true);
+                  setExportStatus("Generating starter pack text…");
+                  await ensureStarterPackAutofill();
+                  setIsExporting(false);
+                  setExportStatus("");
+                }}
+                className="px-2.5 py-1.5 rounded-lg bg-violet-500/20 hover:bg-violet-500/30 border border-violet-500/40 text-white text-[11px] font-semibold"
+              >
+                Auto-generate text (AI)
+              </button>
+              <span className="text-white/30 text-[10px]">Fills headline + card titles only if they’re blank/default.</span>
+            </div>
             {/* Headline */}
             <label className="text-white/50 text-[10px] font-semibold">Headline text</label>
             <textarea
