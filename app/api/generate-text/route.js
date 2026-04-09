@@ -76,6 +76,10 @@ Output rules:
   - Each should be a concrete thrifting struggle visual (object or scene)
   - Avoid brand names; keep generic.
 
+Hard rule:
+- The 2nd tile (items[1]) MUST be a \"grey hat / black hat\" thrifting controversy (short label).
+  Examples: \"switching tags\", \"swiping buggies\", \"cart snatching\", \"tag swapping\", \"hiding finds\".
+
 Return JSON shape exactly:
 {"headline":"...","items":["...","...","..."]}`;
 

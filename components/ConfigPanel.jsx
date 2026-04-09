@@ -514,17 +514,20 @@ ${SHARED_RULES_OUTRO}`;
       (!slot1 || /^item\s+\d+$/i.test(slot1)) &&
       (!slot2 || /^item\s+\d+$/i.test(slot2));
 
-    if (!headlineEmpty && !allDefaultOrEmpty) return;
+    // If headline is filled but slot 2 isn't \"grey/black hat\" themed yet, we still want to enforce it.
+    const slot1IsDefaultOrEmpty = (!slot1 || /^item\s+\d+$/i.test(slot1));
+    const slot1LooksGreyHat = /\b(tag|tags|swap|swapp|switch|switching|snatch|snatching|steal|stealing|swipe|swiping|buggy|cart|carts|hide|hiding)\b/i.test(slot1);
+    const enforceGreyHat = slot1IsDefaultOrEmpty || !slot1LooksGreyHat;
+
+    if (!headlineEmpty && !allDefaultOrEmpty && !enforceGreyHat) return;
 
     const sp = await generateStarterPackText();
     if (!sp) return;
 
     if (headlineEmpty) updateConfig("starterPackHeadline", sp.headline);
-    if (allDefaultOrEmpty) {
-      updateSlot(0, { itemName: sp.items[0] });
-      updateSlot(1, { itemName: sp.items[1] });
-      updateSlot(2, { itemName: sp.items[2] });
-    }
+    if (allDefaultOrEmpty) updateSlot(0, { itemName: sp.items[0] });
+    if (allDefaultOrEmpty || enforceGreyHat) updateSlot(1, { itemName: sp.items[1] });
+    if (allDefaultOrEmpty) updateSlot(2, { itemName: sp.items[2] });
   };
 
   const ensureStarterPackImages = async () => {
