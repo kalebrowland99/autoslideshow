@@ -506,26 +506,29 @@ ${SHARED_RULES_OUTRO}`;
   };
 
   // Always regenerates fresh headline + titles + image prompts every call.
-  // Wipes existing slot images so new ones get generated to match.
+  // Returns the sp data so callers can pass prompts directly to ensureStarterPackImages.
   const ensureStarterPackAutofill = async () => {
     const sp = await generateStarterPackText();
-    if (!sp) return;
+    if (!sp) return null;
 
     updateConfig("starterPackHeadline", sp.headline);
     for (let i = 0; i < 3; i++) {
       updateSlot(i, {
         itemName: sp.items[i] ?? "",
         prompt: sp.imagePrompts[i] ?? sp.items[i] ?? "",
-        imageUrl: null, // wipe old image so new one generates
+        imageUrl: null,
       });
     }
+    return sp;
   };
 
-  const ensureStarterPackImages = async () => {
-    // Always regenerate all 3 images (slots were cleared by ensureStarterPackAutofill)
+  // Accepts explicit prompts array to avoid reading stale React state.
+  // Falls back to reading config.slots if prompts not provided.
+  const ensureStarterPackImages = async (prompts) => {
     for (let i = 0; i < 3; i++) {
-      const s = config.slots?.[i];
-      const p = (s?.prompt ?? "").trim() || (s?.itemName ?? "").trim();
+      const p = (prompts?.[i] ?? "").trim()
+        || (config.slots?.[i]?.prompt ?? "").trim()
+        || (config.slots?.[i]?.itemName ?? "").trim();
       if (!p) continue;
       setExportStatus(`Generating starter pack image ${i + 1}/3…`);
       const url = await generateImage(i, p, null);
@@ -792,13 +795,11 @@ ${SHARED_RULES_OUTRO}`;
 
     if ((config.outputFormat ?? "standard") === "starterPack") {
       setExportStatus("Generating starter pack text…");
-      await ensureStarterPackAutofill();
+      const sp = await ensureStarterPackAutofill();
       setExportStatus("Generating starter pack images…");
-      await ensureStarterPackImages();
+      await ensureStarterPackImages(sp?.imagePrompts ?? sp?.items);
       setExportStatus("Capturing slides…");
     }
-    // (removed POV format; starterPack covers POV vibe now)
-      // (removed POV format)
 
     const allSlideFrames = [];
     const previewNode = getCaptureNode();
@@ -1098,11 +1099,10 @@ ${SHARED_RULES_OUTRO}`;
     try {
       if ((config.outputFormat ?? "standard") === "starterPack") {
         setExportStatus("Generating starter pack text…");
-        await ensureStarterPackAutofill();
+        const sp = await ensureStarterPackAutofill();
         setExportStatus("Generating starter pack images…");
-        await ensureStarterPackImages();
+        await ensureStarterPackImages(sp?.imagePrompts ?? sp?.items);
       }
-      // (removed POV format)
       const fontEmbedCSS = await getFontEmbedCSS(el);
       const capInfo = getSlideInfo(config, currentSlide);
       const capBg =
@@ -1144,9 +1144,9 @@ ${SHARED_RULES_OUTRO}`;
 
     if ((config.outputFormat ?? "standard") === "starterPack") {
       setExportStatus("Generating starter pack text…");
-      await ensureStarterPackAutofill();
+      const sp = await ensureStarterPackAutofill();
       setExportStatus("Generating starter pack images…");
-      await ensureStarterPackImages();
+      await ensureStarterPackImages(sp?.imagePrompts ?? sp?.items);
       setExportStatus("Capturing slides…");
     }
 
@@ -1282,15 +1282,17 @@ ${SHARED_RULES_OUTRO}`;
                 onClick={async () => {
                   setIsExporting(true);
                   setExportStatus("Generating starter pack text…");
-                  await ensureStarterPackAutofill();
+                  const sp = await ensureStarterPackAutofill();
+                  setExportStatus("Generating starter pack images…");
+                  await ensureStarterPackImages(sp?.imagePrompts ?? sp?.items);
                   setIsExporting(false);
                   setExportStatus("");
                 }}
                 className="px-2.5 py-1.5 rounded-lg bg-violet-500/20 hover:bg-violet-500/30 border border-violet-500/40 text-white text-[11px] font-semibold"
               >
-                Auto-generate text (AI)
+                Auto-generate (AI)
               </button>
-              <span className="text-white/30 text-[10px]">Fills headline + card titles only if they’re blank/default.</span>
+              <span className="text-white/30 text-[10px]">Generates a fresh headline, titles, and card images every time.</span>
             </div>
             {/* Headline */}
             <label className="text-white/50 text-[10px] font-semibold">Headline text</label>
