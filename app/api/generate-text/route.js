@@ -60,28 +60,50 @@ Rules:
   }
 
   if (type === "starterPackThrifting") {
-    const prompt = `Generate a \"starter pack\" for: \"pov: you thrift full time\".
+    // Rotate through different angles each call for variety
+    const ANGLES = [
+      "the physical struggle (bins, lines, bin diving, sweat, dust, mask smell)",
+      "the reseller grind (packaging, depop notifications, price research, post office runs)",
+      "the goodwill politics (cart drama, hostile stares, rack hogging, donation drop-off chaos)",
+      "the thrift haul aftermath (washing everything, smell, piles on floor, storage overflow)",
+      "the thrifter identity (being misunderstood, explaining reselling, flex vs. necessity)",
+    ];
+    const randomAngle = ANGLES[Math.floor(Math.random() * ANGLES.length)];
 
-Goal:
-- \"Rage bait\" / debate bait that young thrifters relate to (Gen Z / young millennials)
-- No hate, no slurs, no protected-class targeting
-- Don't mention Google Lens (the app already does that)
-- Keep it about thrift culture + struggles: germ-x/sanitizer, masks, goodwill bins, lining up, chaotic carts, depop sales/orders, shipping labels, price tag drama, etc.
+    const GREY_HAT_POOL = [
+      "switching tags", "swiping buggies", "cart snatching", "hiding finds",
+      "tag swapping", "rack squatting", "price sticker swap", "holding racks hostage",
+      "stealing from carts", "covering finds", "faking condition tags",
+    ];
+    const greyHatExample = GREY_HAT_POOL[Math.floor(Math.random() * GREY_HAT_POOL.length)];
 
-Output rules:
-- Return ONLY JSON, no markdown.
-- Headline: 1–2 lines max, all lowercase, punchy, MUST start with \"pov:\" or \"pov\".
-- Exactly 3 tiles:
-  - Each label is 1–3 words (short card header)
-  - Each should be a concrete thrifting struggle visual (object or scene)
-  - Avoid brand names; keep generic.
+    const prompt = `You are generating a viral TikTok \"starter pack\" slide for full-time thrifters.
 
-Hard rule:
-- The 2nd tile (items[1]) MUST be a \"grey hat / black hat\" thrifting controversy (short label).
-  Examples: \"switching tags\", \"swiping buggies\", \"cart snatching\", \"tag swapping\", \"hiding finds\".
+Theme angle this time: ${randomAngle}
 
-Return JSON shape exactly:
-{"headline":"...","items":["...","...","..."]}`;
+Rules:
+- Audience: Gen Z / young millennial thrifters who resell on depop/poshmark
+- Tone: relatable, slightly controversial, debate-bait — NOT hateful or discriminatory
+- Do NOT mention Google Lens, do NOT mention any real brand names
+- Return ONLY raw JSON — no markdown, no extra text
+
+Output:
+1. headline — all lowercase, 1–2 punchy lines, must start with "pov:" or reference the thrift life POV
+2. Three tiles — each has:
+   - label: 1–3 words, short card header matching the theme angle
+   - imagePrompt: one sentence for a realistic iPhone photo of that exact subject (no text, no people in foreground, 9:16 portrait)
+
+Hard rule: tiles[1].label MUST be a grey-hat/black-hat thrift controversy this generation's pick: "${greyHatExample}" or a creative variation of it.
+
+Return this exact JSON shape:
+{
+  "headline": "...",
+  "tiles": [
+    {"label": "...", "imagePrompt": "..."},
+    {"label": "...", "imagePrompt": "..."},
+    {"label": "...", "imagePrompt": "..."}
+  ]
+}`;
 
     try {
       const res = await fetch(OPENAI_CHAT, {
@@ -89,8 +111,8 @@ Return JSON shape exactly:
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: "gpt-4o-mini",
-          temperature: 1.1,
-          max_tokens: 220,
+          temperature: 1.2,
+          max_tokens: 320,
           messages: [{ role: "user", content: prompt }],
         }),
       });
@@ -99,14 +121,23 @@ Return JSON shape exactly:
       const raw = data.choices?.[0]?.message?.content?.trim() ?? "";
       const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
       const out = JSON.parse(cleaned);
+
       const headline = String(out?.headline ?? "").trim();
-      const items = Array.isArray(out?.items) ? out.items.map((s) => String(s ?? "").trim()).filter(Boolean) : [];
+      const tilesRaw = Array.isArray(out?.tiles) ? out.tiles : [];
 
-      if (!headline || items.length !== 3) throw new Error("Unexpected starter pack format");
+      // Fallback: also accept old flat items[] shape
+      if ((!tilesRaw.length) && Array.isArray(out?.items)) {
+        const items = out.items.map((s) => String(s ?? "").trim()).filter(Boolean);
+        if (!headline || items.length !== 3) throw new Error("Unexpected starter pack format");
+        return NextResponse.json({ headline, items: items.map((s) => s.slice(0, 28)), imagePrompts: [] });
+      }
 
-      // Trim to keep card headers short and safe
-      const clippedItems = items.map((s) => s.slice(0, 28));
-      return NextResponse.json({ headline, items: clippedItems });
+      if (!headline || tilesRaw.length !== 3) throw new Error("Unexpected starter pack format");
+
+      const items = tilesRaw.map((t) => String(t?.label ?? "").trim().slice(0, 28));
+      const imagePrompts = tilesRaw.map((t) => String(t?.imagePrompt ?? "").trim().slice(0, 300));
+
+      return NextResponse.json({ headline, items, imagePrompts });
     } catch (e) {
       console.error("generate-text error:", e);
       return NextResponse.json({ error: String(e) }, { status: 500 });

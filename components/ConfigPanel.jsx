@@ -499,52 +499,35 @@ ${SHARED_RULES_OUTRO}`;
       const data = await res.json();
       const headline = typeof data.headline === "string" ? data.headline : "";
       const items = Array.isArray(data.items) ? data.items : [];
+      const imagePrompts = Array.isArray(data.imagePrompts) ? data.imagePrompts : [];
       if (!headline || items.length !== 3) return null;
-      return { headline, items };
+      return { headline, items, imagePrompts };
     } catch { return null; }
   };
 
+  // Always regenerates fresh headline + titles + image prompts every call.
+  // Wipes existing slot images so new ones get generated to match.
   const ensureStarterPackAutofill = async () => {
-    const headlineEmpty = !(config.starterPackHeadline ?? "").trim();
-    const slot0 = (config.slots?.[0]?.itemName ?? "").trim();
-    const slot1 = (config.slots?.[1]?.itemName ?? "").trim();
-    const slot2 = (config.slots?.[2]?.itemName ?? "").trim();
-    const allDefaultOrEmpty =
-      (!slot0 || /^item\s+\d+$/i.test(slot0)) &&
-      (!slot1 || /^item\s+\d+$/i.test(slot1)) &&
-      (!slot2 || /^item\s+\d+$/i.test(slot2));
-
-    // If headline is filled but slot 2 isn't \"grey/black hat\" themed yet, we still want to enforce it.
-    const slot1IsDefaultOrEmpty = (!slot1 || /^item\s+\d+$/i.test(slot1));
-    const slot1LooksGreyHat = /\b(tag|tags|swap|swapp|switch|switching|snatch|snatching|steal|stealing|swipe|swiping|buggy|cart|carts|hide|hiding)\b/i.test(slot1);
-    const enforceGreyHat = slot1IsDefaultOrEmpty || !slot1LooksGreyHat;
-
-    if (!headlineEmpty && !allDefaultOrEmpty && !enforceGreyHat) return;
-
     const sp = await generateStarterPackText();
     if (!sp) return;
 
-    if (headlineEmpty) updateConfig("starterPackHeadline", sp.headline);
-    if (allDefaultOrEmpty) updateSlot(0, { itemName: sp.items[0] });
-    if (allDefaultOrEmpty || enforceGreyHat) updateSlot(1, { itemName: sp.items[1] });
-    if (allDefaultOrEmpty) updateSlot(2, { itemName: sp.items[2] });
+    updateConfig("starterPackHeadline", sp.headline);
+    for (let i = 0; i < 3; i++) {
+      updateSlot(i, {
+        itemName: sp.items[i] ?? "",
+        prompt: sp.imagePrompts[i] ?? sp.items[i] ?? "",
+        imageUrl: null, // wipe old image so new one generates
+      });
+    }
   };
 
   const ensureStarterPackImages = async () => {
-    // For starter pack, generate missing images from slot prompts / names (non-apparel scenes)
-    const missing = [0, 1, 2].filter((i) => {
+    // Always regenerate all 3 images (slots were cleared by ensureStarterPackAutofill)
+    for (let i = 0; i < 3; i++) {
       const s = config.slots?.[i];
-      return s && !s.imageUrl;
-    });
-    const total = missing.length || 0;
-
-    for (let mi = 0; mi < missing.length; mi++) {
-      const i = missing[mi];
-      const s = config.slots?.[i];
-      if (!s || s.imageUrl) continue;
-      const p = (s.prompt ?? "").trim() || (s.itemName ?? "").trim();
+      const p = (s?.prompt ?? "").trim() || (s?.itemName ?? "").trim();
       if (!p) continue;
-      setExportStatus(`Generating starter pack image ${mi + 1}/${total}…`);
+      setExportStatus(`Generating starter pack image ${i + 1}/3…`);
       const url = await generateImage(i, p, null);
       if (url) updateSlot(i, { imageUrl: url });
     }
