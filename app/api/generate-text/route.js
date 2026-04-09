@@ -60,40 +60,49 @@ Rules:
   }
 
   if (type === "starterPackThrifting") {
-    // Rotate through different angles each call for variety
-    const ANGLES = [
-      "the physical struggle (bins, lines, bin diving, sweat, dust, mask smell)",
-      "the reseller grind (packaging, depop notifications, price research, post office runs)",
-      "the goodwill politics (cart drama, hostile stares, rack hogging, donation drop-off chaos)",
-      "the thrift haul aftermath (washing everything, smell, piles on floor, storage overflow)",
-      "the thrifter identity (being misunderstood, explaining reselling, flex vs. necessity)",
+    // Wide variety of thrift starter pack themes — pick one randomly each call
+    const PACKS = [
+      { headline: "pov: you thrift full time", angle: "the physical grind — bins, lines, dust, germ-x, masks, sweaty hauls" },
+      { headline: "pov: you're a goodwill hunter", angle: "dedicated goodwill shopper — cart fills, rack digs, color-tag days, donation truck" },
+      { headline: "pov: you resell thrift finds", angle: "the depop/poshmark reseller hustle — packaging tape, shipping labels, post office, price research" },
+      { headline: "pov: you scored a thrift grail", angle: "finding an incredible rare piece — the moment of discovery, the price tag, the haul photo" },
+      { headline: "pov: you're a thrift flipper", angle: "buying cheap, selling high — thrift rack, wash pile, photoshoot setup, listing app" },
+      { headline: "pov: you run thrift haul TikToks", angle: "filming thrift content — ring light, haul spread on bed, comment section chaos, viral sound" },
+      { headline: "pov: you only wear thrifted clothes", angle: "full thrifted wardrobe lifestyle — layered fits, unique pieces, people asking where you got it" },
+      { headline: "pov: goodwill bins is your gym", angle: "the bins experience — elbow fights, dive posture, gloves, treasure pile on the side" },
+      { headline: "pov: thrifting is a personality trait", angle: "thrift as identity — tote bag, vintage everything, explaining it to non-thrifters, the flex" },
+      { headline: "pov: you thrift before anyone else wakes up", angle: "early morning thrifter — empty parking lot, first through the door, fresh rack" },
     ];
-    const randomAngle = ANGLES[Math.floor(Math.random() * ANGLES.length)];
+
+    const pack = PACKS[Math.floor(Math.random() * PACKS.length)];
 
     const GREY_HAT_POOL = [
       "switching tags", "swiping buggies", "cart snatching", "hiding finds",
       "tag swapping", "rack squatting", "price sticker swap", "holding racks hostage",
-      "stealing from carts", "covering finds", "faking condition tags",
+      "stealing from carts", "covering finds", "stacking carts", "faking condition tags",
+      "hiding under racks", "digging in donated bags", "price-tag peeling",
     ];
     const greyHatExample = GREY_HAT_POOL[Math.floor(Math.random() * GREY_HAT_POOL.length)];
 
-    const prompt = `You are generating a viral TikTok \"starter pack\" slide for full-time thrifters.
+    const prompt = `You are generating a viral TikTok thrift starter pack slide.
 
-Theme angle this time: ${randomAngle}
+Pack concept: "${pack.headline}"
+Theme angle: ${pack.angle}
 
 Rules:
-- Audience: Gen Z / young millennial thrifters who resell on depop/poshmark
+- Audience: Gen Z / young millennial thrifters
 - Tone: relatable, slightly controversial, debate-bait — NOT hateful or discriminatory
-- Do NOT mention Google Lens, do NOT mention any real brand names
+- Do NOT mention Google Lens, do NOT mention any specific brand names
+- Keep it about thrift culture — realistic, visual, recognizable
 - Return ONLY raw JSON — no markdown, no extra text
 
 Output:
-1. headline — all lowercase, 1–2 punchy lines, must start with "pov:" or reference the thrift life POV
+1. headline — all lowercase, 1–2 punchy lines, creative variation of "${pack.headline}" (don't copy it word for word every time)
 2. Three tiles — each has:
-   - label: 1–3 words, short card header matching the theme angle
-   - imagePrompt: one sentence for a realistic iPhone photo of that exact subject (no text, no people in foreground, 9:16 portrait)
+   - label: 1–3 words, short card header that fits the theme angle and is visually distinct
+   - imagePrompt: one sentence for a realistic iPhone candid photo of that exact subject (no text overlays, no people in foreground, 9:16 portrait orientation)
 
-Hard rule: tiles[1].label MUST be a grey-hat/black-hat thrift controversy this generation's pick: "${greyHatExample}" or a creative variation of it.
+Hard rule: tiles[1].label MUST be a grey-hat / black-hat thrifting controversy — this time inspired by: "${greyHatExample}". Be creative, keep it 1–3 words.
 
 Return this exact JSON shape:
 {
