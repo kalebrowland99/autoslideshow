@@ -60,21 +60,19 @@ Rules:
   }
 
   if (type === "starterPackThrifting") {
-    // Wide variety of thrift starter pack themes — pick one randomly each call
-    const PACKS = [
-      { headline: "pov: you thrift full time", angle: "the physical grind — bins, lines, dust, germ-x, masks, sweaty hauls" },
-      { headline: "pov: you're a goodwill hunter", angle: "dedicated goodwill shopper — cart fills, rack digs, color-tag days, donation truck" },
-      { headline: "pov: you resell thrift finds", angle: "the depop/poshmark reseller hustle — packaging tape, shipping labels, post office, price research" },
-      { headline: "pov: you scored a thrift grail", angle: "finding an incredible rare piece — the moment of discovery, the price tag, the haul photo" },
-      { headline: "pov: you're a thrift flipper", angle: "buying cheap, selling high — thrift rack, wash pile, photoshoot setup, listing app" },
-      { headline: "pov: you run thrift haul TikToks", angle: "filming thrift content — ring light, haul spread on bed, comment section chaos, viral sound" },
-      { headline: "pov: you only wear thrifted clothes", angle: "full thrifted wardrobe lifestyle — layered fits, unique pieces, people asking where you got it" },
-      { headline: "pov: goodwill bins is your gym", angle: "the bins experience — elbow fights, dive posture, gloves, treasure pile on the side" },
-      { headline: "pov: thrifting is a personality trait", angle: "thrift as identity — tote bag, vintage everything, explaining it to non-thrifters, the flex" },
-      { headline: "pov: you thrift before anyone else wakes up", angle: "early morning thrifter — empty parking lot, first through the door, fresh rack" },
+    // Always "pov: you thrift full time" — vary the wording slightly each time
+    const HEADLINE_VARIANTS = [
+      "pov: you thrift full time",
+      "pov: thrifting is literally your job",
+      "pov: thrift is your full-time grind",
+      "pov: you live at the thrift store",
+      "pov: you wake up and go thrift",
+      "pov: thrifting is your whole personality",
     ];
-
-    const pack = PACKS[Math.floor(Math.random() * PACKS.length)];
+    const pack = {
+      headline: HEADLINE_VARIANTS[Math.floor(Math.random() * HEADLINE_VARIANTS.length)],
+      angle: "full-time thrifter struggles and culture — bins, germ-x, masks, cart drama, price tags, haul piles, depop orders, post office runs",
+    };
 
     const GREY_HAT_POOL = [
       "switching tags", "swiping buggies", "cart snatching", "hiding finds",
@@ -103,18 +101,17 @@ Label rules (CRITICAL — read carefully):
 - Good examples: "germ-x bottle", "the bins smell", "cart diving", "depop notification", "post office run", "price tag drama", "donation pile", "bin gloves", "haul spread", "shipping tape"
 
 Output:
-1. headline — all lowercase, 1–2 punchy lines, creative variation of "${pack.headline}" (slight rewording each time, don't copy word for word)
-2. Three tiles — each has:
+1. headline — all lowercase, 1–2 punchy lines, creative variation of "${pack.headline}" (slight rewording each time)
+2. Exactly TWO tiles — each has:
    - label: 1–3 words, a SPECIFIC concrete thrift object or action (follow label rules above)
    - imagePrompt: one sentence for a realistic iPhone candid photo of exactly that label subject (no text overlays, no people in foreground, 9:16 portrait)
 
 Hard rule: tiles[1].label MUST be a grey-hat / black-hat thrifting controversy inspired by: "${greyHatExample}". Keep it 1–3 words, specific and concrete (e.g. "tag switching", "cart snatching").
 
-Return this exact JSON shape:
+Return this exact JSON shape (exactly 2 tiles, no more):
 {
   "headline": "...",
   "tiles": [
-    {"label": "...", "imagePrompt": "..."},
     {"label": "...", "imagePrompt": "..."},
     {"label": "...", "imagePrompt": "..."}
   ]
@@ -140,17 +137,11 @@ Return this exact JSON shape:
       const headline = String(out?.headline ?? "").trim();
       const tilesRaw = Array.isArray(out?.tiles) ? out.tiles : [];
 
-      // Fallback: also accept old flat items[] shape
-      if ((!tilesRaw.length) && Array.isArray(out?.items)) {
-        const items = out.items.map((s) => String(s ?? "").trim()).filter(Boolean);
-        if (!headline || items.length !== 3) throw new Error("Unexpected starter pack format");
-        return NextResponse.json({ headline, items: items.map((s) => s.slice(0, 28)), imagePrompts: [] });
-      }
+      if (!headline || tilesRaw.length < 2) throw new Error("Unexpected starter pack format");
 
-      if (!headline || tilesRaw.length !== 3) throw new Error("Unexpected starter pack format");
-
-      const items = tilesRaw.map((t) => String(t?.label ?? "").trim().slice(0, 28));
-      const imagePrompts = tilesRaw.map((t) => String(t?.imagePrompt ?? "").trim().slice(0, 300));
+      // Take exactly 2 tiles
+      const items = tilesRaw.slice(0, 2).map((t) => String(t?.label ?? "").trim().slice(0, 28));
+      const imagePrompts = tilesRaw.slice(0, 2).map((t) => String(t?.imagePrompt ?? "").trim().slice(0, 300));
 
       return NextResponse.json({ headline, items, imagePrompts });
     } catch (e) {

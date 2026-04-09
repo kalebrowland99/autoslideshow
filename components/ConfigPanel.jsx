@@ -512,7 +512,8 @@ ${SHARED_RULES_OUTRO}`;
     if (!sp) return null;
 
     updateConfig("starterPackHeadline", sp.headline);
-    for (let i = 0; i < 3; i++) {
+    // Only 2 AI slots; lily claire + Thrifty are fixed in the slide component
+    for (let i = 0; i < 2; i++) {
       updateSlot(i, {
         itemName: sp.items[i] ?? "",
         prompt: sp.imagePrompts[i] ?? sp.items[i] ?? "",
@@ -525,12 +526,12 @@ ${SHARED_RULES_OUTRO}`;
   // Accepts explicit prompts array to avoid reading stale React state.
   // Falls back to reading config.slots if prompts not provided.
   const ensureStarterPackImages = async (prompts) => {
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 2; i++) {
       const p = (prompts?.[i] ?? "").trim()
         || (config.slots?.[i]?.prompt ?? "").trim()
         || (config.slots?.[i]?.itemName ?? "").trim();
       if (!p) continue;
-      setExportStatus(`Generating starter pack image ${i + 1}/3…`);
+      setExportStatus(`Generating starter pack image ${i + 1}/2…`);
       const url = await generateImage(i, p, null);
       if (url) updateSlot(i, { imageUrl: url });
     }
@@ -1304,20 +1305,20 @@ ${SHARED_RULES_OUTRO}`;
               className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs placeholder:text-white/25 resize-none focus:outline-none focus:border-violet-500/60"
             />
             {/* Item name overrides */}
-            <label className="text-white/50 text-[10px] font-semibold mt-1">Item card titles (uses slot name if left blank)</label>
-            {[0, 1, 2].map((i) => (
+            <label className="text-white/50 text-[10px] font-semibold mt-1">AI card titles (2 thrift tiles)</label>
+            {[0, 1].map((i) => (
               <div key={i} className="flex items-center gap-2">
                 <span className="text-white/30 text-[10px] w-10 shrink-0">Card {i + 1}</span>
                 <input
                   type="text"
                   value={config.slots?.[i]?.itemName ?? ""}
                   onChange={(e) => updateSlot(i, { itemName: e.target.value })}
-                  placeholder={`Item ${i + 1} name`}
+                  placeholder={i === 1 ? "grey-hat controversy (auto)" : `thrift tile ${i + 1}`}
                   className="flex-1 bg-black/30 border border-white/10 rounded-lg px-2 py-1 text-white text-xs placeholder:text-white/25 focus:outline-none focus:border-violet-500/60"
                 />
               </div>
             ))}
-            <p className="text-white/30 text-[10px]">Card 4 is always <span className="text-white/60">Thrifty</span> (auto).</p>
+            <p className="text-white/30 text-[10px]">Cards 3 &amp; 4 are <span className="text-white/60">lily claire on tiktok</span> + <span className="text-white/60">Thrifty</span> — shuffled randomly each generation.</p>
           </div>
         )}
 

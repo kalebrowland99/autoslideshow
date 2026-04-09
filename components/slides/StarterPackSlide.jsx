@@ -25,25 +25,54 @@ function BookmarkIcon({ size }) {
   );
 }
 
+// TikTok music-note logo
+function TikTokLogo({ size }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none">
+      <path d="M38.4 10.56A10.72 10.72 0 0 1 32 8v8.32a18.72 18.72 0 0 0 6.4 1.12V26a26.56 26.56 0 0 1-15.36-4.8V38a13.6 13.6 0 1 1-13.6-13.6 13.44 13.44 0 0 1 3.2.4V34a5.6 5.6 0 1 0 3.84 5.28V8h8.32a10.72 10.72 0 0 0 8 10.24v-7.68Z" fill="white"/>
+      {/* Cyan accent */}
+      <path d="M36.48 9.28A10.72 10.72 0 0 1 30.08 6.72v8.32a18.72 18.72 0 0 0 6.4 1.12V24.64a26.56 26.56 0 0 1-15.36-4.8V36.64a13.6 13.6 0 1 1-13.6-13.6 13.44 13.44 0 0 1 3.2.4V32.64a5.6 5.6 0 1 0 3.84 5.28V6.72h8.32a10.72 10.72 0 0 0 8 10.24V9.28Z" fill="#25f4ee" opacity="0.6"/>
+    </svg>
+  );
+}
+
+// Deterministic Fisher-Yates shuffle using a seed integer
+function seededShuffle(arr, seed) {
+  const a = [...arr];
+  let s = (seed ^ 0x9e3779b9) >>> 0;
+  for (let i = a.length - 1; i > 0; i--) {
+    s = (Math.imul(s ^ (s >>> 16), 0x45d9f3b) ^ (Math.imul(s ^ (s >>> 16), 0x45d9f3b) >>> 16)) >>> 0;
+    const j = s % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 /**
  * Single card in the grid.
- * visible=true → fully rendered, visible=false → transparent placeholder (keeps grid spacing).
- * imageFit "cover" for photos, "contain" for logos (Thrifty) so nothing is over-cropped.
+ * type: "ai" | "thrifty" | "lilyclaire"
+ * visible=true → fully rendered, visible=false → transparent placeholder.
  */
 function StarterCard({
   title,
   imageUrl,
+  type = "ai",
   headerBg = "#1c1c1e",
   headerH,
   cardW,
   cardH,
   fontSize,
   visible,
-  imageFit = "cover",
-  imagePadPct = 0,
 }) {
   const imageH = cardH - headerH;
-  const padPx = imagePadPct > 0 ? Math.round(Math.min(cardW, imageH) * imagePadPct) : 0;
+
+  // Thrifty logo: contain + padding
+  const isThrifty = type === "thrifty";
+  const isLilyClaire = type === "lilyclaire";
+  const padPx = isThrifty ? Math.round(Math.min(cardW, imageH) * 0.14) : 0;
+
+  // TikTok card body bg
+  const bodyBg = isLilyClaire ? "#000000" : "#ffffff";
 
   return (
     <div style={{
@@ -56,11 +85,11 @@ function StarterCard({
       flexShrink: 0,
       background: "#ffffff",
     }}>
-      {/* Dark header with title + bookmark */}
+      {/* Dark header */}
       <div style={{
         width: "100%",
         height: headerH,
-        background: headerBg,
+        background: isLilyClaire ? "#fe2c55" : headerBg,
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
@@ -86,30 +115,58 @@ function StarterCard({
         <BookmarkIcon size={Math.round(fontSize * 1.1)} />
       </div>
 
-      {/* Image — white only, no grey; logo uses contain + padding */}
+      {/* Body */}
       <div style={{
         width: "100%",
         height: imageH,
         overflow: "hidden",
-        background: "#ffffff",
+        background: bodyBg,
         position: "relative",
         boxSizing: "border-box",
         padding: padPx > 0 ? padPx : 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexDirection: "column",
+        gap: Math.round(imageH * 0.06),
       }}>
-        {imageUrl ? (
+        {isLilyClaire ? (
+          /* TikTok-branded card */
+          <>
+            <TikTokLogo size={Math.round(imageH * 0.38)} />
+            <span style={{
+              color: "#ffffff",
+              fontSize: Math.round(fontSize * 0.95),
+              fontWeight: 700,
+              fontFamily: FONT,
+              letterSpacing: "-0.01em",
+              textAlign: "center",
+            }}>
+              @lily_claire
+            </span>
+            <span style={{
+              color: "rgba(255,255,255,0.55)",
+              fontSize: Math.round(fontSize * 0.75),
+              fontFamily: FONT,
+              textAlign: "center",
+            }}>
+              on TikTok
+            </span>
+          </>
+        ) : imageUrl ? (
           <img
             src={imageUrl}
             alt={title}
             style={{
               width: "100%",
               height: "100%",
-              objectFit: imageFit,
+              objectFit: isThrifty ? "contain" : "cover",
               objectPosition: "center",
               display: "block",
             }}
           />
         ) : (
-          <div style={{ width: "100%", height: "100%", background: "#ffffff" }}>
+          <div style={{ width: "100%", height: "100%", background: "#ffffff", position: "relative" }}>
             {visible && (
               <div style={{
                 position: "absolute",
@@ -169,14 +226,19 @@ export default function StarterPackSlide({ config, S, phase = -1 }) {
   const cardFontSize = Math.round((22 + J(96, 1)) * S);
 
   // ── Data ─────────────────────────────────────────────────────────────────
-  const headline = (config?.starterPackHeadline ?? "").trim() || "starter pack";
+  const headline = (config?.starterPackHeadline ?? "").trim() || "pov: you thrift full time";
   const slots    = config?.slots ?? [];
-  const items = [
-    { title: slots[0]?.itemName || "Item 1", imageUrl: slots[0]?.imageUrl ?? null },
-    { title: slots[1]?.itemName || "Item 2", imageUrl: slots[1]?.imageUrl ?? null },
-    { title: slots[2]?.itemName || "Item 3", imageUrl: slots[2]?.imageUrl ?? null },
-    { title: "Thrifty",                       imageUrl: "/thrifty.png" },
+
+  // 4 cards: 2 AI-generated + lily claire + Thrifty (shuffled each generation)
+  const baseItems = [
+    { title: slots[0]?.itemName || "thrift find",  imageUrl: slots[0]?.imageUrl ?? null, type: "ai" },
+    { title: slots[1]?.itemName || "the move",     imageUrl: slots[1]?.imageUrl ?? null, type: "ai" },
+    { title: "lily claire on tiktok",               imageUrl: null,                       type: "lilyclaire" },
+    { title: "Thrifty",                             imageUrl: "/thrifty.png",             type: "thrifty" },
   ];
+
+  // Shuffle positions — changes each generation via jitterSeed
+  const items = seededShuffle(baseItems, config?.jitterSeed ?? 0);
 
   // phase -1 = show all (preview / static export)
   // phase  0 = headline only
@@ -255,17 +317,16 @@ export default function StarterPackSlide({ config, S, phase = -1 }) {
         }}>
           {items.map((item, i) => (
             <StarterCard
-              key={i}
+              key={item.type + item.title}
               title={item.title}
               imageUrl={item.imageUrl}
+              type={item.type}
               headerBg={headerBg}
               headerH={headerH}
               cardW={cardW}
               cardH={cardH}
               fontSize={cardFontSize}
               visible={i < visibleCount}
-              imageFit={i === 3 ? "contain" : "cover"}
-              imagePadPct={i === 3 ? 0.14 : 0}
             />
           ))}
         </div>
