@@ -7,6 +7,7 @@ import FullBleedSlide from "./slides/FullBleedSlide";
 import IMessageMomSlide from "./slides/IMessageMomSlide";
 import VoicemailMomSlide from "./slides/VoicemailMomSlide";
 import IMessageTextSlide from "./slides/IMessageTextSlide";
+import StarterPackSlide from "./slides/StarterPackSlide";
 import { getSlideInfo } from "@/lib/slideLayout";
 
 // At 0.28 scale → 1080×1920 renders as ~302×538px in browser
@@ -24,6 +25,7 @@ function SlideRenderer({ config, info, S }) {
       {info.type === "imessage"     && <IMessageMomSlide  slot={info.slot} S={S} config={config} />}
       {info.type === "voicemail"    && <VoicemailMomSlide slot={info.slot} S={S} config={config} />}
       {info.type === "imessageText" && <IMessageTextSlide  slot={info.slot} S={S} config={config} />}
+      {info.type === "starterPack"  && <StarterPackSlide config={config} S={S} phase={config._spPhase ?? -1} />}
     </>
   );
 }
@@ -51,6 +53,7 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
       if (currentSlide === 2) return "iMessage (texts)";
       return "Thrifty Price";
     }
+    if (fmt === "starterPack") return "Starter Pack";
     const item = Math.floor((currentSlide - 1) / 2) + 1;
     const type = (currentSlide - 1) % 2 === 0 ? "Reveal" : "Thrifty Price";
     return `Item ${item} — ${type}`;

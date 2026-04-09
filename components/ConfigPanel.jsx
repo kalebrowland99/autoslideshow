@@ -727,14 +727,34 @@ ${SHARED_RULES_OUTRO}`;
           ? "#000000"
           : "#ffffff";
 
-      await new Promise((r) => setTimeout(r, 80));
-      try {
-        const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
-        if (!canvas) throw new Error("Preview node not found");
-        allSlideFrames.push([canvas]);
-      } catch (err) {
-        console.error("Capture error slide", i, err);
-        allSlideFrames.push([]);
+      if (info.type === "starterPack") {
+        // Capture 4 phases (each ~1.25s) so items dissolve in over 5 seconds
+        const SP_PHASES = 4;
+        const SP_PHASE_DURATION = 5 / SP_PHASES; // seconds per phase
+        for (let phase = 1; phase <= SP_PHASES; phase++) {
+          setConfig((prev) => ({ ...prev, _spPhase: phase }));
+          await new Promise((r) => setTimeout(r, 120));
+          try {
+            const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
+            if (!canvas) throw new Error("Preview node not found");
+            allSlideFrames.push([canvas, SP_PHASE_DURATION]);
+          } catch (err) {
+            console.error("Capture error starterPack phase", phase, err);
+            allSlideFrames.push([]);
+          }
+        }
+        // Reset phase
+        setConfig((prev) => ({ ...prev, _spPhase: -1 }));
+      } else {
+        await new Promise((r) => setTimeout(r, 80));
+        try {
+          const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
+          if (!canvas) throw new Error("Preview node not found");
+          allSlideFrames.push([canvas]);
+        } catch (err) {
+          console.error("Capture error slide", i, err);
+          allSlideFrames.push([]);
+        }
       }
 
       setExportProgress(Math.round((i + 1) / totalSlides * 40));
@@ -769,10 +789,13 @@ ${SHARED_RULES_OUTRO}`;
     const transitionFrames = Math.round((config.transitionMs / 1000) * fps);
     const frameDurationUs  = Math.round(1_000_000 / fps); // microseconds per frame
 
-    // Per-slide hold duration in frames (with random jitter for TikTok variance)
-    const perSlideHoldFrames = validSlides.map(() => {
-      const jitterMs = Math.floor(Math.random() * 500);
-      return Math.round((config.slideDuration + jitterMs / 1000) * fps);
+    // Per-slide hold duration in frames.
+    // StarterPack phases store their own duration in snapshots[1]; others use global slideDuration.
+    const perSlideHoldFrames = validSlides.map(({ snapshots }) => {
+      const overrideSec = snapshots[1]; // set for starterPack phases
+      const baseSec = typeof overrideSec === "number" ? overrideSec : config.slideDuration;
+      const jitterMs = typeof overrideSec === "number" ? 0 : Math.floor(Math.random() * 500);
+      return Math.round((baseSec + jitterMs / 1000) * fps);
     });
 
     // Total frame count for progress
@@ -1037,22 +1060,35 @@ ${SHARED_RULES_OUTRO}`;
       const bg =
         info.type === "collage"    ? "#111111"
         : info.type === "fullBleed" || info.type === "imessage" ? "#000000"
-        : info.type === "imessageText" ? "#ffffff"
         : "#ffffff";
 
-      try {
-        const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
-        if (!canvas) throw new Error("no canvas");
-        const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
-        const arr  = new Uint8Array(await blob.arrayBuffer());
-        const label = info.type === "collage"      ? "collage"
-          : info.type === "imessage"     ? "imessage"
-          : info.type === "voicemail"    ? "voicemail"
-          : info.type === "imessageText" ? "imessage-texts"
-          : `slide-${i + 1}`;
-        pngEntries[`${String(i + 1).padStart(2, "0")}-${label}.png`] = arr;
-      } catch (e) {
-        console.warn("Skipping slide", i, e);
+      if (info.type === "starterPack") {
+        // Export final phase (all 4 cards visible) as a single PNG
+        setConfig((prev) => ({ ...prev, _spPhase: 4 }));
+        await new Promise((r) => setTimeout(r, 120));
+        try {
+          const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
+          if (!canvas) throw new Error("no canvas");
+          const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
+          const arr  = new Uint8Array(await blob.arrayBuffer());
+          pngEntries[`${String(i + 1).padStart(2, "0")}-starter-pack.png`] = arr;
+        } catch (e) { console.warn("Skipping starterPack slide", e); }
+        setConfig((prev) => ({ ...prev, _spPhase: -1 }));
+      } else {
+        try {
+          const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
+          if (!canvas) throw new Error("no canvas");
+          const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
+          const arr  = new Uint8Array(await blob.arrayBuffer());
+          const label = info.type === "collage"      ? "collage"
+            : info.type === "imessage"     ? "imessage"
+            : info.type === "voicemail"    ? "voicemail"
+            : info.type === "imessageText" ? "imessage-texts"
+            : `slide-${i + 1}`;
+          pngEntries[`${String(i + 1).padStart(2, "0")}-${label}.png`] = arr;
+        } catch (e) {
+          console.warn("Skipping slide", i, e);
+        }
       }
 
       setExportProgress(Math.round(((i + 1) / totalSlides) * 85));
@@ -1110,6 +1146,7 @@ ${SHARED_RULES_OUTRO}`;
             { id: "appOnly", label: "App only", sub: "Collage, then app screenshots only (no reveal)" },
             { id: "imessageMom", label: "iMessage mom", sub: "iMessage → Voicemail → Thrifty (3 slides, slot 1 only)" },
             { id: "posePerson", label: "Pose person", sub: "Six full-frame shots; hands OK on slide 1 only" },
+            { id: "starterPack", label: "Starter pack", sub: "Headline + 2×2 grid, items dissolve in (5 sec)" },
           ].map(({ id, label, sub }) => (
             <button
               key={id}
@@ -1126,6 +1163,41 @@ ${SHARED_RULES_OUTRO}`;
             </button>
           ))}
         </div>
+
+        {/* ── Starter Pack config ───────────────────────────────────────── */}
+        {(config.outputFormat ?? "standard") === "starterPack" && (
+          <div className="bg-white/4 border border-violet-500/30 rounded-xl p-3 flex flex-col gap-2">
+            <div className="text-white/55 text-xs font-semibold">Starter Pack</div>
+            <p className="text-white/35 text-[10px] leading-relaxed">
+              Headline stays static. Each of the 3 items + Thrifty dissolves in over 5 seconds.
+              Use the image slots below to generate/upload photos for items 1–3.
+            </p>
+            {/* Headline */}
+            <label className="text-white/50 text-[10px] font-semibold">Headline text</label>
+            <textarea
+              rows={2}
+              value={config.starterPackHeadline ?? ""}
+              onChange={(e) => updateConfig("starterPackHeadline", e.target.value)}
+              placeholder="e.g. people with these hobbies have more aura than they know what to do with"
+              className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs placeholder:text-white/25 resize-none focus:outline-none focus:border-violet-500/60"
+            />
+            {/* Item name overrides */}
+            <label className="text-white/50 text-[10px] font-semibold mt-1">Item card titles (uses slot name if left blank)</label>
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="text-white/30 text-[10px] w-10 shrink-0">Card {i + 1}</span>
+                <input
+                  type="text"
+                  value={config.slots?.[i]?.itemName ?? ""}
+                  onChange={(e) => updateSlot(i, { itemName: e.target.value })}
+                  placeholder={`Item ${i + 1} name`}
+                  className="flex-1 bg-black/30 border border-white/10 rounded-lg px-2 py-1 text-white text-xs placeholder:text-white/25 focus:outline-none focus:border-violet-500/60"
+                />
+              </div>
+            ))}
+            <p className="text-white/30 text-[10px]">Card 4 is always <span className="text-white/60">Thrifty</span> (auto).</p>
+          </div>
+        )}
 
         <div className="bg-white/4 border border-white/10 rounded-xl p-3">
           <div className="text-white/55 text-xs font-semibold mb-1">Pose format (optional)</div>

@@ -57,7 +57,9 @@ export const defaultConfig = {
   voicemailDisplayNumber: "",
   /** Add a random track from public/audio/ to the exported video. */
   useRandomAudio: false,
-  outputFormat: "standard", // "standard" | "appOnly" | "posePerson" | "imessageMom"
+  outputFormat: "standard", // "standard" | "appOnly" | "posePerson" | "imessageMom" | "starterPack"
+  /** Headline text shown at the top of the Starter Pack slide */
+  starterPackHeadline: "",
   /** Changed each generation so every export has unique pixel-level layout (anti-fingerprint). */
   jitterSeed: 0,
   /** @type {{ id: string, dataUrl: string }[]} */
