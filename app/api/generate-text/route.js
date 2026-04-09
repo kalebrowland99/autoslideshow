@@ -60,21 +60,21 @@ Rules:
   }
 
   if (type === "starterPackThrifting") {
-    const prompt = `Generate a \"starter pack\" headline + 3 card titles for a controversial but relatable TikTok post about thrifting.
+    const prompt = `Generate a \"starter pack\" for: \"pov: you thrift full time\".
 
 Goal:
 - \"Rage bait\" / debate bait that young thrifters relate to (Gen Z / young millennials)
 - No hate, no slurs, no protected-class targeting
 - Don't mention Google Lens (the app already does that)
-- Keep it about thrift culture: resellers vs thrifters, goodwill bins, depop, gatekeeping, \"thrift grift\", overpriced curated thrift, \"is it vintage or just old\", etc.
+- Keep it about thrift culture + struggles: germ-x/sanitizer, masks, goodwill bins, lining up, chaotic carts, depop sales/orders, shipping labels, price tag drama, etc.
 
 Output rules:
 - Return ONLY JSON, no markdown.
-- Headline: 1–2 lines max, all lowercase, punchy, like the example \"people with these hobbies have more aura than they know what to do with\".
-- Exactly 3 item titles:
-  - Each is 1–3 words (short label like a card header)
-  - Should be concrete/visual (a person type, a habit, an item, a place)
-  - Avoid brand names that are trademark-heavy; keep generic.
+- Headline: 1–2 lines max, all lowercase, punchy, MUST start with \"pov:\" or \"pov\".
+- Exactly 3 tiles:
+  - Each label is 1–3 words (short card header)
+  - Each should be a concrete thrifting struggle visual (object or scene)
+  - Avoid brand names; keep generic.
 
 Return JSON shape exactly:
 {"headline":"...","items":["...","...","..."]}`;
@@ -103,76 +103,6 @@ Return JSON shape exactly:
       // Trim to keep card headers short and safe
       const clippedItems = items.map((s) => s.slice(0, 28));
       return NextResponse.json({ headline, items: clippedItems });
-    } catch (e) {
-      console.error("generate-text error:", e);
-      return NextResponse.json({ error: String(e) }, { status: 500 });
-    }
-  }
-
-  if (type === "povThriftFullTime") {
-    const prompt = `Create a viral \"starter pack\" for: \"pov: you thrift full time\".
-
-We are generating:
-- 1 headline (all lowercase) that is debate-bait / relatable for young thrifters
-- 5 struggle tiles (short labels) AND 5 matching image prompts (photoreal) for those tiles.
-
-Requirements:
-- Do NOT mention Google Lens.
-- Keep it about thrifting culture and pain points: goodwill bins, lining up, resellers, depop/posh orders, sanitizer, masks, dust, sweat, sore hands, chaotic carts, price tags, donation days, etc.
-- No hate, no slurs, no protected-class targeting.
-
-Headline rules:
-- all lowercase
-- 1–2 lines max
-- must start with \"pov:\" or \"pov\"
-
-Tile rules:
-- Exactly 5 tiles.
-- Each tile label: 1–3 words (max 18 chars preferred).
-- Each tile prompt: one sentence describing a 9:16 iPhone photo of that struggle object/scene.
-- Prompts should be realistic (no text overlays), suitable for our image generator.
-
-Return ONLY JSON with this exact shape:
-{
-  \"headline\":\"...\",
-  \"tiles\":[
-    {\"label\":\"...\",\"prompt\":\"...\"},
-    {\"label\":\"...\",\"prompt\":\"...\"},
-    {\"label\":\"...\",\"prompt\":\"...\"},
-    {\"label\":\"...\",\"prompt\":\"...\"},
-    {\"label\":\"...\",\"prompt\":\"...\"}
-  ]
-}`;
-
-    try {
-      const res = await fetch(OPENAI_CHAT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          temperature: 1.1,
-          max_tokens: 320,
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-
-      const data = await res.json();
-      const raw = data.choices?.[0]?.message?.content?.trim() ?? "";
-      const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-      const out = JSON.parse(cleaned);
-
-      const headline = String(out?.headline ?? "").trim();
-      const tilesRaw = Array.isArray(out?.tiles) ? out.tiles : [];
-      const tiles = tilesRaw
-        .slice(0, 5)
-        .map((t) => ({
-          label: String(t?.label ?? "").trim().slice(0, 28),
-          prompt: String(t?.prompt ?? "").trim().slice(0, 240),
-        }))
-        .filter((t) => t.label && t.prompt);
-
-      if (!headline || tiles.length !== 5) throw new Error("Unexpected povThriftFullTime format");
-      return NextResponse.json({ headline, tiles });
     } catch (e) {
       console.error("generate-text error:", e);
       return NextResponse.json({ error: String(e) }, { status: 500 });

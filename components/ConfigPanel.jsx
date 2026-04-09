@@ -202,7 +202,7 @@ export default function ConfigPanel({
     const bgColor =
       info.type === "collage"
         ? "#111111"
-        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "povThriftFullTime"
+        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack"
         ? "#000000"
         : "#ffffff";
 
@@ -282,6 +282,9 @@ export default function ConfigPanel({
     try {
       let b64 = null;
 
+      const outFmt = config.outputFormat ?? "standard";
+      const isNonApparelScene = outFmt === "starterPack";
+
       const brandName = brandItem || prompt?.trim() || "a clothing brand";
 
       // Reference photos in public/references/ — clothing-only app; drives messy buggy-cart look
@@ -298,8 +301,37 @@ export default function ConfigPanel({
 
       // Variation mode: reference photo drives the scene; just swap the item
       // Pose person format: hands/arms allowed on first slide (index 0) only; all other slides = no hands.
-      const outFmt = config.outputFormat ?? "standard";
       const posePersonFirstSlide = outFmt === "posePerson" && index === 0;
+
+      if (isNonApparelScene) {
+        // Starter pack / POV vibe: generate an iPhone photo of the prompt itself (not clothing-only).
+        const scenePrompt = (prompt || "").trim() || brandName;
+        const fullPrompt = `
+Aspect ratio requirement: Generate the image in 9:16 vertical portrait orientation only. Mandatory.
+
+Make it look like a real iPhone photo (default Camera app, no Portrait mode, no filters). Natural color, indoor fluorescent lighting if applicable. Deep focus, not blurry, not cinematic. No text overlays, no captions, no watermarks.
+
+Subject: ${scenePrompt}
+
+If the subject is an object (like germ-x, a mask, receipt piles, shipping labels), center it and make it visually obvious what it is. If it is a scene (like goodwill bins line, people lining up), make it documentary-style and realistic.
+`.trim();
+
+        const res = await fetch("/api/generate-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: fullPrompt,
+            referenceFile: null,
+            referenceInline: undefined,
+            model: imageModel,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || "Image generation failed");
+        b64 = data.b64 ?? null;
+        if (b64) return `data:image/png;base64,${b64}`;
+        throw new Error("No image returned");
+      }
 
       const SHARED_RULES_INTRO = `
 Aspect ratio requirement: Generate the image in 9:16 vertical portrait orientation only. This is mandatory. The image must be tall (portrait), optimized for smartphone viewing similar to TikTok or Instagram Reels. Do not generate square or landscape images. The composition must fill a 9:16 portrait frame from top to bottom.
@@ -495,60 +527,19 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
-  const generatePovThriftPack = async () => {
-    try {
-      const res = await fetch("/api/generate-text", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "povThriftFullTime" }),
-      });
-      if (!res.ok) return null;
-      const data = await res.json();
-      const headline = typeof data.headline === "string" ? data.headline : "";
-      const tiles = Array.isArray(data.tiles) ? data.tiles : [];
-      if (!headline || tiles.length !== 5) return null;
-      return { headline, tiles };
-    } catch { return null; }
-  };
-
-  const ensurePovThriftAutofill = async ({ alsoGenerateImages } = {}) => {
-    const headlineEmpty = !(config.povThriftHeadline ?? "").trim();
-    const slots = config.slots ?? [];
-
-    const labels = [0, 1, 2, 3, 4].map((i) => (slots[i]?.itemName ?? "").trim());
-    const allDefaultOrEmpty = labels.every((s, i) => !s || /^item\s+\d+$/i.test(s) || (i === 2 && /untitled/i.test(s)));
-
-    const missingImages = [0, 1, 2, 3, 4].some((i) => !slots[i]?.imageUrl);
-
-    if (!headlineEmpty && !allDefaultOrEmpty && (!alsoGenerateImages || !missingImages)) return;
-
-    const pack = await generatePovThriftPack();
-    if (!pack) return;
-
-    if (headlineEmpty) updateConfig("povThriftHeadline", pack.headline);
-    if (allDefaultOrEmpty) {
-      pack.tiles.forEach((t, i) => {
-        updateSlot(i, { itemName: t.label, prompt: t.prompt });
-      });
-    } else {
-      // Still update prompts if empty so image-gen has useful defaults
-      pack.tiles.forEach((t, i) => {
-        const curPrompt = (slots[i]?.prompt ?? "").trim();
-        if (!curPrompt) updateSlot(i, { prompt: t.prompt });
-      });
-    }
-
-    if (alsoGenerateImages) {
-      for (let i = 0; i < 5; i++) {
-        const s = (config.slots?.[i] ?? {});
-        if (s.imageUrl) continue;
-        const p = (s.prompt ?? "").trim() || pack.tiles[i]?.prompt;
-        if (!p) continue;
-        const url = await generateImage(i, p, null);
-        if (url) updateSlot(i, { imageUrl: url });
-      }
+  const ensureStarterPackImages = async () => {
+    // For starter pack, generate missing images from slot prompts / names (non-apparel scenes)
+    for (let i = 0; i < 3; i++) {
+      const s = config.slots?.[i];
+      if (!s || s.imageUrl) continue;
+      const p = (s.prompt ?? "").trim() || (s.itemName ?? "").trim();
+      if (!p) continue;
+      const url = await generateImage(i, p, null);
+      if (url) updateSlot(i, { imageUrl: url });
     }
   };
+
+  // (removed POV format; starterPack covers POV vibe now)
 
   // ── GPT-4 Vision: generate item title from image ──
   // ── Grail Identifier: returns { title, price } from image ───────────────────
@@ -808,18 +799,12 @@ ${SHARED_RULES_OUTRO}`;
     if ((config.outputFormat ?? "standard") === "starterPack") {
       setExportStatus("Generating starter pack text…");
       await ensureStarterPackAutofill();
+      setExportStatus("Generating starter pack images…");
+      await ensureStarterPackImages();
       setExportStatus("Capturing slides…");
     }
-    if ((config.outputFormat ?? "standard") === "povThriftFullTime") {
-      setExportStatus("Generating POV pack…");
-      await ensurePovThriftAutofill({ alsoGenerateImages: true });
-      setExportStatus("Capturing slides…");
-    }
-    if ((config.outputFormat ?? "standard") === "povThriftFullTime") {
-      setExportStatus("Generating POV pack…");
-      await ensurePovThriftAutofill({ alsoGenerateImages: true });
-      setExportStatus("Capturing slides…");
-    }
+    // (removed POV format; starterPack covers POV vibe now)
+      // (removed POV format)
 
     const allSlideFrames = [];
     const previewNode = getCaptureNode();
@@ -833,7 +818,7 @@ ${SHARED_RULES_OUTRO}`;
       const bg =
         info.type === "collage"
           ? "#111111"
-          : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "povThriftFullTime"
+          : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack"
           ? "#000000"
           : "#ffffff";
 
@@ -855,23 +840,6 @@ ${SHARED_RULES_OUTRO}`;
         }
         // Reset phase
         setConfig((prev) => ({ ...prev, _spPhase: -1 }));
-      } else if (info.type === "povThriftFullTime") {
-        // Capture 5 phases (each 1s) so struggle tiles dissolve in over 5 seconds
-        const PHASES = 5;
-        const DUR = 5 / PHASES;
-        for (let phase = 1; phase <= PHASES; phase++) {
-          setConfig((prev) => ({ ...prev, _povPhase: phase }));
-          await new Promise((r) => setTimeout(r, 120));
-          try {
-            const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
-            if (!canvas) throw new Error("Preview node not found");
-            allSlideFrames.push([canvas, DUR]);
-          } catch (err) {
-            console.error("Capture error pov phase", phase, err);
-            allSlideFrames.push([]);
-          }
-        }
-        setConfig((prev) => ({ ...prev, _povPhase: -1 }));
       } else {
         await new Promise((r) => setTimeout(r, 80));
         try {
@@ -1137,17 +1105,16 @@ ${SHARED_RULES_OUTRO}`;
       if ((config.outputFormat ?? "standard") === "starterPack") {
         setExportStatus("Generating starter pack text…");
         await ensureStarterPackAutofill();
+        setExportStatus("Generating starter pack images…");
+        await ensureStarterPackImages();
       }
-      if ((config.outputFormat ?? "standard") === "povThriftFullTime") {
-        setExportStatus("Generating POV pack…");
-        await ensurePovThriftAutofill({ alsoGenerateImages: true });
-      }
+      // (removed POV format)
       const fontEmbedCSS = await getFontEmbedCSS(el);
       const capInfo = getSlideInfo(config, currentSlide);
       const capBg =
         capInfo.type === "collage"
           ? "#111111"
-          : capInfo.type === "fullBleed" || capInfo.type === "imessage" || capInfo.type === "starterPack" || capInfo.type === "povThriftFullTime"
+          : capInfo.type === "fullBleed" || capInfo.type === "imessage" || capInfo.type === "starterPack"
           ? "#000000"
           : capInfo.type === "voicemail"
           ? "#ffffff"
@@ -1184,6 +1151,8 @@ ${SHARED_RULES_OUTRO}`;
     if ((config.outputFormat ?? "standard") === "starterPack") {
       setExportStatus("Generating starter pack text…");
       await ensureStarterPackAutofill();
+      setExportStatus("Generating starter pack images…");
+      await ensureStarterPackImages();
       setExportStatus("Capturing slides…");
     }
 
@@ -1200,7 +1169,7 @@ ${SHARED_RULES_OUTRO}`;
       const info = getSlideInfo(config, i);
       const bg =
         info.type === "collage"    ? "#111111"
-        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "povThriftFullTime" ? "#000000"
+        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" ? "#000000"
         : "#ffffff";
 
       if (info.type === "starterPack") {
@@ -1215,18 +1184,6 @@ ${SHARED_RULES_OUTRO}`;
           pngEntries[`${String(i + 1).padStart(2, "0")}-starter-pack.png`] = arr;
         } catch (e) { console.warn("Skipping starterPack slide", e); }
         setConfig((prev) => ({ ...prev, _spPhase: -1 }));
-      } else if (info.type === "povThriftFullTime") {
-        // Export final phase (all tiles visible)
-        setConfig((prev) => ({ ...prev, _povPhase: 5 }));
-        await new Promise((r) => setTimeout(r, 120));
-        try {
-          const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
-          if (!canvas) throw new Error("no canvas");
-          const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
-          const arr  = new Uint8Array(await blob.arrayBuffer());
-          pngEntries[`${String(i + 1).padStart(2, "0")}-pov-thrift-full-time.png`] = arr;
-        } catch (e) { console.warn("Skipping POV slide", e); }
-        setConfig((prev) => ({ ...prev, _povPhase: -1 }));
       } else {
         try {
           const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
@@ -1299,8 +1256,7 @@ ${SHARED_RULES_OUTRO}`;
             { id: "appOnly", label: "App only", sub: "Collage, then app screenshots only (no reveal)" },
             { id: "imessageMom", label: "iMessage mom", sub: "iMessage → Voicemail → Thrifty (3 slides, slot 1 only)" },
             { id: "posePerson", label: "Pose person", sub: "Six full-frame shots; hands OK on slide 1 only" },
-            { id: "starterPack", label: "Starter pack", sub: "Headline + 2×2 grid, items dissolve in (5 sec)" },
-            { id: "povThriftFullTime", label: "POV: thrift full time", sub: "5 struggle tiles dissolve in (5 sec)" },
+            { id: "starterPack", label: "Starter pack", sub: "POV: you thrift full time — 3 struggles + Thrifty (5 sec)" },
           ].map(({ id, label, sub }) => (
             <button
               key={id}
@@ -1366,42 +1322,6 @@ ${SHARED_RULES_OUTRO}`;
               </div>
             ))}
             <p className="text-white/30 text-[10px]">Card 4 is always <span className="text-white/60">Thrifty</span> (auto).</p>
-          </div>
-        )}
-
-        {(config.outputFormat ?? "standard") === "povThriftFullTime" && (
-          <div className="bg-white/4 border border-violet-500/30 rounded-xl p-3 flex flex-col gap-2">
-            <div className="text-white/55 text-xs font-semibold">POV: thrift full time</div>
-            <p className="text-white/35 text-[10px] leading-relaxed">
-              Headline stays static. 5 struggle tiles (bottom strip) dissolve in over 5 seconds.
-              If empty/default, we auto-generate the headline + tile labels + prompts + images on export.
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={async () => {
-                  setIsExporting(true);
-                  setExportStatus("Generating POV pack…");
-                  await ensurePovThriftAutofill({ alsoGenerateImages: true });
-                  setIsExporting(false);
-                  setExportStatus("");
-                }}
-                className="px-2.5 py-1.5 rounded-lg bg-violet-500/20 hover:bg-violet-500/30 border border-violet-500/40 text-white text-[11px] font-semibold"
-              >
-                Auto-generate (AI)
-              </button>
-              <span className="text-white/30 text-[10px]">Fills headline + tile labels/prompts if blank/default.</span>
-            </div>
-
-            <label className="text-white/50 text-[10px] font-semibold">Headline text</label>
-            <textarea
-              rows={2}
-              value={config.povThriftHeadline ?? ""}
-              onChange={(e) => updateConfig("povThriftHeadline", e.target.value)}
-              placeholder="pov: you thrift full time"
-              className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs placeholder:text-white/25 resize-none focus:outline-none focus:border-violet-500/60"
-            />
-            <p className="text-white/30 text-[10px]">Tiles use slots 1–5 (item name + image).</p>
           </div>
         )}
 
