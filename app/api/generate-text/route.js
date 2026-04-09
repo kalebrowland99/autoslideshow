@@ -92,17 +92,23 @@ Theme angle: ${pack.angle}
 Rules:
 - Audience: Gen Z / young millennial thrifters
 - Tone: relatable, slightly controversial, debate-bait — NOT hateful or discriminatory
-- Do NOT mention Google Lens, do NOT mention any specific brand names
-- Keep it about thrift culture — realistic, visual, recognizable
+- Do NOT mention Google Lens, do NOT use any specific brand names
 - Return ONLY raw JSON — no markdown, no extra text
 
-Output:
-1. headline — all lowercase, 1–2 punchy lines, creative variation of "${pack.headline}" (don't copy it word for word every time)
-2. Three tiles — each has:
-   - label: 1–3 words, short card header that fits the theme angle and is visually distinct
-   - imagePrompt: one sentence for a realistic iPhone candid photo of that exact subject (no text overlays, no people in foreground, 9:16 portrait orientation)
+Label rules (CRITICAL — read carefully):
+- Labels must be CONCRETE and INSTANTLY SELF-EXPLANATORY to any thrifter
+- A label should describe a specific, real, physical object or action — NOT a metaphor, NOT a vibe, NOT a clever phrase
+- A stranger who thrifts should read the label and immediately picture the exact thing
+- Bad examples: "hide and seek", "the ultimate tote", "the hustle", "thrift therapy" — too abstract/vague
+- Good examples: "germ-x bottle", "the bins smell", "cart diving", "depop notification", "post office run", "price tag drama", "donation pile", "bin gloves", "haul spread", "shipping tape"
 
-Hard rule: tiles[1].label MUST be a grey-hat / black-hat thrifting controversy — this time inspired by: "${greyHatExample}". Be creative, keep it 1–3 words.
+Output:
+1. headline — all lowercase, 1–2 punchy lines, creative variation of "${pack.headline}" (slight rewording each time, don't copy word for word)
+2. Three tiles — each has:
+   - label: 1–3 words, a SPECIFIC concrete thrift object or action (follow label rules above)
+   - imagePrompt: one sentence for a realistic iPhone candid photo of exactly that label subject (no text overlays, no people in foreground, 9:16 portrait)
+
+Hard rule: tiles[1].label MUST be a grey-hat / black-hat thrifting controversy inspired by: "${greyHatExample}". Keep it 1–3 words, specific and concrete (e.g. "tag switching", "cart snatching").
 
 Return this exact JSON shape:
 {
