@@ -202,7 +202,7 @@ export default function ConfigPanel({
     const bgColor =
       info.type === "collage"
         ? "#111111"
-        : info.type === "fullBleed" || info.type === "imessage"
+        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack"
         ? "#000000"
         : "#ffffff";
 
@@ -723,7 +723,7 @@ ${SHARED_RULES_OUTRO}`;
       const bg =
         info.type === "collage"
           ? "#111111"
-          : info.type === "fullBleed" || info.type === "imessage"
+          : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack"
           ? "#000000"
           : "#ffffff";
 
@@ -1012,7 +1012,7 @@ ${SHARED_RULES_OUTRO}`;
       const capBg =
         capInfo.type === "collage"
           ? "#111111"
-          : capInfo.type === "fullBleed" || capInfo.type === "imessage"
+          : capInfo.type === "fullBleed" || capInfo.type === "imessage" || capInfo.type === "starterPack"
           ? "#000000"
           : capInfo.type === "voicemail"
           ? "#ffffff"
@@ -1059,7 +1059,7 @@ ${SHARED_RULES_OUTRO}`;
       const info = getSlideInfo(config, i);
       const bg =
         info.type === "collage"    ? "#111111"
-        : info.type === "fullBleed" || info.type === "imessage" ? "#000000"
+        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" ? "#000000"
         : "#ffffff";
 
       if (info.type === "starterPack") {

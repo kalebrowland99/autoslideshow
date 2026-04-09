@@ -28,9 +28,22 @@ function BookmarkIcon({ size }) {
 /**
  * Single card in the grid.
  * visible=true → fully rendered, visible=false → transparent placeholder (keeps grid spacing).
+ * imageFit "cover" for photos, "contain" for logos (Thrifty) so nothing is over-cropped.
  */
-function StarterCard({ title, imageUrl, headerBg = "#1c1c1e", headerH, cardW, cardH, fontSize, visible }) {
+function StarterCard({
+  title,
+  imageUrl,
+  headerBg = "#1c1c1e",
+  headerH,
+  cardW,
+  cardH,
+  fontSize,
+  visible,
+  imageFit = "cover",
+  imagePadPct = 0,
+}) {
   const imageH = cardH - headerH;
+  const padPx = imagePadPct > 0 ? Math.round(Math.min(cardW, imageH) * imagePadPct) : 0;
 
   return (
     <div style={{
@@ -41,7 +54,7 @@ function StarterCard({ title, imageUrl, headerBg = "#1c1c1e", headerH, cardW, ca
       opacity: visible ? 1 : 0,
       transition: "opacity 0.35s ease",
       flexShrink: 0,
-      background: "#e5e5ea",
+      background: "#ffffff",
     }}>
       {/* Dark header with title + bookmark */}
       <div style={{
@@ -73,17 +86,30 @@ function StarterCard({ title, imageUrl, headerBg = "#1c1c1e", headerH, cardW, ca
         <BookmarkIcon size={Math.round(fontSize * 1.1)} />
       </div>
 
-      {/* Image */}
-      <div style={{ width: "100%", height: imageH, overflow: "hidden", background: "#d1d1d6", position: "relative" }}>
+      {/* Image — white only, no grey; logo uses contain + padding */}
+      <div style={{
+        width: "100%",
+        height: imageH,
+        overflow: "hidden",
+        background: "#ffffff",
+        position: "relative",
+        boxSizing: "border-box",
+        padding: padPx > 0 ? padPx : 0,
+      }}>
         {imageUrl ? (
           <img
             src={imageUrl}
             alt={title}
-            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: imageFit,
+              objectPosition: "center",
+              display: "block",
+            }}
           />
         ) : (
-          /* Subtle grey placeholder while no image */
-          <div style={{ width: "100%", height: "100%", background: "#c7c7cc" }} />
+          <div style={{ width: "100%", height: "100%", background: "#ffffff" }} />
         )}
       </div>
     </div>
@@ -96,10 +122,15 @@ export default function StarterPackSlide({ config, S, phase = -1 }) {
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
 
-  // ── Layout ───────────────────────────────────────────────────────────────
+  // Black letterbox bars (top + bottom) — matches TikTok-style reference
+  const barTop    = Math.round((0.065 + J(97, 1) * 0.002) * H);
+  const barBottom = Math.round((0.065 + J(98, 1) * 0.002) * H);
+  const contentH  = H - barTop - barBottom;
+
+  // ── Layout (inside white content area only) ──────────────────────────────
   const padH     = Math.round((56 + J(90, 4)) * S);   // horizontal padding
-  const padTop   = Math.round((60 + J(91, 4)) * S);   // top padding above headline
-  const headlineGap = Math.round((36 + J(92, 3)) * S); // gap between headline and grid
+  const padTop   = Math.round((48 + J(91, 4)) * S);   // top padding above headline
+  const headlineGap = Math.round((32 + J(92, 3)) * S); // gap between headline and grid
   const gridGap  = Math.round((14 + J(93, 2)) * S);   // gap between cards
   const headerH  = Math.round((62 + J(94, 2)) * S);   // card dark header height
 
@@ -110,10 +141,10 @@ export default function StarterPackSlide({ config, S, phase = -1 }) {
   const headlineFontSize = Math.round((46 + J(95, 2)) * S);
   const headlineLineH    = Math.round(headlineFontSize * 1.28);
   const maxHeadlineLines = 4;
-  const headlineAreaH    = headlineLineH * maxHeadlineLines + Math.round(8 * S); // a little slack
+  const headlineAreaH    = headlineLineH * maxHeadlineLines + Math.round(8 * S);
 
-  // Grid fills remaining height
-  const gridH    = H - padTop - headlineAreaH - headlineGap - Math.round(24 * S);
+  // Grid fills remaining height inside white panel
+  const gridH    = contentH - padTop - headlineAreaH - headlineGap - Math.round(20 * S);
   const cardH    = Math.round((gridH - gridGap) / 2);
 
   // Card font size
@@ -140,70 +171,89 @@ export default function StarterPackSlide({ config, S, phase = -1 }) {
 
   return (
     <div style={{
-      width: W, height: H,
-      background: "#ffffff",
+      width: W,
+      height: H,
+      background: "#000000",
       fontFamily: FONT,
       position: "relative",
       overflow: "hidden",
       display: "flex",
       flexDirection: "column",
-      alignItems: "center",
-      paddingLeft: padH,
-      paddingRight: padH,
-      paddingTop: padTop,
+      alignItems: "stretch",
       boxSizing: "border-box",
     }}>
+      <div style={{ height: barTop, flexShrink: 0, background: "#000000" }} />
 
-      {/* ── Headline — never fades, always static ─────────────────────────── */}
+      {/* White content band — headline + grid only here */}
       <div style={{
+        flex: 1,
+        minHeight: 0,
         width: "100%",
-        minHeight: headlineAreaH,
+        background: "#ffffff",
         display: "flex",
+        flexDirection: "column",
         alignItems: "center",
-        justifyContent: "center",
-        textAlign: "center",
-        flexShrink: 0,
+        paddingLeft: padH,
+        paddingRight: padH,
+        paddingTop: padTop,
+        boxSizing: "border-box",
+        overflow: "hidden",
       }}>
-        <span style={{
-          fontSize: headlineFontSize,
-          fontWeight: 700,
-          color: "#000000",
-          lineHeight: 1.28,
-          letterSpacing: "-0.02em",
-          fontFamily: FONT,
-          display: "block",
+
+        {/* ── Headline — never fades, always static ─────────────────────────── */}
+        <div style={{
+          width: "100%",
+          minHeight: headlineAreaH,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          textAlign: "center",
+          flexShrink: 0,
         }}>
-          {headline}
-        </span>
+          <span style={{
+            fontSize: headlineFontSize,
+            fontWeight: 700,
+            color: "#000000",
+            lineHeight: 1.28,
+            letterSpacing: "-0.02em",
+            fontFamily: FONT,
+            display: "block",
+          }}>
+            {headline}
+          </span>
+        </div>
+
+        <div style={{ height: headlineGap, flexShrink: 0 }} />
+
+        {/* ── 2×2 card grid ────────────────────────────────────────────────── */}
+        <div style={{
+          width: gridW,
+          height: gridH,
+          display: "grid",
+          gridTemplateColumns: `${cardW}px ${cardW}px`,
+          gridTemplateRows: `${cardH}px ${cardH}px`,
+          gap: gridGap,
+          flexShrink: 0,
+        }}>
+          {items.map((item, i) => (
+            <StarterCard
+              key={i}
+              title={item.title}
+              imageUrl={item.imageUrl}
+              headerBg={headerBg}
+              headerH={headerH}
+              cardW={cardW}
+              cardH={cardH}
+              fontSize={cardFontSize}
+              visible={i < visibleCount}
+              imageFit={i === 3 ? "contain" : "cover"}
+              imagePadPct={i === 3 ? 0.14 : 0}
+            />
+          ))}
+        </div>
       </div>
 
-      {/* Gap */}
-      <div style={{ height: headlineGap, flexShrink: 0 }} />
-
-      {/* ── 2×2 card grid ────────────────────────────────────────────────── */}
-      <div style={{
-        width: gridW,
-        height: gridH,
-        display: "grid",
-        gridTemplateColumns: `${cardW}px ${cardW}px`,
-        gridTemplateRows: `${cardH}px ${cardH}px`,
-        gap: gridGap,
-        flexShrink: 0,
-      }}>
-        {items.map((item, i) => (
-          <StarterCard
-            key={i}
-            title={item.title}
-            imageUrl={item.imageUrl}
-            headerBg={headerBg}
-            headerH={headerH}
-            cardW={cardW}
-            cardH={cardH}
-            fontSize={cardFontSize}
-            visible={i < visibleCount}
-          />
-        ))}
-      </div>
+      <div style={{ height: barBottom, flexShrink: 0, background: "#000000" }} />
     </div>
   );
 }
