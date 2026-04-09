@@ -109,7 +109,25 @@ function StarterCard({
             }}
           />
         ) : (
-          <div style={{ width: "100%", height: "100%", background: "#ffffff" }} />
+          <div style={{ width: "100%", height: "100%", background: "#ffffff" }}>
+            {visible && (
+              <div style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "rgba(0,0,0,0.35)",
+                fontSize: Math.max(10, Math.round(fontSize * 0.8)),
+                fontWeight: 600,
+                letterSpacing: "0.02em",
+                textTransform: "uppercase",
+                fontFamily: FONT,
+              }}>
+                loading…
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

@@ -532,11 +532,19 @@ ${SHARED_RULES_OUTRO}`;
 
   const ensureStarterPackImages = async () => {
     // For starter pack, generate missing images from slot prompts / names (non-apparel scenes)
-    for (let i = 0; i < 3; i++) {
+    const missing = [0, 1, 2].filter((i) => {
+      const s = config.slots?.[i];
+      return s && !s.imageUrl;
+    });
+    const total = missing.length || 0;
+
+    for (let mi = 0; mi < missing.length; mi++) {
+      const i = missing[mi];
       const s = config.slots?.[i];
       if (!s || s.imageUrl) continue;
       const p = (s.prompt ?? "").trim() || (s.itemName ?? "").trim();
       if (!p) continue;
+      setExportStatus(`Generating starter pack image ${mi + 1}/${total}…`);
       const url = await generateImage(i, p, null);
       if (url) updateSlot(i, { imageUrl: url });
     }
