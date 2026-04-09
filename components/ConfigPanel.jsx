@@ -202,7 +202,7 @@ export default function ConfigPanel({
     const bgColor =
       info.type === "collage"
         ? "#111111"
-        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack"
+        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "povThriftFullTime"
         ? "#000000"
         : "#ffffff";
 
@@ -495,6 +495,61 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
+  const generatePovThriftPack = async () => {
+    try {
+      const res = await fetch("/api/generate-text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "povThriftFullTime" }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const headline = typeof data.headline === "string" ? data.headline : "";
+      const tiles = Array.isArray(data.tiles) ? data.tiles : [];
+      if (!headline || tiles.length !== 5) return null;
+      return { headline, tiles };
+    } catch { return null; }
+  };
+
+  const ensurePovThriftAutofill = async ({ alsoGenerateImages } = {}) => {
+    const headlineEmpty = !(config.povThriftHeadline ?? "").trim();
+    const slots = config.slots ?? [];
+
+    const labels = [0, 1, 2, 3, 4].map((i) => (slots[i]?.itemName ?? "").trim());
+    const allDefaultOrEmpty = labels.every((s, i) => !s || /^item\s+\d+$/i.test(s) || (i === 2 && /untitled/i.test(s)));
+
+    const missingImages = [0, 1, 2, 3, 4].some((i) => !slots[i]?.imageUrl);
+
+    if (!headlineEmpty && !allDefaultOrEmpty && (!alsoGenerateImages || !missingImages)) return;
+
+    const pack = await generatePovThriftPack();
+    if (!pack) return;
+
+    if (headlineEmpty) updateConfig("povThriftHeadline", pack.headline);
+    if (allDefaultOrEmpty) {
+      pack.tiles.forEach((t, i) => {
+        updateSlot(i, { itemName: t.label, prompt: t.prompt });
+      });
+    } else {
+      // Still update prompts if empty so image-gen has useful defaults
+      pack.tiles.forEach((t, i) => {
+        const curPrompt = (slots[i]?.prompt ?? "").trim();
+        if (!curPrompt) updateSlot(i, { prompt: t.prompt });
+      });
+    }
+
+    if (alsoGenerateImages) {
+      for (let i = 0; i < 5; i++) {
+        const s = (config.slots?.[i] ?? {});
+        if (s.imageUrl) continue;
+        const p = (s.prompt ?? "").trim() || pack.tiles[i]?.prompt;
+        if (!p) continue;
+        const url = await generateImage(i, p, null);
+        if (url) updateSlot(i, { imageUrl: url });
+      }
+    }
+  };
+
   // ── GPT-4 Vision: generate item title from image ──
   // ── Grail Identifier: returns { title, price } from image ───────────────────
   const autoTitleFromImage = async (imageUrl) => {
@@ -755,6 +810,16 @@ ${SHARED_RULES_OUTRO}`;
       await ensureStarterPackAutofill();
       setExportStatus("Capturing slides…");
     }
+    if ((config.outputFormat ?? "standard") === "povThriftFullTime") {
+      setExportStatus("Generating POV pack…");
+      await ensurePovThriftAutofill({ alsoGenerateImages: true });
+      setExportStatus("Capturing slides…");
+    }
+    if ((config.outputFormat ?? "standard") === "povThriftFullTime") {
+      setExportStatus("Generating POV pack…");
+      await ensurePovThriftAutofill({ alsoGenerateImages: true });
+      setExportStatus("Capturing slides…");
+    }
 
     const allSlideFrames = [];
     const previewNode = getCaptureNode();
@@ -768,7 +833,7 @@ ${SHARED_RULES_OUTRO}`;
       const bg =
         info.type === "collage"
           ? "#111111"
-          : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack"
+          : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "povThriftFullTime"
           ? "#000000"
           : "#ffffff";
 
@@ -790,6 +855,23 @@ ${SHARED_RULES_OUTRO}`;
         }
         // Reset phase
         setConfig((prev) => ({ ...prev, _spPhase: -1 }));
+      } else if (info.type === "povThriftFullTime") {
+        // Capture 5 phases (each 1s) so struggle tiles dissolve in over 5 seconds
+        const PHASES = 5;
+        const DUR = 5 / PHASES;
+        for (let phase = 1; phase <= PHASES; phase++) {
+          setConfig((prev) => ({ ...prev, _povPhase: phase }));
+          await new Promise((r) => setTimeout(r, 120));
+          try {
+            const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
+            if (!canvas) throw new Error("Preview node not found");
+            allSlideFrames.push([canvas, DUR]);
+          } catch (err) {
+            console.error("Capture error pov phase", phase, err);
+            allSlideFrames.push([]);
+          }
+        }
+        setConfig((prev) => ({ ...prev, _povPhase: -1 }));
       } else {
         await new Promise((r) => setTimeout(r, 80));
         try {
@@ -1056,12 +1138,16 @@ ${SHARED_RULES_OUTRO}`;
         setExportStatus("Generating starter pack text…");
         await ensureStarterPackAutofill();
       }
+      if ((config.outputFormat ?? "standard") === "povThriftFullTime") {
+        setExportStatus("Generating POV pack…");
+        await ensurePovThriftAutofill({ alsoGenerateImages: true });
+      }
       const fontEmbedCSS = await getFontEmbedCSS(el);
       const capInfo = getSlideInfo(config, currentSlide);
       const capBg =
         capInfo.type === "collage"
           ? "#111111"
-          : capInfo.type === "fullBleed" || capInfo.type === "imessage" || capInfo.type === "starterPack"
+          : capInfo.type === "fullBleed" || capInfo.type === "imessage" || capInfo.type === "starterPack" || capInfo.type === "povThriftFullTime"
           ? "#000000"
           : capInfo.type === "voicemail"
           ? "#ffffff"
@@ -1114,7 +1200,7 @@ ${SHARED_RULES_OUTRO}`;
       const info = getSlideInfo(config, i);
       const bg =
         info.type === "collage"    ? "#111111"
-        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" ? "#000000"
+        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "povThriftFullTime" ? "#000000"
         : "#ffffff";
 
       if (info.type === "starterPack") {
@@ -1129,6 +1215,18 @@ ${SHARED_RULES_OUTRO}`;
           pngEntries[`${String(i + 1).padStart(2, "0")}-starter-pack.png`] = arr;
         } catch (e) { console.warn("Skipping starterPack slide", e); }
         setConfig((prev) => ({ ...prev, _spPhase: -1 }));
+      } else if (info.type === "povThriftFullTime") {
+        // Export final phase (all tiles visible)
+        setConfig((prev) => ({ ...prev, _povPhase: 5 }));
+        await new Promise((r) => setTimeout(r, 120));
+        try {
+          const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
+          if (!canvas) throw new Error("no canvas");
+          const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
+          const arr  = new Uint8Array(await blob.arrayBuffer());
+          pngEntries[`${String(i + 1).padStart(2, "0")}-pov-thrift-full-time.png`] = arr;
+        } catch (e) { console.warn("Skipping POV slide", e); }
+        setConfig((prev) => ({ ...prev, _povPhase: -1 }));
       } else {
         try {
           const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
@@ -1202,6 +1300,7 @@ ${SHARED_RULES_OUTRO}`;
             { id: "imessageMom", label: "iMessage mom", sub: "iMessage → Voicemail → Thrifty (3 slides, slot 1 only)" },
             { id: "posePerson", label: "Pose person", sub: "Six full-frame shots; hands OK on slide 1 only" },
             { id: "starterPack", label: "Starter pack", sub: "Headline + 2×2 grid, items dissolve in (5 sec)" },
+            { id: "povThriftFullTime", label: "POV: thrift full time", sub: "5 struggle tiles dissolve in (5 sec)" },
           ].map(({ id, label, sub }) => (
             <button
               key={id}
@@ -1267,6 +1366,42 @@ ${SHARED_RULES_OUTRO}`;
               </div>
             ))}
             <p className="text-white/30 text-[10px]">Card 4 is always <span className="text-white/60">Thrifty</span> (auto).</p>
+          </div>
+        )}
+
+        {(config.outputFormat ?? "standard") === "povThriftFullTime" && (
+          <div className="bg-white/4 border border-violet-500/30 rounded-xl p-3 flex flex-col gap-2">
+            <div className="text-white/55 text-xs font-semibold">POV: thrift full time</div>
+            <p className="text-white/35 text-[10px] leading-relaxed">
+              Headline stays static. 5 struggle tiles (bottom strip) dissolve in over 5 seconds.
+              If empty/default, we auto-generate the headline + tile labels + prompts + images on export.
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsExporting(true);
+                  setExportStatus("Generating POV pack…");
+                  await ensurePovThriftAutofill({ alsoGenerateImages: true });
+                  setIsExporting(false);
+                  setExportStatus("");
+                }}
+                className="px-2.5 py-1.5 rounded-lg bg-violet-500/20 hover:bg-violet-500/30 border border-violet-500/40 text-white text-[11px] font-semibold"
+              >
+                Auto-generate (AI)
+              </button>
+              <span className="text-white/30 text-[10px]">Fills headline + tile labels/prompts if blank/default.</span>
+            </div>
+
+            <label className="text-white/50 text-[10px] font-semibold">Headline text</label>
+            <textarea
+              rows={2}
+              value={config.povThriftHeadline ?? ""}
+              onChange={(e) => updateConfig("povThriftHeadline", e.target.value)}
+              placeholder="pov: you thrift full time"
+              className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs placeholder:text-white/25 resize-none focus:outline-none focus:border-violet-500/60"
+            />
+            <p className="text-white/30 text-[10px]">Tiles use slots 1–5 (item name + image).</p>
           </div>
         )}
 

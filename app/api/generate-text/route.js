@@ -109,5 +109,75 @@ Return JSON shape exactly:
     }
   }
 
+  if (type === "povThriftFullTime") {
+    const prompt = `Create a viral \"starter pack\" for: \"pov: you thrift full time\".
+
+We are generating:
+- 1 headline (all lowercase) that is debate-bait / relatable for young thrifters
+- 5 struggle tiles (short labels) AND 5 matching image prompts (photoreal) for those tiles.
+
+Requirements:
+- Do NOT mention Google Lens.
+- Keep it about thrifting culture and pain points: goodwill bins, lining up, resellers, depop/posh orders, sanitizer, masks, dust, sweat, sore hands, chaotic carts, price tags, donation days, etc.
+- No hate, no slurs, no protected-class targeting.
+
+Headline rules:
+- all lowercase
+- 1–2 lines max
+- must start with \"pov:\" or \"pov\"
+
+Tile rules:
+- Exactly 5 tiles.
+- Each tile label: 1–3 words (max 18 chars preferred).
+- Each tile prompt: one sentence describing a 9:16 iPhone photo of that struggle object/scene.
+- Prompts should be realistic (no text overlays), suitable for our image generator.
+
+Return ONLY JSON with this exact shape:
+{
+  \"headline\":\"...\",
+  \"tiles\":[
+    {\"label\":\"...\",\"prompt\":\"...\"},
+    {\"label\":\"...\",\"prompt\":\"...\"},
+    {\"label\":\"...\",\"prompt\":\"...\"},
+    {\"label\":\"...\",\"prompt\":\"...\"},
+    {\"label\":\"...\",\"prompt\":\"...\"}
+  ]
+}`;
+
+    try {
+      const res = await fetch(OPENAI_CHAT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          temperature: 1.1,
+          max_tokens: 320,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+
+      const data = await res.json();
+      const raw = data.choices?.[0]?.message?.content?.trim() ?? "";
+      const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+      const out = JSON.parse(cleaned);
+
+      const headline = String(out?.headline ?? "").trim();
+      const tilesRaw = Array.isArray(out?.tiles) ? out.tiles : [];
+      const tiles = tilesRaw
+        .slice(0, 5)
+        .map((t) => ({
+          label: String(t?.label ?? "").trim().slice(0, 28),
+          prompt: String(t?.prompt ?? "").trim().slice(0, 240),
+        }))
+        .filter((t) => t.label && t.prompt);
+
+      if (!headline || tiles.length !== 5) throw new Error("Unexpected povThriftFullTime format");
+      return NextResponse.json({ headline, tiles });
+    } catch (e) {
+      console.error("generate-text error:", e);
+      return NextResponse.json({ error: String(e) }, { status: 500 });
+    }
+  }
+
   return NextResponse.json({ error: "Unknown type" }, { status: 400 });
 }
