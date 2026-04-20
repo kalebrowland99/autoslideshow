@@ -274,10 +274,20 @@ export async function POST(req) {
       return NextResponse.json({ text: result.text });
     }
 
-    if (model === "gpt-image-1") {
+    // Prefer the requested model, but if it's not configured, fall back to any configured provider.
+    // This lets Valcoin/Thrifty share the same OPENAI_API_KEY even if GEMINI_API_KEY is not set.
+    const wantOpenAI = model === "gpt-image-1";
+    const hasOpenAI = Boolean(openaiApiKey?.trim());
+    const hasGemini = Boolean(geminiApiKey?.trim());
+
+    if (wantOpenAI) {
+      result = await generateWithGptImage1({ prompt, referenceFile, referenceInline, openaiApiKey });
+    } else if (hasGemini) {
+      result = await generateWithGemini({ prompt, referenceFile, referenceInline, geminiApiKey });
+    } else if (hasOpenAI) {
       result = await generateWithGptImage1({ prompt, referenceFile, referenceInline, openaiApiKey });
     } else {
-      result = await generateWithGemini({ prompt, referenceFile, referenceInline, geminiApiKey });
+      result = { error: "No AI API key configured. Set OPENAI_API_KEY or GEMINI_API_KEY.", status: 400 };
     }
 
     if (result.error) {

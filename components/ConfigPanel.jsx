@@ -131,10 +131,21 @@ export default function ConfigPanel({
     // Key-date / classic
     "1909-S VDB Lincoln cent",
     "1916-D Mercury dime",
+    "1877 Indian Head cent",
+    "1901-S Barber quarter",
+    "1894-S Barber dime",
+    "1913 Liberty Head nickel",
     "1932-D Washington quarter",
     "1932-S Washington quarter",
     "1893-S Morgan silver dollar",
     "1921 Peace dollar",
+    "1937-D 3-legged Buffalo nickel",
+    "1922 no D Lincoln cent",
+    "1914-D Lincoln cent",
+    "1926-S Buffalo nickel",
+    "1908-S Indian Head cent",
+    "1873-CC Seated Liberty dollar",
+    "1907 High Relief Saint-Gaudens double eagle",
     "1885 Liberty Head nickel",
     // Modern / popular errors & varieties
     "2004-D Wisconsin quarter (extra leaf error)",
@@ -142,9 +153,17 @@ export default function ConfigPanel({
     "1972 Lincoln cent (doubled die obverse)",
     "1943 copper Lincoln cent",
     "1969-S Lincoln cent (doubled die obverse)",
+    "1982 no-mint-mark Roosevelt dime (error variety)",
+    "2000-P Sacagawea dollar (Cheerios variety)",
+    "2007 Presidential dollar (missing edge lettering error)",
+    "1995 doubled die Lincoln cent",
     // Proof / silver issues people recognize
     "1976-S silver Washington quarter (proof)",
     "1964 Washington quarter (proof)",
+    "1892 Columbus commemorative half dollar",
+    "1986 American Silver Eagle (bullion)",
+    "1995-W American Silver Eagle (proof)",
+    "1933 Saint-Gaudens double eagle",
   ];
 
   const DEFAULT_PROMPT = isValcoin
@@ -306,6 +325,7 @@ export default function ConfigPanel({
   }, []);
   const cancelGenRef = useRef(false);
   const batchCaptionsRef = useRef([]);
+  const apiKeyWarnedRef = useRef(false);
 
   const rewordCaptionApi = async (text) => {
     const res = await fetch("/api/generate-image", {
@@ -502,6 +522,11 @@ ${SHARED_RULES_OUTRO}`;
       if (b64) return `data:image/png;base64,${b64}`;
       throw new Error("No image returned");
     } catch (err) {
+      const msg = err?.message || String(err);
+      if (!apiKeyWarnedRef.current && /api key required|api key not set|OPENAI_API_KEY|GEMINI_API_KEY/i.test(msg)) {
+        apiKeyWarnedRef.current = true;
+        alert("AI generation needs an API key. Add OPENAI_API_KEY (or GEMINI_API_KEY) to a .env.local file, restart `npm run dev`, then try again.");
+      }
       setAiErrors((p) => ({ ...p, [index]: err.message }));
       return null;
     }
@@ -682,102 +707,107 @@ ${SHARED_RULES_OUTRO}`;
     setGeneratingSlot("all");
     setAiErrors({});
     batchCaptionsRef.current = [];
-    // Auto-pick a random hook caption for the collage slide
-    if (hookItems.length > 0) {
-      let pick = hookItems[Math.floor(Math.random() * hookItems.length)];
-      pick = await ensureUniqueHookCaption(pick, batchCaptionsRef);
-      updateConfig("captionText", pick);
-    }
+    try {
+      // Auto-pick a random hook caption for the collage slide
+      if (hookItems.length > 0) {
+        let pick = hookItems[Math.floor(Math.random() * hookItems.length)];
+        pick = await ensureUniqueHookCaption(pick, batchCaptionsRef);
+        updateConfig("captionText", pick);
+      }
 
-    // iMessage mom only uses slot 0
-    const isMomFmt = (config.outputFormat ?? "standard") === "imessageMom";
-    const allSlots = isMomFmt ? [config.slots[0]] : config.slots;
+      // iMessage mom only uses slot 0
+      const isMomFmt = (config.outputFormat ?? "standard") === "imessageMom";
+      const allSlots = isMomFmt ? [config.slots[0]] : config.slots;
 
-    // All slots are active if brand items list has items; otherwise filter by slot prompt
-    const activeSlots = allSlots
-      .map((s, i) => ({ slot: s, i: isMomFmt ? 0 : i }))
-      .filter(({ slot }) => brandItems.length > 0 || slot.prompt?.trim());
+      // All slots are active if brand items list has items; otherwise filter by slot prompt
+      const activeSlots = allSlots
+        .map((s, i) => ({ slot: s, i: isMomFmt ? 0 : i }))
+        .filter(({ slot }) => brandItems.length > 0 || slot.prompt?.trim());
 
-    if (activeSlots.length === 0) {
-      alert("Add items to the Brand Items List or add a prompt to at least one slot.");
-      setGeneratingSlot(null);
-      return;
-    }
-
-    const total = activeSlots.length;
-    const slotsDone = new Set();
-    cancelGenRef.current = false;
-
-    // Deduplicate brand items first, then shuffle so every slot gets a unique brand
-    const uniqueBrands = [...new Set(brandItems)];
-    const shuffledUnique = uniqueBrands.length > 0
-      ? [...uniqueBrands].sort(() => Math.random() - 0.5)
-      : [];
-    // If more slots than unique brands, extend with a re-shuffled copy (no back-to-back repeats)
-    while (shuffledUnique.length > 0 && shuffledUnique.length < activeSlots.length) {
-      const extra = [...uniqueBrands].sort(() => Math.random() - 0.5);
-      shuffledUnique.push(...extra);
-    }
-
-    let failedCount = 0;
-    setGenAllProgress({ total, done: 0, current: activeSlots[0].i, phase: `Starting ${total} image${total > 1 ? "s" : ""}…`, slotsDone });
-
-    for (let idx = 0; idx < activeSlots.length; idx++) {
-      if (cancelGenRef.current) {
-        setGenAllProgress((p) => p ? { ...p, phase: "Stopped." } : null);
-        setTimeout(() => setGenAllProgress(null), 2000);
-        setGeneratingSlot(null);
+      if (activeSlots.length === 0) {
+        alert("Add items to the Brand Items List or add a prompt to at least one slot.");
         return;
       }
-      const { i } = activeSlots[idx];
-      const prompt = config.slots[i].prompt || globalPrompt;
-      const stepLabel = `${idx + 1} of ${total}`;
 
-      // Each slot gets its own unique brand item from the deduplicated shuffled list
-      const brandItem = shuffledUnique.length > 0 ? shuffledUnique[idx] : null;
-      const brandLabel = brandItem ? ` — "${brandItem}"` : "";
+      const total = activeSlots.length;
+      const slotsDone = new Set();
+      cancelGenRef.current = false;
 
-      // Phase 1 — generate image
-      setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Generating image ${stepLabel}${brandLabel}…`, slotsDone: new Set(slotsDone) });
-      const hint = isValcoin ? pickValuableUSCoin() : brandItem;
-      const p = hint ? `${prompt}\n\nSpecific item to depict: ${hint}.` : prompt;
-      const url = await generateImage(i, p, hint);
-
-      if (url) {
-        const slot = config.slots[i];
-        const priceUpdates = (!slot.spentPrice && !slot.soldPrice) ? autoRandomPrices() : {};
-        updateSlot(i, { imageUrl: url, ...priceUpdates });
-
-        // Phase 2 — auto-title
-        setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Analyzing item ${stepLabel}…`, slotsDone: new Set(slotsDone) });
-        const grail = await autoTitleFromImage(url);
-        if (grail?.title) {
-          const resolvedPrice = grail.price ?? priceUpdates.soldPrice ?? slot.soldPrice;
-          updateSlot(i, {
-            itemName: grail.title,
-            ...(grail.price ? { soldPrice: grail.price } : {}),
-            matchItems: autoSoldListings(grail.title, resolvedPrice),
-          });
-        }
-
-        slotsDone.add(i);
-        setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Item ${stepLabel} complete`, slotsDone: new Set(slotsDone) });
-      } else {
-        // Generation failed — count it but don't mark as done
-        failedCount++;
-        const errMsg = aiErrors[i] || "unknown error";
-        setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Slot ${stepLabel} failed: ${errMsg}`, slotsDone: new Set(slotsDone) });
-        await new Promise((r) => setTimeout(r, 2500)); // longer pause so user can read error
+      // Deduplicate brand items first, then shuffle so every slot gets a unique brand
+      const uniqueBrands = [...new Set(brandItems)];
+      const shuffledUnique = uniqueBrands.length > 0
+        ? [...uniqueBrands].sort(() => Math.random() - 0.5)
+        : [];
+      // If more slots than unique brands, extend with a re-shuffled copy (no back-to-back repeats)
+      while (shuffledUnique.length > 0 && shuffledUnique.length < activeSlots.length) {
+        const extra = [...uniqueBrands].sort(() => Math.random() - 0.5);
+        shuffledUnique.push(...extra);
       }
-    }
 
-    setGeneratingSlot(null);
-    const doneCount = slotsDone.size;
-    const summary = failedCount > 0
-      ? `Done — ${doneCount} succeeded, ${failedCount} failed`
-      : "All done! ✓";
-    setGenAllProgress((p) => p ? { ...p, phase: summary, done: doneCount } : null);
-    setTimeout(() => setGenAllProgress(null), 4000);
+      let failedCount = 0;
+      setGenAllProgress({ total, done: 0, current: activeSlots[0].i, phase: `Starting ${total} image${total > 1 ? "s" : ""}…`, slotsDone });
+
+      for (let idx = 0; idx < activeSlots.length; idx++) {
+        if (cancelGenRef.current) {
+          setGenAllProgress((p) => p ? { ...p, phase: "Stopped." } : null);
+          setTimeout(() => setGenAllProgress(null), 2000);
+          return;
+        }
+        const { i } = activeSlots[idx];
+        const prompt = config.slots[i].prompt || globalPrompt;
+        const stepLabel = `${idx + 1} of ${total}`;
+
+        // Each slot gets its own unique brand item from the deduplicated shuffled list
+        const brandItem = shuffledUnique.length > 0 ? shuffledUnique[idx] : null;
+        const brandLabel = brandItem ? ` — "${brandItem}"` : "";
+
+        // Phase 1 — generate image
+        setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Generating image ${stepLabel}${brandLabel}…`, slotsDone: new Set(slotsDone) });
+        const hint = isValcoin ? pickValuableUSCoin() : brandItem;
+        const p = hint ? `${prompt}\n\nSpecific item to depict: ${hint}.` : prompt;
+        const url = await generateImage(i, p, hint);
+
+        if (url) {
+          const slot = config.slots[i];
+          const priceUpdates = (!slot.spentPrice && !slot.soldPrice) ? autoRandomPrices() : {};
+          updateSlot(i, { imageUrl: url, ...priceUpdates });
+
+          // Phase 2 — auto-title
+          setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Analyzing item ${stepLabel}…`, slotsDone: new Set(slotsDone) });
+          const grail = await autoTitleFromImage(url);
+          if (grail?.title) {
+            const resolvedPrice = grail.price ?? priceUpdates.soldPrice ?? slot.soldPrice;
+            updateSlot(i, {
+              itemName: grail.title,
+              ...(grail.price ? { soldPrice: grail.price } : {}),
+              matchItems: autoSoldListings(grail.title, resolvedPrice),
+            });
+          }
+
+          slotsDone.add(i);
+          setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Item ${stepLabel} complete`, slotsDone: new Set(slotsDone) });
+        } else {
+          // Generation failed — count it but don't mark as done
+          failedCount++;
+          const errMsg = aiErrors[i] || "unknown error";
+          setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Slot ${stepLabel} failed: ${errMsg}`, slotsDone: new Set(slotsDone) });
+          await new Promise((r) => setTimeout(r, 2500)); // longer pause so user can read error
+        }
+      }
+
+      const doneCount = slotsDone.size;
+      const summary = failedCount > 0
+        ? `Done — ${doneCount} succeeded, ${failedCount} failed`
+        : "All done! ✓";
+      setGenAllProgress((p) => p ? { ...p, phase: summary, done: doneCount } : null);
+      setTimeout(() => setGenAllProgress(null), 4000);
+    } catch (err) {
+      console.error("Generate 1 slideshow failed:", err);
+      setGenAllProgress((p) => p ? { ...p, phase: "Generation failed — check console for details." } : null);
+      setTimeout(() => setGenAllProgress(null), 5000);
+    } finally {
+      setGeneratingSlot(null);
+    }
   };
 
   // ── Batch generation: produce N complete slideshows sequentially ─────────────
@@ -855,16 +885,23 @@ ${SHARED_RULES_OUTRO}`;
     setAiErrors({});
     batchCaptionsRef.current = [];
     cancelGenRef.current = false;
-    for (let i = 0; i < numSlideshows; i++) {
-      if (cancelGenRef.current) break;
-      await generateOneSlideshow(i, numSlideshows);
+    try {
+      for (let i = 0; i < numSlideshows; i++) {
+        if (cancelGenRef.current) break;
+        await generateOneSlideshow(i, numSlideshows);
+      }
+      setGenAllProgress((p) => p
+        ? { ...p, phase: `✓ ${numSlideshows} slideshow${numSlideshows > 1 ? "s" : ""} saved to gallery!`, done: 6 }
+        : null
+      );
+      setTimeout(() => setGenAllProgress(null), 4000);
+    } catch (err) {
+      console.error("Generate batch failed:", err);
+      setGenAllProgress((p) => p ? { ...p, phase: "Batch failed — check console for details." } : null);
+      setTimeout(() => setGenAllProgress(null), 5000);
+    } finally {
+      setGeneratingSlot(null);
     }
-    setGeneratingSlot(null);
-    setGenAllProgress((p) => p
-      ? { ...p, phase: `✓ ${numSlideshows} slideshow${numSlideshows > 1 ? "s" : ""} saved to gallery!`, done: 6 }
-      : null
-    );
-    setTimeout(() => setGenAllProgress(null), 4000);
   };
 
   // ── Video export: capture each slide, then animate ──
