@@ -23,12 +23,14 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
   const captionStyle = config.captionStyle ?? "tiktok";
   const captionBg    = config.captionBg    ?? "#e03030";
   const captionColor = config.captionColor ?? "#ffffff";
+  const outputFormat = config.outputFormat ?? "standard";
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
   const px = (n) => Math.round(n * S);
 
   const spentLine = (slot.spentPrice ? `spent $${slot.spentPrice}` : "spent $?");
   const itemLine  = slot.itemName ? `(${slot.itemName.toLowerCase()})` : null;
+  const showPlusLine = outputFormat === "standard" || outputFormat === "appOnly";
 
   // All random values derived from a stable seed — same layout every render/export
   const seed = useMemo(() => slotSeed(slot), [slot.itemName, slot.spentPrice, slot.soldPrice]);
@@ -117,6 +119,14 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
             : tiktokCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800" })
           }>
             {itemLine}
+          </span>
+        )}
+        {showPlusLine && (
+          <span style={captionStyle === "tickerBox"
+            ? tickerBoxCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800", color: captionColor })
+            : tiktokCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800" })
+          }>
+            +
           </span>
         )}
       </div>
