@@ -20,8 +20,12 @@ async function walkDir(dir, base = "") {
   return results;
 }
 
-export async function GET() {
-  const dir = join(process.cwd(), "public", "references");
+export async function GET(req) {
+  const { searchParams } = new URL(req.url);
+  const appId = searchParams.get("appId");
+  const dir = appId === "valcoin"
+    ? join(process.cwd(), "public", "valcoin", "references")
+    : join(process.cwd(), "public", "references");
   const images = await walkDir(dir);
   return NextResponse.json({ images });
 }

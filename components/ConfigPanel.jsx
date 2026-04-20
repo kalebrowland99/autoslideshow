@@ -315,14 +315,14 @@ export default function ConfigPanel({
     updateConfig("captionText", pick);
   };
 
-  // Load reference images from public/references/ on mount (client only)
+  // Load reference images (brand-specific) on mount (client only)
   useEffect(() => {
     setMounted(true);
-    fetch("/api/references")
+    fetch(`/api/references?appId=${encodeURIComponent(brand.appId)}`)
       .then((r) => r.json())
       .then((d) => setReferenceImages(d.images || []))
       .catch(() => setReferenceImages([]));
-  }, []);
+  }, [brand.appId]);
   const cancelGenRef = useRef(false);
   const batchCaptionsRef = useRef([]);
   const apiKeyWarnedRef = useRef(false);
@@ -372,11 +372,11 @@ export default function ConfigPanel({
       let b64 = null;
 
       const outFmt = config.outputFormat ?? "standard";
-      const isNonApparelScene = outFmt === "starterPack";
+      const isNonApparelScene = outFmt === "starterPack" || isValcoin;
 
       const brandName = brandItem || prompt?.trim() || "a clothing brand";
 
-      // Reference photos in public/references/ — clothing-only app; drives messy buggy-cart look
+      // Reference photos (Thrifty: cart look; Valcoin: coin/table look)
       const refs = referenceImages || [];
       const matchingRefs = refs;
 
@@ -405,13 +405,20 @@ Subject: ${scenePrompt}
 If the subject is an object (like germ-x, a mask, receipt piles, shipping labels), center it and make it visually obvious what it is. If it is a scene (like goodwill bins line, people lining up), make it documentary-style and realistic.
 `.trim();
 
+        const refFile = referenceInline
+          ? null
+          : (matchingRefs.length > 0
+            ? matchingRefs[Math.floor(Math.random() * matchingRefs.length)]
+            : null);
+
         const res = await fetch("/api/generate-image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             prompt: fullPrompt,
-            referenceFile: null,
+            referenceFile: refFile || null,
             referenceInline: undefined,
+            referenceRoot: brand.appId === "valcoin" ? "valcoin/references" : "references",
             model: imageModel,
           }),
         });
@@ -1648,10 +1655,17 @@ ${SHARED_RULES_OUTRO}`;
           ) : referenceImages.length > 0 ? (
             <span>
               <strong>{referenceImages.length}</strong> reference photo{referenceImages.length > 1 ? "s" : ""} in{" "}
-              <code className="text-white/50">public/references/</code> — used for the messy blue shopping-cart (buggy) look; clothing-only generations match this composition.
+              <code className="text-white/50">{brand.appId === "valcoin" ? "public/valcoin/references/" : "public/references/"}</code>{" "}
+              — used as the reference style for AI generations.
             </span>
           ) : (
-            <span>Add a PNG/JPEG to <code className="text-white/50">public/references/</code> (e.g. messy clothes in a blue cart) to lock the buggy aesthetic.</span>
+            <span>
+              Add a PNG/JPEG to{" "}
+              <code className="text-white/50">{brand.appId === "valcoin" ? "public/valcoin/references/" : "public/references/"}</code>
+              {brand.appId === "valcoin"
+                ? " (e.g. a coin-on-table macro style reference) to lock the Valcoin look."
+                : " (e.g. messy clothes in a blue cart) to lock the buggy aesthetic."}
+            </span>
           )}
         </div>}
         {/* Brand Items List */}
@@ -1669,7 +1683,11 @@ ${SHARED_RULES_OUTRO}`;
             rows={5}
             className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/15 resize-none"
           />
-          <p className="text-white/25 text-[10px] mt-1">Clothing only — one garment per line. Each slot gets a different piece from this list, shown in the messy cart pile.</p>
+          <p className="text-white/25 text-[10px] mt-1">
+            {isValcoin
+              ? "Coins — one per line. Each slot picks a different valuable US coin (or your custom list)."
+              : "Clothing only — one garment per line. Each slot gets a different piece from this list, shown in the messy cart pile."}
+          </p>
         </div>
 
         <div className="mt-2 flex gap-2">

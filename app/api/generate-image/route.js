@@ -14,7 +14,12 @@ function mimeFromPath(filePath) {
 }
 
 // ── Gemini handler ────────────────────────────────────────────────────────────
-async function generateWithGemini({ prompt, referenceFile, referenceInline, geminiApiKey }) {
+function resolveReferenceRoot(referenceRoot) {
+  const safe = referenceRoot === "valcoin/references" ? "valcoin/references" : "references";
+  return safe;
+}
+
+async function generateWithGemini({ prompt, referenceFile, referenceInline, referenceRoot, geminiApiKey }) {
   if (!geminiApiKey?.trim()) {
     return { error: "Google AI API key required.", status: 400 };
   }
@@ -23,7 +28,8 @@ async function generateWithGemini({ prompt, referenceFile, referenceInline, gemi
   if (referenceInline?.base64 && referenceInline?.mimeType) {
     parts = [{ text: prompt }, { inlineData: { mimeType: referenceInline.mimeType, data: referenceInline.base64 } }];
   } else if (referenceFile) {
-    const filePath = join(process.cwd(), "public", "references", referenceFile);
+    const root = resolveReferenceRoot(referenceRoot);
+    const filePath = join(process.cwd(), "public", ...root.split("/"), referenceFile);
     let fileBuffer;
     try { fileBuffer = await readFile(filePath); }
     catch { return { error: `Reference file not found: ${referenceFile}`, status: 400 }; }
@@ -70,7 +76,7 @@ async function generateWithGemini({ prompt, referenceFile, referenceInline, gemi
 }
 
 // ── GPT-Image-1 handler ───────────────────────────────────────────────────────
-async function generateWithGptImage1({ prompt, referenceFile, referenceInline, openaiApiKey }) {
+async function generateWithGptImage1({ prompt, referenceFile, referenceInline, referenceRoot, openaiApiKey }) {
   if (!openaiApiKey?.trim()) {
     return { error: "OpenAI API key required.", status: 400 };
   }
@@ -98,7 +104,8 @@ async function generateWithGptImage1({ prompt, referenceFile, referenceInline, o
     data = await res.json();
   } else if (referenceFile) {
     // Image edit mode — pass reference photo as the base image
-    const filePath = join(process.cwd(), "public", "references", referenceFile);
+    const root = resolveReferenceRoot(referenceRoot);
+    const filePath = join(process.cwd(), "public", ...root.split("/"), referenceFile);
     let fileBuffer;
     try { fileBuffer = await readFile(filePath); }
     catch { return { error: `Reference file not found: ${referenceFile}`, status: 400 }; }
@@ -247,6 +254,7 @@ export async function POST(req) {
       prompt,
       referenceFile,
       referenceInline,
+      referenceRoot,
       imageUrl,
       geminiApiKey: requestGeminiApiKey,
       openaiApiKey: requestOpenaiApiKey,
@@ -281,11 +289,11 @@ export async function POST(req) {
     const hasGemini = Boolean(geminiApiKey?.trim());
 
     if (wantOpenAI) {
-      result = await generateWithGptImage1({ prompt, referenceFile, referenceInline, openaiApiKey });
+      result = await generateWithGptImage1({ prompt, referenceFile, referenceInline, referenceRoot, openaiApiKey });
     } else if (hasGemini) {
-      result = await generateWithGemini({ prompt, referenceFile, referenceInline, geminiApiKey });
+      result = await generateWithGemini({ prompt, referenceFile, referenceInline, referenceRoot, geminiApiKey });
     } else if (hasOpenAI) {
-      result = await generateWithGptImage1({ prompt, referenceFile, referenceInline, openaiApiKey });
+      result = await generateWithGptImage1({ prompt, referenceFile, referenceInline, referenceRoot, openaiApiKey });
     } else {
       result = { error: "No AI API key configured. Set OPENAI_API_KEY or GEMINI_API_KEY.", status: 400 };
     }
