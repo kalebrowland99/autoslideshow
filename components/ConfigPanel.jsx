@@ -183,6 +183,7 @@ export default function ConfigPanel({
   // genAllProgress shape: { total: 6, done: number, current: number, phase: string, slotsDone: Set }
   const [referenceImages, setReferenceImages] = useState(null);
   const [mounted, setMounted] = useState(false);
+  const storeKey = (base) => `${base}_${brand.appId}`;
   const DEFAULT_HOOKS_THRIFTY = [
     "found at goodwill 👀",
     "thrift finds that paid off 💰",
@@ -208,24 +209,27 @@ export default function ConfigPanel({
   useEffect(() => {
     const savedModel = localStorage.getItem("ts_image_model");
     if (savedModel) setImageModelRaw(savedModel);
-    const savedPrompt = localStorage.getItem("ts_global_prompt");
+    const savedPrompt = localStorage.getItem(storeKey("ts_global_prompt"));
     if (savedPrompt != null) setGlobalPrompt(savedPrompt);
-    const savedBrands = localStorage.getItem("ts_brand_items");
+    else setGlobalPrompt(DEFAULT_PROMPT);
+    const savedBrands = localStorage.getItem(storeKey("ts_brand_items"));
     if (savedBrands?.trim()) setBrandItemsRaw(savedBrands);
-    const savedHooks = localStorage.getItem("ts_hooks");
+    else setBrandItemsRaw(isValcoin ? VALUABLE_US_COINS.join("\n") : DEFAULT_BRAND_LIST);
+    const savedHooks = localStorage.getItem(storeKey("ts_hooks"));
     if (savedHooks) setHooksRaw(savedHooks);
-  }, []);
+    else setHooksRaw(isValcoin ? DEFAULT_HOOKS_VALCOIN : DEFAULT_HOOKS_THRIFTY);
+  }, [brand.appId]); // reload per-brand persisted values
 
   // Valcoin: coin-centric default hook captions (only if user hasn't customized).
   useEffect(() => {
     if (!mounted) return;
     if (!isValcoin) return;
-    const savedHooks = localStorage.getItem("ts_hooks");
+    const savedHooks = localStorage.getItem(storeKey("ts_hooks"));
     if (!savedHooks || savedHooks.trim() === DEFAULT_HOOKS_THRIFTY.trim()) {
       setHooksRaw(DEFAULT_HOOKS_VALCOIN);
-      localStorage.setItem("ts_hooks", DEFAULT_HOOKS_VALCOIN);
+      localStorage.setItem(storeKey("ts_hooks"), DEFAULT_HOOKS_VALCOIN);
     }
-  }, [mounted, isValcoin]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mounted, isValcoin, brand.appId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pickValuableUSCoin = () => {
     const idx = Math.floor(Math.random() * VALUABLE_US_COINS.length);
@@ -237,18 +241,18 @@ export default function ConfigPanel({
   useEffect(() => {
     if (!mounted) return;
     if (!isValcoin) return;
-    const savedPrompt = localStorage.getItem("ts_global_prompt");
-    const savedBrands = localStorage.getItem("ts_brand_items");
+    const savedPrompt = localStorage.getItem(storeKey("ts_global_prompt"));
+    const savedBrands = localStorage.getItem(storeKey("ts_brand_items"));
     if (!savedPrompt) {
       setGlobalPrompt(DEFAULT_PROMPT);
-      localStorage.setItem("ts_global_prompt", DEFAULT_PROMPT);
+      localStorage.setItem(storeKey("ts_global_prompt"), DEFAULT_PROMPT);
     }
     if (!savedBrands) {
       const list = VALUABLE_US_COINS.join("\n");
       setBrandItemsRaw(list);
-      localStorage.setItem("ts_brand_items", list);
+      localStorage.setItem(storeKey("ts_brand_items"), list);
     }
-  }, [mounted, isValcoin]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mounted, isValcoin, brand.appId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Parsed brand items (non-empty lines) — fall back to default if list is empty
   const brandItems = (() => {
@@ -326,11 +330,22 @@ export default function ConfigPanel({
   const cancelGenRef = useRef(false);
   const batchCaptionsRef = useRef([]);
   const apiKeyWarnedRef = useRef(false);
+  const abortRef = useRef(null); // AbortController for force-stopping in-flight requests
+
+  const hardStop = () => {
+    cancelGenRef.current = true;
+    try { abortRef.current?.abort("stopped"); } catch {}
+    abortRef.current = null;
+    setGeneratingSlot(null);
+    setGenAllProgress((p) => p ? { ...p, phase: "Stopped." } : null);
+    setTimeout(() => setGenAllProgress(null), 2000);
+  };
 
   const rewordCaptionApi = async (text) => {
     const res = await fetch("/api/generate-image", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: abortRef.current?.signal,
       body: JSON.stringify({ action: "rewordCaption", text }),
     });
     const data = await res.json();
@@ -399,6 +414,11 @@ export default function ConfigPanel({
 Aspect ratio requirement: Generate the image in 9:16 vertical portrait orientation only. Mandatory.
 
 Make it look like a real iPhone photo (default Camera app, no Portrait mode, no filters). Natural color, indoor fluorescent lighting if applicable. Deep focus, not blurry, not cinematic. No text overlays, no captions, no watermarks.
+
+${isValcoin
+  ? `Reference-image rule (CRITICAL): Make the photo EXACT 1:1 as the reference image. Keep the same table/background, lighting, camera angle, crop, and overall composition. Only swap out the coin with the chosen coin. Do not change anything else.`
+  : ""
+}
 
 Subject: ${scenePrompt}
 
@@ -515,6 +535,7 @@ ${SHARED_RULES_OUTRO}`;
       const res = await fetch("/api/generate-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: abortRef.current?.signal,
         body: JSON.stringify({
           prompt: fullPrompt,
           referenceFile: refFile || null,
@@ -542,6 +563,8 @@ ${SHARED_RULES_OUTRO}`;
   const handleGenerateOne = async (index) => {
     setAiErrors((p) => ({ ...p, [index]: null }));
     setGeneratingSlot(index);
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
     const weightedPool = buildWeightedPool(brandItems);
     const randomBrand = weightedPool.length > 0
       ? weightedPool[Math.floor(Math.random() * weightedPool.length)]
@@ -577,6 +600,7 @@ ${SHARED_RULES_OUTRO}`;
     // Refresh jitter seed so every generation produces unique pixel-level layout
     setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
     setGeneratingSlot(null);
+    abortRef.current = null;
   };
 
   // ── AI: generate iMessage thread for imessageMom format ─────────────────────
@@ -585,6 +609,7 @@ ${SHARED_RULES_OUTRO}`;
       const res = await fetch("/api/generate-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: abortRef.current?.signal,
         body: JSON.stringify({ type: "imessageThread", itemName, soldPrice, appId: config.appId }),
       });
       if (!res.ok) return null;
@@ -598,6 +623,7 @@ ${SHARED_RULES_OUTRO}`;
       const res = await fetch("/api/generate-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: abortRef.current?.signal,
         body: JSON.stringify({ type: "starterPackThrifting" }),
       });
       if (!res.ok) return null;
@@ -652,6 +678,7 @@ ${SHARED_RULES_OUTRO}`;
       const res = await fetch("/api/generate-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: abortRef.current?.signal,
         body: JSON.stringify({
           action: "identify",
           imageUrl,
@@ -714,6 +741,8 @@ ${SHARED_RULES_OUTRO}`;
     setGeneratingSlot("all");
     setAiErrors({});
     batchCaptionsRef.current = [];
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
     try {
       // Auto-pick a random hook caption for the collage slide
       if (hookItems.length > 0) {
@@ -814,6 +843,7 @@ ${SHARED_RULES_OUTRO}`;
       setTimeout(() => setGenAllProgress(null), 5000);
     } finally {
       setGeneratingSlot(null);
+      abortRef.current = null;
     }
   };
 
@@ -892,6 +922,8 @@ ${SHARED_RULES_OUTRO}`;
     setAiErrors({});
     batchCaptionsRef.current = [];
     cancelGenRef.current = false;
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
     try {
       for (let i = 0; i < numSlideshows; i++) {
         if (cancelGenRef.current) break;
@@ -908,6 +940,7 @@ ${SHARED_RULES_OUTRO}`;
       setTimeout(() => setGenAllProgress(null), 5000);
     } finally {
       setGeneratingSlot(null);
+      abortRef.current = null;
     }
   };
 
@@ -1595,7 +1628,7 @@ ${SHARED_RULES_OUTRO}`;
           </div>
           <textarea
             value={hooksRaw}
-            onChange={(e) => { setHooksRaw(e.target.value); localStorage.setItem("ts_hooks", e.target.value); }}
+            onChange={(e) => { setHooksRaw(e.target.value); localStorage.setItem(storeKey("ts_hooks"), e.target.value); }}
             placeholder={"found at goodwill 👀\nthrift finds that paid off 💰\nyou won't believe what i found"}
             rows={5}
             className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/15 resize-none"
@@ -1678,7 +1711,7 @@ ${SHARED_RULES_OUTRO}`;
           </div>
           <textarea
             value={brandItemsRaw}
-            onChange={(e) => { setBrandItemsRaw(e.target.value); localStorage.setItem("ts_brand_items", e.target.value); }}
+            onChange={(e) => { setBrandItemsRaw(e.target.value); localStorage.setItem(storeKey("ts_brand_items"), e.target.value); }}
             placeholder={"vintage Carhartt double-knee pants\nSupreme box logo hoodie\nvintage Levi's 501\nKapital boro jacket\nvintage Nike windbreaker"}
             rows={5}
             className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/15 resize-none"
@@ -1697,7 +1730,7 @@ ${SHARED_RULES_OUTRO}`;
           </button>
           {generatingSlot === "all" && (
             <button
-              onClick={() => { cancelGenRef.current = true; }}
+              onClick={hardStop}
               className="px-3 py-2.5 rounded-xl bg-red-600/80 hover:bg-red-500 text-white text-sm font-semibold transition-colors"
               title="Stop generating"
             >
