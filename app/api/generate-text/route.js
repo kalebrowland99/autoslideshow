@@ -3,21 +3,23 @@ import { NextResponse } from "next/server";
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 
 export async function POST(req) {
-  const { type, itemName, soldPrice } = await req.json();
+  const { type, itemName, soldPrice, appId } = await req.json();
   const apiKey = process.env.OPENAI_API_KEY?.trim();
 
   if (!apiKey) return NextResponse.json({ error: "OPENAI_API_KEY not set" }, { status: 500 });
 
   if (type === "imessageThread") {
     const priceStr = soldPrice ? `$${soldPrice}` : "a lot of money";
+    const appName = appId === "valcoin" ? "Valcoin" : "Thrifty";
+    const appCategory = appId === "valcoin" ? "coinscan" : "reselling";
     const prompt = `Generate a realistic iMessage conversation between a mom and her son.
 Context:
-- Mom found a thrift-store item ("${itemName || "some item"}") at Goodwill, checked it on the Thrifty reselling app.
+- Mom found a thrift-store item ("${itemName || "some item"}") at Goodwill, checked it on the ${appName} ${appCategory} app.
 - She called her son but he didn't answer, so she texts him.
 - She's also mad about his girlfriend's thrift haul videos online and says she's not welcome at family events.
 - Because he didn't answer, she gave the item away to someone else at the store.
-- Son texts back upset, saying he looked up the item on Thrifty and it was worth ${priceStr}.
-- Mom shuts him down: she doesn't care about Thrifty, tells him to get a real job and stop reselling.
+- Son texts back upset, saying he looked up the item on ${appName} and it was worth ${priceStr}.
+- Mom shuts him down: she doesn't care about ${appName}, tells him to get a real job and stop reselling.
 
 Rules:
 - Exactly 5 messages in this order: mom, mom, mom, son, mom

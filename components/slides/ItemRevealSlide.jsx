@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { tiktokCaptionTextStyle, tickerBoxCaptionTextStyle, captionWrapperStyle } from "@/lib/captionStyles";
 import { captionFontSize1080 } from "@/lib/captionFontSize";
+import { getBrand } from "@/lib/brand";
 
 // Stable seeded PRNG — same output for same seed, no re-randomisation on re-render
 function seededRand(seed) {
@@ -20,6 +21,7 @@ function slotSeed(slot) {
 }
 
 export default function ItemRevealSlide({ slot, S, config = {} }) {
+  const brand = getBrand(config);
   const captionStyle = config.captionStyle ?? "tiktok";
   const captionBg    = config.captionBg    ?? "#e03030";
   const captionColor = config.captionColor ?? "#ffffff";
@@ -30,7 +32,7 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
 
   const spentLine = (slot.spentPrice ? `spent $${slot.spentPrice}` : "spent $?");
   const itemLine  = slot.itemName ? `(${slot.itemName.toLowerCase()})` : null;
-  const showLetsCheckThrifty = outputFormat === "standard" || outputFormat === "appOnly";
+  const showLetsCheckApp = outputFormat === "standard" || outputFormat === "appOnly";
 
   // All random values derived from a stable seed — same layout every render/export
   const seed = useMemo(() => slotSeed(slot), [slot.itemName, slot.spentPrice, slot.soldPrice]);
@@ -47,8 +49,8 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
   const mainLines = 1 + (itemLine ? 1 : 0);
   const mainBoxH = captionPadY + mainLines * captionLineH + Math.max(0, mainLines - 1) * captionInnerGap;
   const blankLineGapH = captionLineH * 2; // two "auto line breaks"
-  const thriftyBoxH = showLetsCheckThrifty ? (captionPadY + captionLineH) : 0;
-  const captionBoxH = mainBoxH + (showLetsCheckThrifty ? blankLineGapH + thriftyBoxH : 0);
+  const appBoxH = showLetsCheckApp ? (captionPadY + captionLineH) : 0;
+  const captionBoxH = mainBoxH + (showLetsCheckApp ? blankLineGapH + appBoxH : 0);
   const maxTop = H - captionBoxH - Math.round(H * 0.02);
 
   const zoneIdx = useMemo(() => Math.floor(seededRand(seed + 1) * REVEAL_SAFE_ZONES.length), [seed]);
@@ -138,7 +140,7 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
           </div>
 
           {/* Two line breaks worth of space, then separate tickerbox */}
-          {showLetsCheckThrifty && (
+          {showLetsCheckApp && (
             <>
               <div style={{ height: captionLineH * 2 }} />
               <div style={{
@@ -150,7 +152,7 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
                 justifyContent: "center",
               }}>
                 <span style={tickerBoxCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800", color: captionColor })}>
-                  lets check thrifty!
+                  {`lets check ${brand.appLower}!`}
                 </span>
               </div>
             </>

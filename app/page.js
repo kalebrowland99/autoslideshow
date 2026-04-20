@@ -58,6 +58,7 @@ export const defaultConfig = {
   /** Add a random track from public/audio/ to the exported video. */
   useRandomAudio: false,
   outputFormat: "standard", // "standard" | "appOnly" | "posePerson" | "imessageMom" | "starterPack"
+  appId: "thrifty", // "thrifty" | "valcoin"
   /** Headline text shown at the top of the Starter Pack slide */
   starterPackHeadline: "",
   /** Changed each generation so every export has unique pixel-level layout (anti-fingerprint). */
@@ -93,6 +94,7 @@ export default function Home() {
       slots: showData.slots,
       captionText: showData.captionText,
       ...(showData.outputFormat != null ? { outputFormat: showData.outputFormat } : {}),
+      ...(showData.appId != null ? { appId: showData.appId } : {}),
     }));
     setActiveShowIdx(idx);
     setCurrentSlide(0);
@@ -103,6 +105,12 @@ export default function Home() {
   const updateConfig = useCallback((key, value) => {
     setConfig((prev) => {
       const next = { ...prev, [key]: value };
+      if (key === "appId" && value === "valcoin") {
+        // Valcoin supports only standard + app-only.
+        if (!["standard", "appOnly"].includes(next.outputFormat ?? "standard")) {
+          next.outputFormat = "standard";
+        }
+      }
       if (key === "outputFormat") {
         const maxSlide = Math.max(0, getTotalSlides(next) - 1);
         Promise.resolve().then(() => {
@@ -145,7 +153,21 @@ export default function Home() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
           </div>
-          <h1 className="text-white font-bold text-lg tracking-tight">Thrifty Slideshows</h1>
+          <div className="relative">
+            <select
+              value={config.appId ?? "thrifty"}
+              onChange={(e) => {
+                const nextAppId = e.target.value;
+                updateConfig("appId", nextAppId);
+              }}
+              className="text-white font-bold text-lg tracking-tight bg-transparent outline-none appearance-none pr-6 cursor-pointer"
+              aria-label="Select app brand"
+            >
+              <option value="thrifty" className="bg-[#0f0f0f] text-white">Thrifty Slideshows</option>
+              <option value="valcoin" className="bg-[#0f0f0f] text-white">Valcoin Slideshows</option>
+            </select>
+            <span className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-white/60 text-xs">▼</span>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-white/30 text-xs">

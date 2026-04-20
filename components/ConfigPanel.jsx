@@ -4,6 +4,7 @@ import { useRef, useState, useEffect } from "react";
 import { getFontEmbedCSS, toCanvas, toJpeg } from "html-to-image";
 import { DISPLAY_SCALE } from "./VideoPreview";
 import { getSlideInfo, slideIndexToSlotIndex } from "@/lib/slideLayout";
+import { getBrand } from "@/lib/brand";
 
 function parseDataUrl(dataUrl) {
   if (!dataUrl || typeof dataUrl !== "string") return null;
@@ -123,7 +124,25 @@ export default function ConfigPanel({
   onBusyChange, registerRefreshSlide, onSlideshowSaved,
   savedSlideshows = [],
 }) {
-  const DEFAULT_PROMPT = "POV into a blue thrift shopping cart (buggy) full of tossed secondhand clothes — garments may lie upside-down or sideways; bottom hems/waistbands should look softly folded or cuffed (no people, no hands). XXL hero piece: faded washed-out colors only, cotton lint balls, stray dog hair, slight print/color imperfections. Concrete floor and aisles behind, fluorescent light, shallow DOF, no overlays.";
+  const brand = getBrand(config);
+  const isValcoin = brand.appId === "valcoin";
+
+  const VALUABLE_QUARTERS = [
+    "1932-D Washington quarter",
+    "1932-S Washington quarter",
+    "1950-D Washington quarter (high grade)",
+    "1955 Washington quarter (high grade)",
+    "1964 Washington quarter (proof)",
+    "1970-S Washington quarter (proof)",
+    "1976-S silver Washington quarter (proof)",
+    "1999-P Delaware quarter (error variety)",
+    "2004-D Wisconsin quarter (extra leaf error)",
+    "2005-P Kansas quarter (error variety)",
+  ];
+
+  const DEFAULT_PROMPT = isValcoin
+    ? "A single valuable US quarter coin on a wooden table, photographed like a real iPhone macro photo. The coin should be a real existing valuable variety (random pick), natural room lighting, shallow depth of field, no hands, no text overlays, no other coins, no props."
+    : "POV into a blue thrift shopping cart (buggy) full of tossed secondhand clothes — garments may lie upside-down or sideways; bottom hems/waistbands should look softly folded or cuffed (no people, no hands). XXL hero piece: faded washed-out colors only, cotton lint balls, stray dog hair, slight print/color imperfections. Concrete floor and aisles behind, fluorescent light, shallow DOF, no overlays.";
 
   const [imageModel, setImageModelRaw] = useState("gpt-image-1"); // "gpt-image-1" | "gemini"
   const setImageModel = (v) => { setImageModelRaw(v); localStorage.setItem("ts_image_model", v); };
@@ -161,6 +180,29 @@ export default function ConfigPanel({
     const savedHooks = localStorage.getItem("ts_hooks");
     if (savedHooks) setHooksRaw(savedHooks);
   }, []);
+
+  const pickValuableQuarter = () => {
+    const idx = Math.floor(Math.random() * VALUABLE_QUARTERS.length);
+    return VALUABLE_QUARTERS[idx];
+  };
+
+  // When switching to Valcoin, make the default prompt/list coin-appropriate
+  // (only if the user hasn't already customized them in localStorage).
+  useEffect(() => {
+    if (!mounted) return;
+    if (!isValcoin) return;
+    const savedPrompt = localStorage.getItem("ts_global_prompt");
+    const savedBrands = localStorage.getItem("ts_brand_items");
+    if (!savedPrompt) {
+      setGlobalPrompt(DEFAULT_PROMPT);
+      localStorage.setItem("ts_global_prompt", DEFAULT_PROMPT);
+    }
+    if (!savedBrands) {
+      const list = VALUABLE_QUARTERS.join("\n");
+      setBrandItemsRaw(list);
+      localStorage.setItem("ts_brand_items", list);
+    }
+  }, [mounted, isValcoin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Parsed brand items (non-empty lines) — fall back to default if list is empty
   const brandItems = (() => {
@@ -445,7 +487,11 @@ ${SHARED_RULES_OUTRO}`;
     const randomBrand = weightedPool.length > 0
       ? weightedPool[Math.floor(Math.random() * weightedPool.length)]
       : null;
-    const url = await generateImage(index, config.slots[index].prompt || globalPrompt, randomBrand);
+    const coinPick = isValcoin ? pickValuableQuarter() : null;
+    const hint = isValcoin ? coinPick : randomBrand;
+    const basePrompt = config.slots[index].prompt || globalPrompt;
+    const prompt = hint ? `${basePrompt}\n\nSpecific item to depict: ${hint}.` : basePrompt;
+    const url = await generateImage(index, prompt, hint);
     if (url) {
       const slot = config.slots[index];
       const priceUpdates = (!slot.spentPrice && !slot.soldPrice) ? autoRandomPrices() : {};
@@ -480,7 +526,7 @@ ${SHARED_RULES_OUTRO}`;
       const res = await fetch("/api/generate-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "imessageThread", itemName, soldPrice }),
+        body: JSON.stringify({ type: "imessageThread", itemName, soldPrice, appId: config.appId }),
       });
       if (!res.ok) return null;
       const data = await res.json();
@@ -531,7 +577,9 @@ ${SHARED_RULES_OUTRO}`;
         || (config.slots?.[i]?.itemName ?? "").trim();
       if (!p) continue;
       setExportStatus(`Generating starter pack image ${i + 1}/3…`);
-      const url = await generateImage(i, p, null);
+      const hint = isValcoin ? pickValuableQuarter() : null;
+      const prompt = hint ? `${p}\n\nSpecific item to depict: ${hint}.` : p;
+      const url = await generateImage(i, prompt, hint);
       if (url) updateSlot(i, { imageUrl: url });
     }
   };
@@ -664,7 +712,9 @@ ${SHARED_RULES_OUTRO}`;
 
       // Phase 1 — generate image
       setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Generating image ${stepLabel}${brandLabel}…`, slotsDone: new Set(slotsDone) });
-      const url = await generateImage(i, prompt, brandItem);
+      const hint = isValcoin ? pickValuableQuarter() : brandItem;
+      const p = hint ? `${prompt}\n\nSpecific item to depict: ${hint}.` : prompt;
+      const url = await generateImage(i, p, hint);
 
       if (url) {
         const slot = config.slots[i];
@@ -732,7 +782,9 @@ ${SHARED_RULES_OUTRO}`;
         phase: `Show ${showIndex + 1}/${totalShows} · Image ${si + 1}/${slotCount}${brandItem ? ` — "${brandItem}"` : ""}…`,
         slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
       });
-      const url = await generateImage(si, globalPrompt, brandItem);
+      const hint = isValcoin ? pickValuableQuarter() : brandItem;
+      const p = hint ? `${globalPrompt}\n\nSpecific item to depict: ${hint}.` : globalPrompt;
+      const url = await generateImage(si, p, hint);
       if (url) {
         const prices = autoRandomPrices();
         localSlots[si] = { ...localSlots[si], imageUrl: url, ...prices };
@@ -762,6 +814,7 @@ ${SHARED_RULES_OUTRO}`;
       captionText: hookCaption,
       previewScreenshot,
       outputFormat: config.outputFormat,
+      appId: config.appId,
     });
     return localSlots;
   };
@@ -1081,7 +1134,7 @@ ${SHARED_RULES_OUTRO}`;
     const url = URL.createObjectURL(mp4Blob);
     const a   = document.createElement("a");
     a.href     = url;
-    a.download = `thrifty_${uid}.mp4`;
+    a.download = `${brand.appLower}_${uid}.mp4`;
     a.click();
     URL.revokeObjectURL(url);
 
@@ -1214,7 +1267,7 @@ ${SHARED_RULES_OUTRO}`;
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
     a.href     = url;
-    a.download = `thrifty_slides_${Date.now()}.zip`;
+    a.download = `${brand.appLower}_slides_${Date.now()}.zip`;
     a.click();
     URL.revokeObjectURL(url);
 
@@ -1248,9 +1301,9 @@ ${SHARED_RULES_OUTRO}`;
           {[
             { id: "standard", label: "Standard", sub: "Collage, then reveal + app per item" },
             { id: "appOnly", label: "App only", sub: "Collage, then app screenshots only (no reveal)" },
-            { id: "imessageMom", label: "iMessage mom", sub: "iMessage → Voicemail → Thrifty (3 slides, slot 1 only)" },
-            { id: "posePerson", label: "Pose person", sub: "Six full-frame shots; hands OK on slide 1 only" },
-            { id: "starterPack", label: "Starter pack", sub: "POV: you thrift full time — 3 struggles + Thrifty (5 sec)" },
+            ...(!isValcoin ? [{ id: "imessageMom", label: "iMessage mom", sub: `iMessage → Voicemail → ${brand.appName} (3 slides, slot 1 only)` }] : []),
+            ...(!isValcoin ? [{ id: "posePerson", label: "Pose person", sub: "Six full-frame shots; hands OK on slide 1 only" }] : []),
+            ...(!isValcoin ? [{ id: "starterPack", label: "Starter pack", sub: `POV: you thrift full time — 3 struggles + ${brand.appName} (5 sec)` }] : []),
           ].map(({ id, label, sub }) => (
             <button
               key={id}
@@ -1273,7 +1326,7 @@ ${SHARED_RULES_OUTRO}`;
           <div className="bg-white/4 border border-violet-500/30 rounded-xl p-3 flex flex-col gap-2">
             <div className="text-white/55 text-xs font-semibold">Starter Pack</div>
             <p className="text-white/35 text-[10px] leading-relaxed">
-              Headline stays static. Each of the 3 items + Thrifty dissolves in over 5 seconds.
+              Headline stays static. Each of the 3 items + {brand.appName} dissolves in over 5 seconds.
               Use the image slots below to generate/upload photos for items 1–3.
             </p>
             <div className="flex items-center gap-2">
@@ -1317,7 +1370,7 @@ ${SHARED_RULES_OUTRO}`;
                 />
               </div>
             ))}
-            <p className="text-white/30 text-[10px]">Card 4 is always <span className="text-white/60">Thrifty</span> (auto).</p>
+            <p className="text-white/30 text-[10px]">Card 4 is always <span className="text-white/60">{brand.appName}</span> (auto).</p>
           </div>
         )}
 

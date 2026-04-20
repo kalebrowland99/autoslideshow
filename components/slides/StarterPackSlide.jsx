@@ -7,12 +7,13 @@
  *   phase 1 → card 1 visible
  *   phase 2 → cards 1-2 visible
  *   phase 3 → cards 1-3 visible
- *   phase 4 → all 4 cards visible (card 4 is always "Thrifty")
+ *   phase 4 → all 4 cards visible (card 4 is always the app)
  *
  * Pass phase=-1 (or omit) to show all cards at once (static preview).
  */
 
 import { makeJitter } from "@/lib/jitter";
+import { getBrand } from "@/lib/brand";
 
 const FONT = '"TikTok Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif';
 
@@ -136,6 +137,7 @@ function StarterCard({
 
 export default function StarterPackSlide({ config, S, phase = -1 }) {
   const J = makeJitter(config?.jitterSeed ?? 0);
+  const brand = getBrand(config);
 
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
@@ -175,7 +177,7 @@ export default function StarterPackSlide({ config, S, phase = -1 }) {
     { title: slots[0]?.itemName || "Item 1", imageUrl: slots[0]?.imageUrl ?? null },
     { title: slots[1]?.itemName || "Item 2", imageUrl: slots[1]?.imageUrl ?? null },
     { title: slots[2]?.itemName || "Item 3", imageUrl: slots[2]?.imageUrl ?? null },
-    { title: "Thrifty",                       imageUrl: "/thrifty.png" },
+    { title: brand.appName,                   imageUrl: "/thrifty.png" },
   ];
 
   // phase -1 = show all (preview / static export)

@@ -9,6 +9,7 @@ import VoicemailMomSlide from "./slides/VoicemailMomSlide";
 import IMessageTextSlide from "./slides/IMessageTextSlide";
 import StarterPackSlide from "./slides/StarterPackSlide";
 import { getSlideInfo } from "@/lib/slideLayout";
+import { getBrand } from "@/lib/brand";
 
 // At 0.28 scale → 1080×1920 renders as ~302×538px in browser
 export const DISPLAY_SCALE = 0.28;
@@ -38,6 +39,7 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
   const info = getSlideInfo(config, currentSlide);
 
   const fmt = config.outputFormat ?? "standard";
+  const brand = getBrand(config);
 
   const slideLabel = () => {
     if (fmt === "posePerson") {
@@ -51,11 +53,11 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
       if (currentSlide === 0) return "iMessage (photo)";
       if (currentSlide === 1) return "Voicemail";
       if (currentSlide === 2) return "iMessage (texts)";
-      return "Thrifty Price";
+      return `${brand.appName} Price`;
     }
     if (fmt === "starterPack") return "Starter Pack";
     const item = Math.floor((currentSlide - 1) / 2) + 1;
-    const type = (currentSlide - 1) % 2 === 0 ? "Reveal" : "Thrifty Price";
+    const type = (currentSlide - 1) % 2 === 0 ? "Reveal" : `${brand.appName} Price`;
     return `Item ${item} — ${type}`;
   };
 
@@ -189,7 +191,7 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-fuchsia-400 inline-block"/>iMessage</span>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block"/>Voicemail</span>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-pink-400 inline-block"/>Text reply</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>Thrifty</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>{brand.appName}</span>
             </>
           ) : (
             <>
@@ -197,7 +199,7 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
               {fmt === "standard" && (
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block"/>Reveal</span>
               )}
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>Thrifty</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>{brand.appName}</span>
             </>
           )}
         </div>

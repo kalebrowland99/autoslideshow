@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { makeJitter } from "@/lib/jitter";
 import { tiktokCaptionTextStyle, tickerBoxCaptionTextStyle, captionWrapperStyle } from "@/lib/captionStyles";
 import { captionFontSize1080 } from "@/lib/captionFontSize";
+import { getBrand } from "@/lib/brand";
 
 /**
  * ThriftySlide — pixel-faithful recreation of SongEditView.
@@ -49,6 +50,7 @@ function randomPastDate(seed) {
 }
 
 export default function ThriftySlide({ slot, S, config = {} }) {
+  const brand = getBrand(config);
   const captionStyle = config.captionStyle ?? "tiktok";
   const captionBg    = config.captionBg    ?? "#e03030";
   const hideCaption  = (config.outputFormat ?? "standard") === "imessageMom";
@@ -240,7 +242,7 @@ export default function ThriftySlide({ slot, S, config = {} }) {
         display: "flex", flexDirection: "column", gap: px(16),
         paddingTop: px(16), paddingBottom: px(16) }}>
 
-        {/* Thrifty Price card */}
+          {/* App Price card */}
         <div style={{ background: "#fff", borderRadius: px(12),
           boxShadow: `0 ${px(2)}px ${px(8)}px rgba(0,0,0,0.05)`,
           marginLeft: px(16), marginRight: px(16),
@@ -256,7 +258,7 @@ export default function ThriftySlide({ slot, S, config = {} }) {
               letterSpacing: "-1px",
               lineHeight: 1.02,
             }}>
-              thrifty
+              {brand.appLower}
             </span>
           </div>
           <span style={{

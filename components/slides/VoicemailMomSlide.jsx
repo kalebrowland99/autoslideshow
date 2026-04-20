@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { makeJitter } from "@/lib/jitter";
+import { getBrand } from "@/lib/brand";
 
 /**
  * iOS Phone app — Voicemail playback screen (light mode).
@@ -22,7 +23,7 @@ function hashStr(s) {
   return h;
 }
 
-const THRIFTY_VARIANTS = [
+const APP_VARIANTS = [
   (n) => `Hey honey it's mom, I found a ${n} at Goodwill and I just had to call you about it. Also I need to talk to you because your girlfriend's thrift haul videos are completely inappropriate and honestly if she keeps posting that kind of content she is not welcome at family events, I'm sorry.`,
   (n) => `Sweetie it's mom, I was at Goodwill and found a ${n} and I thought of you right away. And I don't want to cause drama but I've seen your girlfriend's thrift videos and they are not okay, the family has talked and she will not be invited to things if that continues, just so you know.`,
   (n) => `Hi honey it's mom, quick one — I found a ${n} at Goodwill today and I grabbed it for you. Also I have to be honest with you, your girlfriend's little thrift haul videos have been making the rounds in the family and we all agree it's inappropriate, so she is not welcome at family gatherings until further notice.`,
@@ -55,14 +56,15 @@ function momName(itemName) {
 
 function defaultTranscript(itemName, seed) {
   const n = momName(itemName) || "that thing";
-  const pick = (seed >>> 0) % THRIFTY_VARIANTS.length;
-  return THRIFTY_VARIANTS[pick](n);
+  const pick = (seed >>> 0) % APP_VARIANTS.length;
+  return APP_VARIANTS[pick](n);
 }
 
 import { MOM_CONTACT_NAMES } from "@/lib/momContactNames";
 const CONTACT_NAMES = MOM_CONTACT_NAMES;
 
 export default function VoicemailMomSlide({ slot, S, config }) {
+  getBrand(config); // ensure brand is wired (future-proofing)
   const px = (n) => Math.round(n * IPHONE_SCALE * S);
   const J  = makeJitter(config?.jitterSeed ?? 0);
 

@@ -28,6 +28,7 @@ function hashStr(s) {
 // Same contact-name pool as VoicemailMomSlide so they always match
 import { MOM_CONTACT_NAMES } from "@/lib/momContactNames";
 const CONTACT_NAMES = MOM_CONTACT_NAMES;
+import { getBrand } from "@/lib/brand";
 
 function momName(itemName) {
   if (!itemName) return "that thing";
@@ -48,62 +49,6 @@ function momName(itemName) {
 const M = (text) => ({ from: "mom", text });
 const S = (text) => ({ from: "son", text });
 
-// Son reply variants — reference the sold price
-const SON_REPLIES = [
-  (p) => `mom i looked it up on thrifty and you literally gave away a $${p} item`,
-  (p) => `MOM. i just checked thrifty. that was a $${p} item you gave away`,
-  (p) => `mom why would you do that, thrifty says that thing was worth $${p}`,
-  (p) => `you gave away a $${p} item mom. i looked it up on thrifty`,
-  (p) => `mom thrifty says that was $${p}. you gave away $${p}.`,
-];
-
-// Mom's comeback variants
-const MOM_COMEBACKS = [
-  "idc what thrifty says. get a real job and stop reselling things",
-  "i don't care about thrifty. get a job. stop reselling. end of conversation.",
-  "thrifty is not a job. get a real job and stop this reselling nonsense",
-  "i don't want to hear about thrifty. you need to get a job and stop this.",
-  "good. maybe that will teach you to answer your phone. also get a job.",
-];
-
-const THREAD_VARIANTS = [
-  (n, p, seed) => [
-    M("i called you but you didn't pick up 🙄"),
-    M(`we seriously need to talk about your girlfriend's thrift haul videos, they are completely inappropriate and embarrassing for this family`),
-    M(`since you couldn't bother to answer your phone i went ahead and gave the ${n} away to another lady at the store. hope it was worth it.`),
-    S(SON_REPLIES[(seed >>> 1) % SON_REPLIES.length](p)),
-    M(MOM_COMEBACKS[(seed >>> 4) % MOM_COMEBACKS.length]),
-  ],
-  (n, p, seed) => [
-    M("you didn't answer so i left a voicemail but i'll say it here too"),
-    M(`your girlfriend's thrift videos are NOT okay and the whole family agrees, it needs to stop`),
-    M(`also because you didn't call me back i gave your ${n} to someone else at goodwill. it's gone. call me.`),
-    S(SON_REPLIES[(seed >>> 1) % SON_REPLIES.length](p)),
-    M(MOM_COMEBACKS[(seed >>> 4) % MOM_COMEBACKS.length]),
-  ],
-  (n, p, seed) => [
-    M("i called. no answer. typical."),
-    M(`i need you to talk to your girlfriend about her thrift haul videos — they are offensive and she will not be welcome at family events if this continues`),
-    M(`i waited for you to call back and you didn't so i gave the ${n} away. someone else has it now. that's on you.`),
-    S(SON_REPLIES[(seed >>> 1) % SON_REPLIES.length](p)),
-    M(MOM_COMEBACKS[(seed >>> 4) % MOM_COMEBACKS.length]),
-  ],
-  (n, p, seed) => [
-    M("hey i called you like 3 times, you need to answer your phone"),
-    M(`this is about your girlfriend's thrift videos — the whole family has seen them and we are NOT okay with it, she needs to stop`),
-    M(`and since you ignored me i donated the ${n} i found for you back to goodwill. it's gone. next time answer your phone.`),
-    S(SON_REPLIES[(seed >>> 1) % SON_REPLIES.length](p)),
-    M(MOM_COMEBACKS[(seed >>> 4) % MOM_COMEBACKS.length]),
-  ],
-  (n, p, seed) => [
-    M("you didn't pick up so now i'm texting you 🙄"),
-    M(`your girlfriend's little thrift haul videos are embarrassing and inappropriate and i need you to tell her to stop before the next family event`),
-    M(`i held onto that ${n} for you all day waiting for you to call back and you never did so i gave it away. gone. i hope she posts THAT in a video.`),
-    S(SON_REPLIES[(seed >>> 1) % SON_REPLIES.length](p)),
-    M(MOM_COMEBACKS[(seed >>> 4) % MOM_COMEBACKS.length]),
-  ],
-];
-
 // Time strings shown above the first bubble
 const TIME_LABELS = [
   "Today 8:34 AM", "Today 9:12 AM", "Today 10:47 AM",
@@ -111,6 +56,64 @@ const TIME_LABELS = [
 ];
 
 export default function IMessageTextSlide({ slot, S, config }) {
+  const brand = getBrand(config);
+  const appLower = brand.appLower;
+
+  // Son reply variants — reference the sold price
+  const SON_REPLIES = [
+    (p) => `mom i looked it up on ${appLower} and you literally gave away a $${p} item`,
+    (p) => `MOM. i just checked ${appLower}. that was a $${p} item you gave away`,
+    (p) => `mom why would you do that, ${appLower} says that thing was worth $${p}`,
+    (p) => `you gave away a $${p} item mom. i looked it up on ${appLower}`,
+    (p) => `mom ${appLower} says that was $${p}. you gave away $${p}.`,
+  ];
+
+  // Mom's comeback variants
+  const MOM_COMEBACKS = [
+    `idc what ${appLower} says. get a real job and stop reselling things`,
+    `i don't care about ${appLower}. get a job. stop reselling. end of conversation.`,
+    `${appLower} is not a job. get a real job and stop this reselling nonsense`,
+    `i don't want to hear about ${appLower}. you need to get a job and stop this.`,
+    "good. maybe that will teach you to answer your phone. also get a job.",
+  ];
+
+  const THREAD_VARIANTS = [
+    (n, p, seed) => [
+      M("i called you but you didn't pick up 🙄"),
+      M(`we seriously need to talk about your girlfriend's thrift haul videos, they are completely inappropriate and embarrassing for this family`),
+      M(`since you couldn't bother to answer your phone i went ahead and gave the ${n} away to another lady at the store. hope it was worth it.`),
+      S(SON_REPLIES[(seed >>> 1) % SON_REPLIES.length](p)),
+      M(MOM_COMEBACKS[(seed >>> 4) % MOM_COMEBACKS.length]),
+    ],
+    (n, p, seed) => [
+      M("you didn't answer so i left a voicemail but i'll say it here too"),
+      M(`your girlfriend's thrift videos are NOT okay and the whole family agrees, it needs to stop`),
+      M(`also because you didn't call me back i gave your ${n} to someone else at goodwill. it's gone. call me.`),
+      S(SON_REPLIES[(seed >>> 1) % SON_REPLIES.length](p)),
+      M(MOM_COMEBACKS[(seed >>> 4) % MOM_COMEBACKS.length]),
+    ],
+    (n, p, seed) => [
+      M("i called. no answer. typical."),
+      M(`i need you to talk to your girlfriend about her thrift haul videos — they are offensive and she will not be welcome at family events if this continues`),
+      M(`i waited for you to call back and you didn't so i gave the ${n} away. someone else has it now. that's on you.`),
+      S(SON_REPLIES[(seed >>> 1) % SON_REPLIES.length](p)),
+      M(MOM_COMEBACKS[(seed >>> 4) % MOM_COMEBACKS.length]),
+    ],
+    (n, p, seed) => [
+      M("hey i called you like 3 times, you need to answer your phone"),
+      M(`this is about your girlfriend's thrift videos — the whole family has seen them and we are NOT okay with it, she needs to stop`),
+      M(`and since you ignored me i donated the ${n} i found for you back to goodwill. it's gone. next time answer your phone.`),
+      S(SON_REPLIES[(seed >>> 1) % SON_REPLIES.length](p)),
+      M(MOM_COMEBACKS[(seed >>> 4) % MOM_COMEBACKS.length]),
+    ],
+    (n, p, seed) => [
+      M("you didn't pick up so now i'm texting you 🙄"),
+      M(`your girlfriend's little thrift haul videos are embarrassing and inappropriate and i need you to tell her to stop before the next family event`),
+      M(`i held onto that ${n} for you all day waiting for you to call back and you never did so i gave it away. gone. i hope she posts THAT in a video.`),
+      S(SON_REPLIES[(seed >>> 1) % SON_REPLIES.length](p)),
+      M(MOM_COMEBACKS[(seed >>> 4) % MOM_COMEBACKS.length]),
+    ],
+  ];
   const px = (n) => Math.round(n * IPHONE_SCALE * S);
   const J  = makeJitter(config?.jitterSeed ?? 0);
 
