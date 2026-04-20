@@ -64,7 +64,7 @@ import { MOM_CONTACT_NAMES } from "@/lib/momContactNames";
 const CONTACT_NAMES = MOM_CONTACT_NAMES;
 
 export default function VoicemailMomSlide({ slot, S, config }) {
-  getBrand(config); // ensure brand is wired (future-proofing)
+  const brand = getBrand(config);
   const px = (n) => Math.round(n * IPHONE_SCALE * S);
   const J  = makeJitter(config?.jitterSeed ?? 0);
 
@@ -82,10 +82,11 @@ export default function VoicemailMomSlide({ slot, S, config }) {
   );
 
   const displayName = useMemo(() => {
+    if (brand.appId === "valcoin") return "";
     const override = (config?.voicemailDisplayNumber ?? "").trim();
     if (override) return override;
     return CONTACT_NAMES[seed % CONTACT_NAMES.length];
-  }, [config?.voicemailDisplayNumber, seed]);
+  }, [brand.appId, config?.voicemailDisplayNumber, seed]);
 
   const transcript = useMemo(() => {
     const t = (slot?.voicemailTranscript ?? "").trim();

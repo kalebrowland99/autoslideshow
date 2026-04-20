@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { makeJitter } from "@/lib/jitter";
+import { getBrand } from "@/lib/brand";
 
 /**
  * iOS iMessage long-press screenshot — dark mode.
@@ -165,6 +166,7 @@ const TAPBACK_ITEMS = [
 ];
 
 export default function IMessageMomSlide({ slot, S, config }) {
+  const brand = getBrand(config);
   // px() converts iPhone pts → canvas pixels
   const px = (n) => Math.round(n * IPHONE_SCALE * S);
   const J  = makeJitter(config?.jitterSeed ?? 0);
@@ -172,7 +174,7 @@ export default function IMessageMomSlide({ slot, S, config }) {
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
 
-  const watermark = (config?.tiktokWatermark ?? "").trim();
+  const watermark = brand.appId === "valcoin" ? "" : (config?.tiktokWatermark ?? "").trim();
 
   const seed = useMemo(() => slotSeed(slot), [slot]);
 

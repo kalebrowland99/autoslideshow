@@ -16,7 +16,18 @@ import { getBrand } from "@/lib/brand";
 
 const IPHONE_SCALE = 1080 / 390;
 
-const SOURCES = ["eBay", "Poshmark", "Mercari", "Depop", "Grailed", "StockX", "Vestiaire", "thredUP"];
+const SOURCES_RESELL = ["eBay", "Poshmark", "Mercari", "Depop", "Grailed", "StockX", "Vestiaire", "thredUP"];
+const SOURCES_COINS = [
+  "eBay",
+  "Heritage Auctions",
+  "Stack's Bowers",
+  "GreatCollections",
+  "APMEX",
+  "SD Bullion",
+  "JM Bullion",
+  "NGC",
+  "PCGS",
+];
 const PREFIXES = ["Pre-owned ", "Used ", "Vintage ", "Authentic ", "Like-New "];
 const SUFFIXES = [" - Great Condition", " - Gently Used", " (Pre-loved)", " - Excellent", " - Good Shape"];
 
@@ -75,13 +86,15 @@ export default function ThriftySlide({ slot, S, config = {} }) {
     date:        randomPastDate(seed),
   }), [seed]);
 
+  const sourcesPool = brand.appId === "valcoin" ? SOURCES_COINS : SOURCES_RESELL;
+
   // Randomise which two sources appear in the sold rows
   const [src1, src2] = useMemo(() => {
-    const pool = [...SOURCES];
+    const pool = [...sourcesPool];
     const a = pool.splice(randInt(seed + 5, 0, pool.length - 1), 1)[0];
     const b = pool.splice(randInt(seed + 6, 0, pool.length - 1), 1)[0];
     return [a, b];
-  }, [seed]);
+  }, [seed, sourcesPool]);
 
   const soldPrice  = slot.soldPrice ? `$${slot.soldPrice}` : "$—";
   const itemName   = slot.itemName || "Untitled Item";

@@ -127,17 +127,24 @@ export default function ConfigPanel({
   const brand = getBrand(config);
   const isValcoin = brand.appId === "valcoin";
 
-  const VALUABLE_QUARTERS = [
+  const VALUABLE_US_COINS = [
+    // Key-date / classic
+    "1909-S VDB Lincoln cent",
+    "1916-D Mercury dime",
     "1932-D Washington quarter",
     "1932-S Washington quarter",
-    "1950-D Washington quarter (high grade)",
-    "1955 Washington quarter (high grade)",
-    "1964 Washington quarter (proof)",
-    "1970-S Washington quarter (proof)",
-    "1976-S silver Washington quarter (proof)",
-    "1999-P Delaware quarter (error variety)",
+    "1893-S Morgan silver dollar",
+    "1921 Peace dollar",
+    "1885 Liberty Head nickel",
+    // Modern / popular errors & varieties
     "2004-D Wisconsin quarter (extra leaf error)",
-    "2005-P Kansas quarter (error variety)",
+    "1955 Lincoln cent (doubled die obverse)",
+    "1972 Lincoln cent (doubled die obverse)",
+    "1943 copper Lincoln cent",
+    "1969-S Lincoln cent (doubled die obverse)",
+    // Proof / silver issues people recognize
+    "1976-S silver Washington quarter (proof)",
+    "1964 Washington quarter (proof)",
   ];
 
   const DEFAULT_PROMPT = isValcoin
@@ -157,7 +164,7 @@ export default function ConfigPanel({
   // genAllProgress shape: { total: 6, done: number, current: number, phase: string, slotsDone: Set }
   const [referenceImages, setReferenceImages] = useState(null);
   const [mounted, setMounted] = useState(false);
-  const DEFAULT_HOOKS = [
+  const DEFAULT_HOOKS_THRIFTY = [
     "found at goodwill 👀",
     "thrift finds that paid off 💰",
     "you won't believe what i found",
@@ -166,10 +173,19 @@ export default function ConfigPanel({
     "pov: you know how to thrift",
     "these finds = bag secured 💸",
   ].join("\n");
+  const DEFAULT_HOOKS_VALCOIN = [
+    "coin check before i list it 🪙",
+    "this coin might be a key date…",
+    "found in a jar and had to scan it",
+    "is this a real error coin?",
+    "grading candidate or nah?",
+    "silver? proof? let’s check 👀",
+    "coin collectors will understand this",
+  ].join("\n");
 
   // Always start with consistent defaults for SSR; sync all persisted values from localStorage after mount
   const [brandItemsRaw, setBrandItemsRaw] = useState(DEFAULT_BRAND_LIST);
-  const [hooksRaw, setHooksRaw] = useState(DEFAULT_HOOKS);
+  const [hooksRaw, setHooksRaw] = useState(DEFAULT_HOOKS_THRIFTY);
   useEffect(() => {
     const savedModel = localStorage.getItem("ts_image_model");
     if (savedModel) setImageModelRaw(savedModel);
@@ -181,9 +197,20 @@ export default function ConfigPanel({
     if (savedHooks) setHooksRaw(savedHooks);
   }, []);
 
-  const pickValuableQuarter = () => {
-    const idx = Math.floor(Math.random() * VALUABLE_QUARTERS.length);
-    return VALUABLE_QUARTERS[idx];
+  // Valcoin: coin-centric default hook captions (only if user hasn't customized).
+  useEffect(() => {
+    if (!mounted) return;
+    if (!isValcoin) return;
+    const savedHooks = localStorage.getItem("ts_hooks");
+    if (!savedHooks || savedHooks.trim() === DEFAULT_HOOKS_THRIFTY.trim()) {
+      setHooksRaw(DEFAULT_HOOKS_VALCOIN);
+      localStorage.setItem("ts_hooks", DEFAULT_HOOKS_VALCOIN);
+    }
+  }, [mounted, isValcoin]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pickValuableUSCoin = () => {
+    const idx = Math.floor(Math.random() * VALUABLE_US_COINS.length);
+    return VALUABLE_US_COINS[idx];
   };
 
   // When switching to Valcoin, make the default prompt/list coin-appropriate
@@ -198,7 +225,7 @@ export default function ConfigPanel({
       localStorage.setItem("ts_global_prompt", DEFAULT_PROMPT);
     }
     if (!savedBrands) {
-      const list = VALUABLE_QUARTERS.join("\n");
+      const list = VALUABLE_US_COINS.join("\n");
       setBrandItemsRaw(list);
       localStorage.setItem("ts_brand_items", list);
     }
@@ -487,7 +514,7 @@ ${SHARED_RULES_OUTRO}`;
     const randomBrand = weightedPool.length > 0
       ? weightedPool[Math.floor(Math.random() * weightedPool.length)]
       : null;
-    const coinPick = isValcoin ? pickValuableQuarter() : null;
+    const coinPick = isValcoin ? pickValuableUSCoin() : null;
     const hint = isValcoin ? coinPick : randomBrand;
     const basePrompt = config.slots[index].prompt || globalPrompt;
     const prompt = hint ? `${basePrompt}\n\nSpecific item to depict: ${hint}.` : basePrompt;
@@ -577,7 +604,7 @@ ${SHARED_RULES_OUTRO}`;
         || (config.slots?.[i]?.itemName ?? "").trim();
       if (!p) continue;
       setExportStatus(`Generating starter pack image ${i + 1}/3…`);
-      const hint = isValcoin ? pickValuableQuarter() : null;
+      const hint = isValcoin ? pickValuableUSCoin() : null;
       const prompt = hint ? `${p}\n\nSpecific item to depict: ${hint}.` : p;
       const url = await generateImage(i, prompt, hint);
       if (url) updateSlot(i, { imageUrl: url });
@@ -712,7 +739,7 @@ ${SHARED_RULES_OUTRO}`;
 
       // Phase 1 — generate image
       setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Generating image ${stepLabel}${brandLabel}…`, slotsDone: new Set(slotsDone) });
-      const hint = isValcoin ? pickValuableQuarter() : brandItem;
+      const hint = isValcoin ? pickValuableUSCoin() : brandItem;
       const p = hint ? `${prompt}\n\nSpecific item to depict: ${hint}.` : prompt;
       const url = await generateImage(i, p, hint);
 
@@ -782,7 +809,7 @@ ${SHARED_RULES_OUTRO}`;
         phase: `Show ${showIndex + 1}/${totalShows} · Image ${si + 1}/${slotCount}${brandItem ? ` — "${brandItem}"` : ""}…`,
         slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
       });
-      const hint = isValcoin ? pickValuableQuarter() : brandItem;
+      const hint = isValcoin ? pickValuableUSCoin() : brandItem;
       const p = hint ? `${globalPrompt}\n\nSpecific item to depict: ${hint}.` : globalPrompt;
       const url = await generateImage(si, p, hint);
       if (url) {
@@ -1488,27 +1515,31 @@ ${SHARED_RULES_OUTRO}`;
           </div>
         )}
 
-        <div className="mt-2">
-          <label className="text-white/35 text-[10px] block mb-1">TikTok @ watermark (iMessage mom slides)</label>
-          <input
-            type="text"
-            value={config.tiktokWatermark ?? ""}
-            onChange={(e) => updateConfig("tiktokWatermark", e.target.value)}
-            placeholder="@mom"
-            className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/20"
-          />
-        </div>
+        {!isValcoin && (
+          <div className="mt-2">
+            <label className="text-white/35 text-[10px] block mb-1">TikTok @ watermark (iMessage mom slides)</label>
+            <input
+              type="text"
+              value={config.tiktokWatermark ?? ""}
+              onChange={(e) => updateConfig("tiktokWatermark", e.target.value)}
+              placeholder="@mom"
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/20"
+            />
+          </div>
+        )}
 
-        <div className="mt-2">
-          <label className="text-white/35 text-[10px] block mb-1">Voicemail caller ID (iMessage mom)</label>
-          <input
-            type="text"
-            value={config.voicemailDisplayNumber ?? ""}
-            onChange={(e) => updateConfig("voicemailDisplayNumber", e.target.value)}
-            placeholder="+1 (225) 427-8071"
-            className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/20"
-          />
-        </div>
+        {!isValcoin && (
+          <div className="mt-2">
+            <label className="text-white/35 text-[10px] block mb-1">Voicemail caller ID (iMessage mom)</label>
+            <input
+              type="text"
+              value={config.voicemailDisplayNumber ?? ""}
+              onChange={(e) => updateConfig("voicemailDisplayNumber", e.target.value)}
+              placeholder="+1 (225) 427-8071"
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/20"
+            />
+          </div>
+        )}
 
         {/* Hook list */}
         <div className="mt-3 bg-white/4 border border-white/10 rounded-xl p-3">
