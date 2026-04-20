@@ -167,7 +167,7 @@ export default function ConfigPanel({
   ];
 
   const DEFAULT_PROMPT = isValcoin
-    ? "A single valuable US quarter coin on a wooden table, photographed like a real iPhone photo. The coin should be a real existing valuable variety (random pick), natural room lighting, no hands, no text overlays, no other coins, no props. Composition: the coin should appear smaller in the frame (not filling the shot) with some surrounding table visible. Focus: slightly out of focus like a casual quick snap (not a crisp studio macro), with natural iPhone-style sharpening. Color: iPhone-like color profile (natural, not overly saturated, not cinematic). Texture: add subtle sensor grain. Include realistic imperfections: light dust, tiny lint specks, faint fingerprints/smudges, small nicks, micro-scratches, slight wear/toning, and minor surface blemishes."
+    ? "A single valuable US quarter coin on a wooden table, photographed like a real iPhone photo shot on 0.5× (ultra-wide). The coin should be a real existing valuable variety (random pick), natural room lighting, no hands, no text overlays, no other coins, no props. Composition: the coin should appear smaller in the frame (not filling the shot) with lots of surrounding table visible. Lens/look: subtle ultra-wide edge stretch and mild barrel distortion like iPhone 0.5×. Quality: intentionally a bit worse/rough — slightly blurry/soft focus like a quick snap, less sharp, mild motion blur or missed focus is okay. Color: iPhone-like but a bit bland/flat (slightly desaturated, lower contrast), not cinematic. Texture: visible sensor grain and minor compression artifacts. Include realistic imperfections: light dust, tiny lint specks, faint fingerprints/smudges, small nicks, micro-scratches, slight wear/toning, and minor surface blemishes."
     : "POV into a blue thrift shopping cart (buggy) full of tossed secondhand clothes — garments may lie upside-down or sideways; bottom hems/waistbands should look softly folded or cuffed (no people, no hands). XXL hero piece: faded washed-out colors only, cotton lint balls, stray dog hair, slight print/color imperfections. Concrete floor and aisles behind, fluorescent light, shallow DOF, no overlays.";
 
   const [imageModel, setImageModelRaw] = useState("gpt-image-1"); // "gpt-image-1" | "gemini"
@@ -576,8 +576,15 @@ ${SHARED_RULES_OUTRO}`;
     const url = await generateImage(index, prompt, hint);
     if (url) {
       const slot = config.slots[index];
-      const priceUpdates = (!slot.spentPrice && !slot.soldPrice) ? autoRandomPrices() : {};
-      updateSlot(index, { imageUrl: url, ...priceUpdates });
+      const priceUpdates = (!slot.spentPrice && !slot.soldPrice)
+        ? (isValcoin && hint ? (await coinPrices(hint)) : null) ?? autoRandomPrices()
+        : {};
+      const isPlaceholderName = /^item\s+\d+$/i.test((slot.itemName ?? "").trim());
+      updateSlot(index, {
+        imageUrl: url,
+        ...priceUpdates,
+        ...(isValcoin && hint && (isPlaceholderName || !(slot.itemName ?? "").trim()) ? { itemName: hint } : {}),
+      });
       // Auto-title from the new image
       const grail = await autoTitleFromImage(url);
       let resolvedName  = slot.itemName;
@@ -702,6 +709,25 @@ ${SHARED_RULES_OUTRO}`;
     return { spentPrice: String(spent), soldPrice: String(sold) };
   };
 
+  const coinPrices = async (coinName) => {
+    const name = String(coinName ?? "").trim();
+    if (!name) return null;
+    try {
+      const res = await fetch("/api/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: abortRef.current?.signal,
+        body: JSON.stringify({ action: "coinPrices", text: name }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data?.buy || !data?.sell) return null;
+      return { spentPrice: String(data.buy), soldPrice: String(data.sell) };
+    } catch {
+      return null;
+    }
+  };
+
   // ── Auto-generate 2 slightly-varied sold listing rows ──
   const autoSoldListings = (itemName, soldPrice) => {
     const PREFIXES = ["Pre-owned ", "Used ", "Vintage ", "Authentic "];
@@ -805,8 +831,15 @@ ${SHARED_RULES_OUTRO}`;
 
         if (url) {
           const slot = config.slots[i];
-          const priceUpdates = (!slot.spentPrice && !slot.soldPrice) ? autoRandomPrices() : {};
-          updateSlot(i, { imageUrl: url, ...priceUpdates });
+          const priceUpdates = (!slot.spentPrice && !slot.soldPrice)
+            ? (isValcoin && hint ? (await coinPrices(hint)) : null) ?? autoRandomPrices()
+            : {};
+          const isPlaceholderName = /^item\s+\d+$/i.test((slot.itemName ?? "").trim());
+          updateSlot(i, {
+            imageUrl: url,
+            ...priceUpdates,
+            ...(isValcoin && hint && (isPlaceholderName || !(slot.itemName ?? "").trim()) ? { itemName: hint } : {}),
+          });
 
           // Phase 2 — auto-title
           setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Analyzing item ${stepLabel}…`, slotsDone: new Set(slotsDone) });
@@ -880,8 +913,14 @@ ${SHARED_RULES_OUTRO}`;
       const p = hint ? `${globalPrompt}\n\nSpecific item to depict: ${hint}.` : globalPrompt;
       const url = await generateImage(si, p, hint);
       if (url) {
-        const prices = autoRandomPrices();
-        localSlots[si] = { ...localSlots[si], imageUrl: url, ...prices };
+        const prices = (isValcoin && hint ? (await coinPrices(hint)) : null) ?? autoRandomPrices();
+        const isPlaceholderName = /^item\s+\d+$/i.test((localSlots[si]?.itemName ?? "").trim());
+        localSlots[si] = {
+          ...localSlots[si],
+          imageUrl: url,
+          ...prices,
+          ...(isValcoin && hint && (isPlaceholderName || !(localSlots[si]?.itemName ?? "").trim()) ? { itemName: hint } : {}),
+        };
         setGenAllProgress({
           total: slotCount, done: si, current: si,
           phase: `Show ${showIndex + 1}/${totalShows} · Analyzing item ${si + 1}/${slotCount}…`,

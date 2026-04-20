@@ -246,6 +246,49 @@ async function rewordCaptionWithOpenAI({ text, openaiApiKey }) {
   return { text: out };
 }
 
+async function coinPricesWithOpenAI({ coinName, openaiApiKey }) {
+  if (!openaiApiKey?.trim()) {
+    return { error: "OpenAI API key is not configured on the server.", status: 500 };
+  }
+  const res = await fetch(OPENAI_CHAT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${openaiApiKey}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "user",
+          content: `You estimate realistic US coin prices for collectors.\n\nCoin: ${coinName}\n\nReturn ONLY JSON (no markdown, no explanation) in this shape:\n{"buy": 120, "sell": 180}\n\nRules:\n- buy = what someone might realistically pay at a show/online to acquire it (USD integer)\n- sell = realistic resale / market value to a collector (USD integer)\n- sell must be >= buy\n- Be conservative (no insane viral numbers) unless the coin is truly famous (e.g., 1913 Liberty nickel, 1933 Saint-Gaudens double eagle)\n- If the coin includes a condition note like proof/high grade, reflect higher price but keep plausible\n- If uncertain, return reasonable mid-market estimates rather than refusing.`,
+        },
+      ],
+      temperature: 0.6,
+      max_tokens: 80,
+    }),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    return { error: data?.error?.message || `OpenAI error ${res.status}`, status: res.status };
+  }
+
+  const data = await res.json();
+  const raw = data.choices?.[0]?.message?.content?.trim() || "";
+  try {
+    const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    const buy = Math.round(Number(parsed.buy));
+    const sell = Math.round(Number(parsed.sell));
+    if (!Number.isFinite(buy) || !Number.isFinite(sell) || buy <= 0 || sell <= 0) {
+      return { error: "Invalid coin price response.", status: 502 };
+    }
+    return { buy: String(buy), sell: String(Math.max(sell, buy)) };
+  } catch {
+    return { error: "Could not parse OpenAI coin price response.", status: 502 };
+  }
+}
+
 // ── Route handler ─────────────────────────────────────────────────────────────
 export async function POST(req) {
   try {
@@ -280,6 +323,15 @@ export async function POST(req) {
         return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
       }
       return NextResponse.json({ text: result.text });
+    }
+
+    if (action === "coinPrices") {
+      const coinName = String(text ?? "").trim();
+      result = await coinPricesWithOpenAI({ coinName, openaiApiKey });
+      if (result.error) {
+        return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
+      }
+      return NextResponse.json({ buy: result.buy, sell: result.sell });
     }
 
     // Prefer the requested model, but if it's not configured, fall back to any configured provider.
