@@ -30,7 +30,7 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
 
   const spentLine = (slot.spentPrice ? `spent $${slot.spentPrice}` : "spent $?");
   const itemLine  = slot.itemName ? `(${slot.itemName.toLowerCase()})` : null;
-  const showPlusLine = outputFormat === "standard" || outputFormat === "appOnly";
+  const showLetsCheckThrifty = outputFormat === "standard" || outputFormat === "appOnly";
 
   // All random values derived from a stable seed — same layout every render/export
   const seed = useMemo(() => slotSeed(slot), [slot.itemName, slot.spentPrice, slot.soldPrice]);
@@ -41,7 +41,14 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
   );
 
   const REVEAL_SAFE_ZONES = [0.06, 0.14, 0.28, 0.42, 0.56, 0.68, 0.76];
-  const captionBoxH = Math.round(10 * S) * 2 + Math.round(captionSizePx * S * 1.2) * 2 + Math.round(5 * S);
+  const captionLineH = Math.round(captionSizePx * S * 1.2);
+  const captionPadY = Math.round(10 * S) * 2;
+  const captionInnerGap = Math.round(4 * S);
+  const mainLines = 1 + (itemLine ? 1 : 0);
+  const mainBoxH = captionPadY + mainLines * captionLineH + Math.max(0, mainLines - 1) * captionInnerGap;
+  const blankLineGapH = captionLineH * 2; // two "auto line breaks"
+  const thriftyBoxH = showLetsCheckThrifty ? (captionPadY + captionLineH) : 0;
+  const captionBoxH = mainBoxH + (showLetsCheckThrifty ? blankLineGapH + thriftyBoxH : 0);
   const maxTop = H - captionBoxH - Math.round(H * 0.02);
 
   const zoneIdx = useMemo(() => Math.floor(seededRand(seed + 1) * REVEAL_SAFE_ZONES.length), [seed]);
@@ -94,42 +101,61 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
           zIndex: 10,
         }}
       >
-      <div
-        style={{
-          marginLeft: captionStyle === "tickerBox" ? 0 : jitterX,
-          transform: captionStyle === "tickerBox" ? "none" : `rotate(${tilt}deg)`,
-          ...captionWrapperStyle(S, { captionStyle, captionBg }),
-          padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
-          maxWidth: Math.round(W * 0.85),
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: Math.round(4 * S),
-        }}
-      >
-        <span style={captionStyle === "tickerBox"
-          ? tickerBoxCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800", color: captionColor })
-          : tiktokCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800" })
-        }>
-          {spentLine}
-        </span>
-        {itemLine && (
-          <span style={captionStyle === "tickerBox"
-            ? tickerBoxCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800", color: captionColor })
-            : tiktokCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800" })
-          }>
-            {itemLine}
-          </span>
-        )}
-        {showPlusLine && (
-          <span style={captionStyle === "tickerBox"
-            ? tickerBoxCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800", color: captionColor })
-            : tiktokCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800" })
-          }>
-            +
-          </span>
-        )}
-      </div>
+        <div
+          style={{
+            marginLeft: captionStyle === "tickerBox" ? 0 : jitterX,
+            transform: captionStyle === "tickerBox" ? "none" : `rotate(${tilt}deg)`,
+            maxWidth: Math.round(W * 0.85),
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+          }}
+        >
+          {/* Main caption box */}
+          <div style={{
+            ...captionWrapperStyle(S, { captionStyle, captionBg }),
+            padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
+            width: "fit-content",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: Math.round(4 * S),
+          }}>
+            <span style={captionStyle === "tickerBox"
+              ? tickerBoxCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800", color: captionColor })
+              : tiktokCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800" })
+            }>
+              {spentLine}
+            </span>
+            {itemLine && (
+              <span style={captionStyle === "tickerBox"
+                ? tickerBoxCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800", color: captionColor })
+                : tiktokCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800" })
+              }>
+                {itemLine}
+              </span>
+            )}
+          </div>
+
+          {/* Two line breaks worth of space, then separate tickerbox */}
+          {showLetsCheckThrifty && (
+            <>
+              <div style={{ height: captionLineH * 2 }} />
+              <div style={{
+                ...captionWrapperStyle(S, { captionStyle: "tickerBox", captionBg }),
+                padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
+                width: "fit-content",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}>
+                <span style={tickerBoxCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800", color: captionColor })}>
+                  lets check thrifty!
+                </span>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
