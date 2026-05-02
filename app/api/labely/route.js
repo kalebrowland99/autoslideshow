@@ -1,7 +1,26 @@
+import { readFile, readdir } from "fs/promises";
+import { join } from "path";
 import { NextResponse } from "next/server";
 
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 const OPENAI_GENERATIONS = "https://api.openai.com/v1/images/generations";
+const OPENAI_EDITS = "https://api.openai.com/v1/images/edits";
+
+function mimeFromPath(filePath) {
+  const ext = filePath.split(".").pop()?.toLowerCase();
+  return { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif" }[ext] ?? "image/jpeg";
+}
+
+async function listLabelyReferenceBasenames() {
+  const dir = join(process.cwd(), "public", "labely", "references");
+  let entries;
+  try {
+    entries = await readdir(dir);
+  } catch {
+    return [];
+  }
+  return entries.filter((e) => /\.(jpe?g|png|webp|gif)$/i.test(e));
+}
 
 function clampScore(score) {
   const n = Number(score);
@@ -16,7 +35,12 @@ function verdictFromScore(score) {
   return "Good";
 }
 
-async function generateLabelyJson({ openaiApiKey }) {
+async function generateLabelyJson({ openaiApiKey, seedHint }) {
+  const hintLine =
+    typeof seedHint === "string" && seedHint.trim()
+      ? `\n\nOptional inspiration — invent a realistic packaged grocery product that fits this idea (name/brand may differ): ${seedHint.trim()}`
+      : "";
+
   if (!openaiApiKey) {
     return {
       name: "Whole Wheat Fig Apple Cinnamon",
@@ -45,7 +69,7 @@ async function generateLabelyJson({ openaiApiKey }) {
         {
           role: "user",
           content:
-            'You are generating content for an app called "Labely" that gives a simple 0-100 score and a short explanation.\n\nReturn ONLY valid JSON (no markdown, no extra keys) with this exact shape:\n{"name": "...", "brand": "...", "score": 42, "analysisTitle": "Labely\\u2019s Analysis", "analysis": "...", "imagePrompt": "..."}\n\nRules:\n- name: 3-7 words, like a real grocery item\n- brand: 1-3 words\n- score: integer 0-100\n- analysisTitle: exactly "Labely\\u2019s Analysis"\n- analysis: 2-4 sentences; REQUIRED **markdown bold** on the product **name** once and on each concerning ingredient or class you mention (e.g. **seed oils**, **carrageenan**); leave non-problem phrases unbolded\n- imagePrompt: concise prompt for generating a realistic product photo for this item (boxed/bottled/etc) on a plain background\n- Be decisive; do not hedge or refuse.',
+            `You are generating content for an app called "Labely" that gives a simple 0-100 score and a short explanation.\n\nReturn ONLY valid JSON (no markdown, no extra keys) with this exact shape:\n{"name": "...", "brand": "...", "score": 42, "analysisTitle": "Labely\\u2019s Analysis", "analysis": "...", "imagePrompt": "..."}\n\nRules:\n- name: 3-7 words, like a real grocery item\n- brand: 1-3 words\n- score: integer 0-100\n- analysisTitle: exactly "Labely\\u2019s Analysis"\n- analysis: 2-4 sentences; REQUIRED **markdown bold** on the product **name** once and on each concerning ingredient or class you mention (e.g. **seed oils**, **carrageenan**); leave non-problem phrases unbolded\n- imagePrompt: concise prompt for generating a realistic product photo for this item (boxed/bottled/etc) on a plain background\n- Be decisive; do not hedge or refuse.${hintLine}`,
         },
       ],
     }),
@@ -157,11 +181,46 @@ async function generateProductImage({ openaiApiKey, imagePrompt }) {
   if (!openaiApiKey) return null;
   if (!imagePrompt) return null;
 
+  const headers = { Authorization: `Bearer ${openaiApiKey}` };
+  const refs = await listLabelyReferenceBasenames();
+  const refName = refs.length > 0 ? refs[Math.floor(Math.random() * refs.length)] : null;
+
+  if (refName) {
+    const filePath = join(process.cwd(), "public", "labely", "references", refName);
+    let fileBuffer;
+    try {
+      fileBuffer = await readFile(filePath);
+    } catch {
+      fileBuffer = null;
+    }
+    if (fileBuffer) {
+      const mimeType = mimeFromPath(refName);
+      const blob = new Blob([fileBuffer], { type: mimeType });
+      const ext = refName.split(".").pop()?.toLowerCase() || "png";
+      const fileName = `reference.${ext}`;
+      const form = new FormData();
+      form.append("image", blob, fileName);
+      form.append("prompt", imagePrompt);
+      form.append("model", "gpt-image-1.5");
+      form.append("size", "1024x1024");
+      form.append("quality", "low");
+      form.append("n", "1");
+
+      const editRes = await fetch(OPENAI_EDITS, { method: "POST", headers, body: form });
+      const editData = await editRes.json().catch(() => ({}));
+      const b64Edit = editData?.data?.[0]?.b64_json;
+      if (editRes.ok && b64Edit) {
+        return `data:image/png;base64,${b64Edit}`;
+      }
+      console.error("[labely] reference edit failed; falling back to text-to-image", editData?.error || editRes.status);
+    }
+  }
+
   const res = await fetch(OPENAI_GENERATIONS, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${openaiApiKey}`,
+      ...headers,
     },
     body: JSON.stringify({
       model: "gpt-image-1.5",
@@ -193,6 +252,7 @@ export async function POST(req) {
     }
 
     const imageDataUrl = typeof body.imageDataUrl === "string" ? body.imageDataUrl.trim() : "";
+    const seedHint = typeof body.seedHint === "string" ? body.seedHint.trim() : "";
 
     if (imageDataUrl) {
       const analyzed = await analyzePackagingImage({ imageDataUrl, openaiApiKey });
@@ -207,7 +267,7 @@ export async function POST(req) {
       });
     }
 
-    const base = await generateLabelyJson({ openaiApiKey });
+    const base = await generateLabelyJson({ openaiApiKey, seedHint });
     let outImage = null;
     try {
       outImage = await generateProductImage({

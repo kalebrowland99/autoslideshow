@@ -76,6 +76,9 @@ export const defaultConfig = {
   jitterSeed: 0,
   /** @type {{ id: string, dataUrl: string }[]} */
   poseReferenceImages: [],
+
+  /** Labely only: true = AI-generated packaged-food cards + product images (no uploads). false = vision + uploads (current default). */
+  labelyAiProducts: false,
 };
 
 export default function Home() {

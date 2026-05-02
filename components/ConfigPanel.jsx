@@ -156,6 +156,13 @@ export default function ConfigPanel({
   const brand = getBrand(config);
   const isValcoin = brand.appId === "valcoin";
   const isLabely = brand.appId === "labely";
+  const labelyUploadsLocked = isLabely && !!config.labelyAiProducts;
+  const referencesDirLabel =
+    brand.appId === "valcoin"
+      ? "public/valcoin/references/"
+      : brand.appId === "labely"
+        ? "public/labely/references/"
+        : "public/references/";
 
   const VALUABLE_US_COINS = [
     // Key-date / classic
@@ -286,10 +293,14 @@ export default function ConfigPanel({
     }
   }, [mounted, isValcoin, brand.appId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Parsed brand items (non-empty lines) — fall back to default if list is empty
+  // Parsed brand items (non-empty lines) — fall back to defaults when empty
   const brandItems = (() => {
     const parsed = brandItemsRaw.split("\n").map((l) => l.trim()).filter(Boolean);
     if (parsed.length > 0) return parsed;
+    if (isLabely && config.labelyAiProducts) {
+      return DEFAULT_LABELY_ITEMS.split("\n").map((l) => l.trim()).filter(Boolean);
+    }
+    if (isLabely) return [];
     return DEFAULT_BRAND_LIST.split("\n").map((l) => l.trim()).filter(Boolean);
   })();
 
@@ -473,7 +484,12 @@ If the subject is an object (like germ-x, a mask, receipt piles, shipping labels
             prompt: fullPrompt,
             referenceFile: refFile || null,
             referenceInline: undefined,
-            referenceRoot: brand.appId === "valcoin" ? "valcoin/references" : "references",
+            referenceRoot:
+              brand.appId === "valcoin"
+                ? "valcoin/references"
+                : brand.appId === "labely"
+                  ? "labely/references"
+                  : "references",
             model: imageModel,
           }),
         });
@@ -610,8 +626,25 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
+  /** No photo — GPT invents product + score + analysis + optional product image (same as POST /api/labely with no body image). */
+  const fillLabelyFromAi = async (seedHint) => {
+    try {
+      const res = await fetch("/api/labely", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: abortRef.current?.signal,
+        body: JSON.stringify(seedHint?.trim() ? { seedHint: seedHint.trim() } : {}),
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  };
+
   /** Row index across all shows: 0…(qty×slotsPerShow−1). Rows 0–5 mirror live preview slots. */
   const handleLabelySlotUpload = async (globalIdx, file) => {
+    if (config.labelyAiProducts) return;
     if (!file?.type?.startsWith("image/")) return;
     setAiErrors((p) => ({ ...p, [globalIdx]: null }));
     setGeneratingSlot(globalIdx);
@@ -719,11 +752,13 @@ ${SHARED_RULES_OUTRO}`;
     abortRef.current = new AbortController();
     if (isLabely) {
       try {
-        const slot = config.slots[index];
-        if (!slot.imageUrl?.trim()) {
-          setAiErrors((p) => ({ ...p, [index]: "Upload a photo for this slot first (sidebar)." }));
-        } else {
-          const ly = await fillLabelyFromImage(slot.imageUrl);
+        if (config.labelyAiProducts) {
+          const weightedPool = buildWeightedPool(brandItems);
+          const hint =
+            weightedPool.length > 0
+              ? weightedPool[Math.floor(Math.random() * weightedPool.length)]
+              : null;
+          const ly = await fillLabelyFromAi(hint);
           if (ly?.name) {
             const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
             updateSlot(index, {
@@ -733,10 +768,32 @@ ${SHARED_RULES_OUTRO}`;
               labelyVerdict: ly.verdict || "",
               labelyAnalysis: ly.analysis ?? "",
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
+              ...(ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
             });
             setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
           } else {
-            setAiErrors((p) => ({ ...p, [index]: "Could not analyze this photo." }));
+            setAiErrors((p) => ({ ...p, [index]: "AI product generation failed." }));
+          }
+        } else {
+          const slot = config.slots[index];
+          if (!slot.imageUrl?.trim()) {
+            setAiErrors((p) => ({ ...p, [index]: "Upload a photo for this slot first (sidebar)." }));
+          } else {
+            const ly = await fillLabelyFromImage(slot.imageUrl);
+            if (ly?.name) {
+              const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
+              updateSlot(index, {
+                itemName: ly.name,
+                labelyBrand: ly.brand ?? "",
+                labelyScore: sc,
+                labelyVerdict: ly.verdict || "",
+                labelyAnalysis: ly.analysis ?? "",
+                labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
+              });
+              setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
+            } else {
+              setAiErrors((p) => ({ ...p, [index]: "Could not analyze this photo." }));
+            }
           }
         }
       } finally {
@@ -983,14 +1040,18 @@ ${SHARED_RULES_OUTRO}`;
         .map((s, i) => ({ slot: s, i: isMomFmt ? 0 : i }))
         .filter(({ slot, i }) =>
           isLabely
-            ? Boolean((batchImageDataUrls[i] ?? slot.imageUrl)?.trim())
+            ? config.labelyAiProducts
+              ? true
+              : Boolean((batchImageDataUrls[i] ?? slot.imageUrl)?.trim())
             : brandItems.length > 0 || slot.prompt?.trim()
         );
 
       if (activeSlots.length === 0) {
         alert(
           isLabely
-            ? "Upload at least one slot photo under Product photos, then run Generate again."
+            ? config.labelyAiProducts
+              ? "Could not determine slots to generate."
+              : "Upload at least one slot photo under Product photos, then run Generate again."
             : "Add items to the Brand Items List or add a prompt to at least one slot."
         );
         return;
@@ -1032,10 +1093,23 @@ ${SHARED_RULES_OUTRO}`;
         const p = hint ? `${prompt}\n\nSpecific item to depict: ${hint}.` : prompt;
 
         if (isLabely) {
-          const slot = config.slots[i];
-          const url = (batchImageDataUrls[i] ?? slot.imageUrl)?.trim();
-          setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Labely analysis ${stepLabel}…`, slotsDone: new Set(slotsDone) });
-          const ly = await fillLabelyFromImage(url);
+          setGenAllProgress({
+            total,
+            done: slotsDone.size,
+            current: i,
+            phase: config.labelyAiProducts
+              ? `Labely AI product ${stepLabel}${brandLabel}…`
+              : `Labely analysis ${stepLabel}…`,
+            slotsDone: new Set(slotsDone),
+          });
+          let ly;
+          if (config.labelyAiProducts) {
+            ly = await fillLabelyFromAi(brandItem);
+          } else {
+            const slot = config.slots[i];
+            const url = (batchImageDataUrls[i] ?? slot.imageUrl)?.trim();
+            ly = await fillLabelyFromImage(url);
+          }
           if (ly?.name) {
             const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
             updateSlot(i, {
@@ -1045,6 +1119,7 @@ ${SHARED_RULES_OUTRO}`;
               labelyVerdict: ly.verdict || "",
               labelyAnalysis: ly.analysis ?? "",
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
+              ...(config.labelyAiProducts && ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
             });
             slotsDone.add(i);
             setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Slot ${stepLabel} complete`, slotsDone: new Set(slotsDone) });
@@ -1151,6 +1226,7 @@ ${SHARED_RULES_OUTRO}`;
    */
   const handleBulkImageFiles = async (fileList, opts = { replace: true }) => {
     if (generatingSlot !== null) return;
+    if (isLabely && config.labelyAiProducts) return;
     const imageFiles = [...fileList].filter((f) => f?.type?.startsWith("image/"));
     if (!imageFiles.length) return;
     const showsBefore = numSlideshows;
@@ -1210,6 +1286,34 @@ ${SHARED_RULES_OUTRO}`;
     const localSlots = Array.from({ length: 6 }, (_, i) => freshSlot(i));
 
     if (isLabely) {
+      if (config.labelyAiProducts) {
+        for (let si = 0; si < slotCount; si++) {
+          if (cancelGenRef.current) break;
+          const brandItem = shuffled.length > 0 ? shuffled[si] : null;
+          setGenAllProgress({
+            total: slotCount,
+            done: si,
+            current: si,
+            phase: `Show ${showIndex + 1}/${totalShows} · AI product ${si + 1}/${slotCount}${brandItem ? ` — "${brandItem}"` : ""}…`,
+            slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
+          });
+          const ly = await fillLabelyFromAi(brandItem);
+          if (ly?.name) {
+            const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
+            localSlots[si] = {
+              ...localSlots[si],
+              itemName: ly.name,
+              labelyBrand: ly.brand ?? "",
+              labelyScore: sc,
+              labelyVerdict: ly.verdict || "",
+              labelyAnalysis: ly.analysis ?? "",
+              labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
+              ...(ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
+            };
+          }
+          updateConfig("slots", [...localSlots]);
+        }
+      } else {
       for (let si = 0; si < slotCount; si++) {
         if (cancelGenRef.current) break;
         const pre = slice?.[si] ?? null;
@@ -1237,7 +1341,8 @@ ${SHARED_RULES_OUTRO}`;
         }
         updateConfig("slots", [...localSlots]);
       }
-      const hasAny = localSlots.some((s) => s.imageUrl?.trim());
+      }
+      const hasAny = localSlots.some((s) => s.itemName?.trim() || s.imageUrl?.trim());
       if (!hasAny) return null;
       updateConfig("captionText", "");
       await waitForPreviewPaint();
@@ -1322,7 +1427,7 @@ ${SHARED_RULES_OUTRO}`;
 
   const handleGenerateBatch = async () => {
     if (isLabely) {
-      if (!batchImageDataUrls.some(Boolean)) {
+      if (!config.labelyAiProducts && !batchImageDataUrls.some(Boolean)) {
         alert("Add at least one photo in the image rows above (or use multi-select). Order is slideshow #1 first, then #2, etc.");
         return;
       }
@@ -2088,13 +2193,43 @@ ${SHARED_RULES_OUTRO}`;
           <div className="font-semibold">AI keys are managed on the server.</div>
           <div className="mt-1 text-emerald-100/70">
             {isLabely
-              ? "Labely analyzes your uploaded photos with vision (OpenAI). No AI-generated product images."
+              ? config.labelyAiProducts
+                ? "AI Labely: GPT invents each packaged product, score, analysis, and a generated pack image (no uploads). Seed ideas from the food & drink list (above image slots). Toggle off to use real photos + vision instead."
+                : "Labely analyzes your uploaded photos with vision (OpenAI). Toggle “AI-generated products” below for the older all-AI grocery flow."
               : "This deployment uses the Vercel environment variables for image generation and auto-title, so teammates can use the app without entering API keys here."}
           </div>
         </div>
 
+        {isLabely ? (
+          <div className="mt-3 rounded-xl border border-violet-500/35 bg-violet-500/12 px-3 py-2.5">
+            <div className="flex items-start gap-3">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!!config.labelyAiProducts}
+                onClick={() => updateConfig("labelyAiProducts", !config.labelyAiProducts)}
+                className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors ${
+                  config.labelyAiProducts ? "bg-violet-500" : "bg-white/15"
+                }`}
+              >
+                <span
+                  className={`absolute top-1 left-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                    config.labelyAiProducts ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </button>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-semibold text-white/90">AI-generated products (junk-food / grocery style)</div>
+                <p className="mt-1 text-[10px] leading-relaxed text-white/45">
+                  On: no photo uploads — GPT creates each item + score + analysis + pack image (legacy Labely flow). Off: upload real packaging photos and vision reads each label (current default).
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {/* Reference images status — only rendered client-side to avoid hydration mismatch */}
-        {mounted && !isLabely && <div className={`mt-2 flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
+        {mounted && <div className={`mt-2 flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
           referenceImages === null ? "bg-white/4 border border-white/8 text-white/35"
           : referenceImages.length > 0 ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"
           : "bg-white/4 border border-white/8 text-white/35"
@@ -2105,27 +2240,60 @@ ${SHARED_RULES_OUTRO}`;
           ) : referenceImages.length > 0 ? (
             <span>
               <strong>{referenceImages.length}</strong> reference photo{referenceImages.length > 1 ? "s" : ""} in{" "}
-              <code className="text-white/50">{brand.appId === "valcoin" ? "public/valcoin/references/" : "public/references/"}</code>{" "}
+              <code className="text-white/50">{referencesDirLabel}</code>{" "}
               — used as the reference style for AI generations.
             </span>
           ) : (
             <span>
               Add a PNG/JPEG to{" "}
-              <code className="text-white/50">{brand.appId === "valcoin" ? "public/valcoin/references/" : "public/references/"}</code>
+              <code className="text-white/50">{referencesDirLabel}</code>
               {brand.appId === "valcoin"
                 ? " (e.g. a coin-on-table macro style reference) to lock the Valcoin look."
+                : brand.appId === "labely"
+                ? " (e.g. shelf lighting / pack styling you like) so AI pack shots echo that look."
                 : " (e.g. messy clothes in a blue cart) to lock the buggy aesthetic."}
             </span>
           )}
         </div>}
-        {/* Image slots (all brands): qty × slots per show rows + brand list for AI */}
+        {/* Labely AI: same role as Thrifty “Brand Items List” — seeds packaged-food generations */}
+        {isLabely && config.labelyAiProducts ? (
+          <div className="mt-3 bg-white/4 border border-white/10 rounded-xl p-3">
+            <div className="flex items-center justify-between mb-1">
+              <Label>Food &amp; drink list</Label>
+              {mounted && brandItems.length > 0 && (
+                <span className="text-violet-300 text-[10px] font-medium">
+                  {brandItems.length} item{brandItems.length > 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
+            <p className="text-white/35 text-[10px] mb-2 leading-relaxed">
+              One packaged product per line — same idea as Thrifty&apos;s brand list. Generate picks from this list (shuffled); GPT still invents the full label, score, and pack shot for each slot.
+            </p>
+            <textarea
+              value={brandItemsRaw}
+              onChange={(e) => {
+                setBrandItemsRaw(e.target.value);
+                localStorage.setItem(storeKey("ts_brand_items"), e.target.value);
+              }}
+              placeholder={DEFAULT_LABELY_ITEMS}
+              rows={6}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/15 resize-none"
+            />
+            <p className="text-white/25 text-[10px] mt-1">
+              Snacks, drinks, frozen, supplements — be specific (brand + product type). Leave empty to use the built-in grocery starter list.
+            </p>
+          </div>
+        ) : null}
+        {/* Image slots (all brands): qty × slots per show rows + brand list for Thrifty / Valcoin AI */}
         <div className="mt-3 bg-white/4 border border-white/10 rounded-xl p-3">
           <Label>Image slots</Label>
           <p className="text-white/35 text-[10px] mb-2 leading-relaxed">
             <span className="text-white/50">{batchImagesNeeded}</span> rows = <span className="text-white/50">{numSlideshows}</span> slideshow
             {numSlideshows !== 1 ? "s" : ""} × {batchSlotCount} photo{batchSlotCount !== 1 ? "s" : ""} each. Drag{" "}
             <span className="text-white/50">⋮⋮</span> to reorder. Drop a photo or pick a file per row.
-            {isLabely
+            {labelyUploadsLocked
+              ? " AI mode is on — uploads are disabled; run Generate to fill slots."
+              : isLabely
               ? " Labely analyzes rows 1–6 (live preview); rows 7+ are analyzed when you run batch."
               : " Rows 1–6 match the live preview. AI uses the brand list for any row left empty when generating."}
           </p>
@@ -2139,7 +2307,7 @@ ${SHARED_RULES_OUTRO}`;
               className="sr-only"
               tabIndex={-1}
               aria-hidden
-              disabled={generatingSlot !== null}
+              disabled={generatingSlot !== null || labelyUploadsLocked}
               onChange={(e) => {
                 const files = [...(e.target.files || [])];
                 e.target.value = "";
@@ -2148,7 +2316,7 @@ ${SHARED_RULES_OUTRO}`;
             />
             <button
               type="button"
-              disabled={generatingSlot !== null}
+              disabled={generatingSlot !== null || labelyUploadsLocked}
               onClick={() => bulkFileInputRef.current?.click()}
               onDragEnter={(e) => {
                 e.preventDefault();
@@ -2164,13 +2332,18 @@ ${SHARED_RULES_OUTRO}`;
                 e.preventDefault();
                 e.dataTransfer.dropEffect = "copy";
               }}
-              onDrop={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setBulkDropHover(false);
-                if (e.dataTransfer.files?.length) void handleBulkImageFiles(e.dataTransfer.files, { replace: true });
-              }}
-              className={`flex aspect-square w-full max-w-[200px] cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed p-3 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setBulkDropHover(false);
+                    if (labelyUploadsLocked) return;
+                    if (e.dataTransfer.files?.length) void handleBulkImageFiles(e.dataTransfer.files, { replace: true });
+                  }}
+                  className={`flex aspect-square w-full max-w-[200px] flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed p-3 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                labelyUploadsLocked
+                  ? ""
+                  : "cursor-pointer "
+              }${
                 bulkDropHover
                   ? "border-violet-400 bg-violet-500/15 text-violet-100"
                   : "border-white/22 bg-white/[0.04] text-white/50 hover:border-white/40 hover:bg-white/[0.07]"
@@ -2205,6 +2378,7 @@ ${SHARED_RULES_OUTRO}`;
                     e.preventDefault();
                     const file = e.dataTransfer.files?.[0];
                     if (file?.type?.startsWith("image/")) {
+                      if (labelyUploadsLocked) return;
                       if (isLabely) void handleLabelySlotUpload(rowIdx, file);
                       else void handleThriftyValcoinSlotFile(rowIdx, file);
                       return;
@@ -2239,7 +2413,8 @@ ${SHARED_RULES_OUTRO}`;
                   <input
                     type="file"
                     accept="image/*"
-                    className="text-white/50 text-[11px] max-w-[200px] min-w-0 flex-1 file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:bg-white/10 file:text-white/80"
+                    disabled={generatingSlot !== null || labelyUploadsLocked}
+                    className="text-white/50 text-[11px] max-w-[200px] min-w-0 flex-1 file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:bg-white/10 file:text-white/80 disabled:opacity-40"
                     onChange={(e) => {
                       const f = e.target.files?.[0];
                       if (!f) return;
@@ -2276,7 +2451,11 @@ ${SHARED_RULES_OUTRO}`;
                   setBrandItemsRaw(e.target.value);
                   localStorage.setItem(storeKey("ts_brand_items"), e.target.value);
                 }}
-                placeholder={"vintage Carhartt double-knee pants\nSupreme box logo hoodie\nvintage Levi's 501\nKapital boro jacket\nvintage Nike windbreaker"}
+                placeholder={
+                  isValcoin
+                    ? VALUABLE_US_COINS.slice(0, 8).join("\n")
+                    : "vintage Carhartt double-knee pants\nSupreme box logo hoodie\nvintage Levi's 501\nKapital boro jacket\nvintage Nike windbreaker"
+                }
                 rows={5}
                 className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/15 resize-none"
               />
@@ -2292,7 +2471,13 @@ ${SHARED_RULES_OUTRO}`;
         <div className="mt-2 flex gap-2">
           <button onClick={handleGenerateAll} disabled={generatingSlot !== null}
             className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-semibold transition-colors">
-            {generatingSlot === "all" ? "Generating…" : isLabely ? "✨ Generate 1 Slideshow (analyze uploads)" : "✨ Generate 1 Slideshow"}
+            {generatingSlot === "all"
+              ? "Generating…"
+              : isLabely
+              ? config.labelyAiProducts
+                ? "✨ Generate 1 Slideshow (AI products)"
+                : "✨ Generate 1 Slideshow (analyze uploads)"
+              : "✨ Generate 1 Slideshow"}
           </button>
           {generatingSlot === "all" && (
             <button
@@ -2329,8 +2514,8 @@ ${SHARED_RULES_OUTRO}`;
                 type="file"
                 accept="image/*"
                 multiple
-                disabled={generatingSlot !== null}
-                className="text-white/50 text-[11px] flex-1 min-w-0 file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:bg-white/10 file:text-white/80"
+                disabled={generatingSlot !== null || labelyUploadsLocked}
+                className="text-white/50 text-[11px] flex-1 min-w-0 file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:bg-white/10 file:text-white/80 disabled:opacity-40"
                 onChange={(e) => {
                   const files = [...(e.target.files || [])];
                   e.target.value = "";
@@ -2362,7 +2547,7 @@ ${SHARED_RULES_OUTRO}`;
             onClick={handleGenerateBatch}
             disabled={
               generatingSlot !== null
-              || (isLabely && !batchImageDataUrls.some(Boolean))
+              || (isLabely && !config.labelyAiProducts && !batchImageDataUrls.some(Boolean))
               || (!isLabely && brandItems.length === 0 && !batchImageDataUrls.some(Boolean))
             }
             className="w-full py-2.5 rounded-xl bg-fuchsia-700 hover:bg-fuchsia-600 disabled:opacity-40 text-white text-sm font-bold transition-colors"

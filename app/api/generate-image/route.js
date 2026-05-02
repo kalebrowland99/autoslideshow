@@ -15,8 +15,9 @@ function mimeFromPath(filePath) {
 
 // ── Gemini handler ────────────────────────────────────────────────────────────
 function resolveReferenceRoot(referenceRoot) {
-  const safe = referenceRoot === "valcoin/references" ? "valcoin/references" : "references";
-  return safe;
+  if (referenceRoot === "valcoin/references") return "valcoin/references";
+  if (referenceRoot === "labely/references") return "labely/references";
+  return "references";
 }
 
 async function generateWithGemini({ prompt, referenceFile, referenceInline, referenceRoot, geminiApiKey }) {

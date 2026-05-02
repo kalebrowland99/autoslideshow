@@ -23,12 +23,12 @@ async function walkDir(dir, base = "") {
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const appId = searchParams.get("appId");
-  if (appId === "labely") {
-    return NextResponse.json({ images: [] });
-  }
-  const dir = appId === "valcoin"
-    ? join(process.cwd(), "public", "valcoin", "references")
-    : join(process.cwd(), "public", "references");
+  const dir =
+    appId === "valcoin"
+      ? join(process.cwd(), "public", "valcoin", "references")
+      : appId === "labely"
+        ? join(process.cwd(), "public", "labely", "references")
+        : join(process.cwd(), "public", "references");
   const images = await walkDir(dir);
   return NextResponse.json({ images });
 }
