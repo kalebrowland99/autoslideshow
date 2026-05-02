@@ -126,14 +126,21 @@ export default function LabelyView({ fillViewport = true }) {
     [data?.name, data?.brand, data?.score]
   );
 
-  const analyzeDataUrl = useCallback(async (imageDataUrl) => {
+  const analyzeDataUrl = useCallback(async (imageDataUrl, uploadHint) => {
     setBusy(true);
     setError("");
     try {
+      const hint =
+        typeof uploadHint === "string" && uploadHint.trim()
+          ? uploadHint.trim().slice(0, 160)
+          : "";
       const res = await fetch("/api/labely", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageDataUrl }),
+        body: JSON.stringify({
+          imageDataUrl,
+          ...(hint ? { uploadHint: hint } : {}),
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Analysis failed");
@@ -158,7 +165,7 @@ export default function LabelyView({ fillViewport = true }) {
       void (async () => {
         try {
           const url = await fileToDisplayableDataUrl(file);
-          await analyzeDataUrl(url);
+          await analyzeDataUrl(url, file.name);
         } catch (err) {
           console.error("[labely] file read failed", err);
           setError(err?.message || "Could not read this photo (try JPEG or HEIC).");

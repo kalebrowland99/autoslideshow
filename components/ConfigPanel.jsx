@@ -622,13 +622,20 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
-  const fillLabelyFromImage = async (imageDataUrl) => {
+  const fillLabelyFromImage = async (imageDataUrl, opts = {}) => {
+    const uploadHint =
+      typeof opts.uploadHint === "string" && opts.uploadHint.trim()
+        ? opts.uploadHint.trim().slice(0, 160)
+        : "";
     try {
       const res = await fetch("/api/labely", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: abortRef.current?.signal,
-        body: JSON.stringify({ imageDataUrl }),
+        body: JSON.stringify({
+          imageDataUrl,
+          ...(uploadHint ? { uploadHint } : {}),
+        }),
       });
       if (!res.ok) return null;
       return await res.json();
@@ -654,7 +661,7 @@ ${SHARED_RULES_OUTRO}`;
   };
 
   /** Row index across all shows: 0…(qty×slotsPerShow−1). Rows 0–5 mirror live preview slots. */
-  const runLabelySlotWithDataUrl = async (globalIdx, dataUrl) => {
+  const runLabelySlotWithDataUrl = async (globalIdx, dataUrl, labelyHints = {}) => {
     if (config.labelyAiProducts) return;
     if (!dataUrl || typeof dataUrl !== "string") return;
     setAiErrors((p) => ({ ...p, [globalIdx]: null }));
@@ -670,7 +677,7 @@ ${SHARED_RULES_OUTRO}`;
       });
       if (globalIdx < 6) {
         updateSlot(globalIdx, { imageUrl: dataUrl });
-        const ly = await fillLabelyFromImage(dataUrl);
+        const ly = await fillLabelyFromImage(dataUrl, labelyHints);
         if (ly?.name) {
           const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
           updateSlot(globalIdx, {
@@ -704,7 +711,7 @@ ${SHARED_RULES_OUTRO}`;
       setAiErrors((p) => ({ ...p, [globalIdx]: "Could not read this photo (try JPEG or HEIC)." }));
       return;
     }
-    await runLabelySlotWithDataUrl(globalIdx, dataUrl);
+    await runLabelySlotWithDataUrl(globalIdx, dataUrl, { uploadHint: file.name });
   };
 
   /** User-uploaded photo for Thrifty / Valcoin (no AI image gen). globalIdx ≥ 6 = batch-only row. */
