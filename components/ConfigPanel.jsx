@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
+import { flushSync } from "react-dom";
 import { getFontEmbedCSS, toCanvas, toJpeg } from "html-to-image";
 import { DISPLAY_SCALE } from "./VideoPreview";
 import { getSlideInfo, slideIndexToSlotIndex } from "@/lib/slideLayout";
@@ -105,6 +106,16 @@ const freshSlot = (i) => ({
 
 const waitForPreviewPaint = () =>
   new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+/** ZIP / file explorers: ensure `01-…` … `12-…` order (numeric), not lexicographic on suffix. */
+function sortPngZipEntriesBySlideIndex(pngEntries) {
+  const keys = Object.keys(pngEntries).sort((a, b) => {
+    const na = parseInt(String(a).split("-")[0], 10);
+    const nb = parseInt(String(b).split("-")[0], 10);
+    return (Number.isFinite(na) ? na : 0) - (Number.isFinite(nb) ? nb : 0);
+  });
+  return Object.fromEntries(keys.map((k) => [k, pngEntries[k]]));
+}
 
 const waitForFonts = async () => {
   if (!document.fonts?.ready) return;
@@ -620,7 +631,7 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
-  /** No photo — GPT invents product + score + analysis + optional product image (same as POST /api/labely with no body image). */
+  /** No photo — GPT picks a real retail SKU + score + analysis (fictional scanner compounds) + optional pack image (same as POST /api/labely with no body image). */
   const fillLabelyFromAi = async (seedHint) => {
     try {
       const res = await fetch("/api/labely", {
@@ -1512,7 +1523,9 @@ ${SHARED_RULES_OUTRO}`;
     const fontEmbedCSS = previewNode ? await getFontEmbedCSS(previewNode) : undefined;
 
     for (let i = 0; i < totalSlides; i++) {
-      setCurrentSlide(i);
+      flushSync(() => {
+        setCurrentSlide(i);
+      });
       await waitForPreviewPaint();
 
       const info = getSlideInfo(config, i);
@@ -1862,7 +1875,9 @@ ${SHARED_RULES_OUTRO}`;
     const pngEntries = {};
 
     for (let i = 0; i < totalSlides; i++) {
-      setCurrentSlide(i);
+      flushSync(() => {
+        setCurrentSlide(i);
+      });
       await waitForPreviewPaint();
       await new Promise((r) => setTimeout(r, 80));
 
@@ -1915,7 +1930,7 @@ ${SHARED_RULES_OUTRO}`;
     setExportProgress(90);
 
     const { zipSync } = await import("fflate");
-    const zipData = zipSync(pngEntries, { level: 1 });
+    const zipData = zipSync(sortPngZipEntriesBySlideIndex(pngEntries), { level: 1 });
     const blob = new Blob([zipData], { type: "application/zip" });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
@@ -2226,7 +2241,7 @@ ${SHARED_RULES_OUTRO}`;
           <div className="mt-1 text-emerald-100/70">
             {isLabely
               ? config.labelyAiProducts
-                ? "AI Labely: GPT invents each packaged product, score, analysis, and a generated pack image (no uploads). Seed ideas from the food & drink list (above image slots). Toggle off to use real photos + vision instead."
+                ? "AI Labely: GPT picks real retail products (your list seeds the SKU — e.g. Oreo → real Oreo packaging), writes satirical fictional “chemical” hits in the analysis, scores, and generates a pack image (no uploads). Toggle off to use real photos + vision instead."
                 : "Labely analyzes your uploaded photos with vision (OpenAI). Toggle “AI-generated products” below for the older all-AI grocery flow."
               : "This deployment uses the Vercel environment variables for image generation and auto-title, so teammates can use the app without entering API keys here."}
           </div>
@@ -2253,7 +2268,7 @@ ${SHARED_RULES_OUTRO}`;
               <div className="min-w-0 flex-1">
                 <div className="text-xs font-semibold text-white/90">AI-generated products (junk-food / grocery style)</div>
                 <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-                  On: no photo uploads — GPT creates each item + score + analysis + pack image (legacy Labely flow). Off: upload real packaging photos and vision reads each label (current default).
+                  On: no photo uploads — GPT chooses real brands/SKUs (from your seed list when present), same fictional scanner compounds in analysis, plus a generated pack image. Off: upload real packaging photos and vision reads each label (current default).
                 </p>
               </div>
             </div>
@@ -2299,7 +2314,7 @@ ${SHARED_RULES_OUTRO}`;
               )}
             </div>
             <p className="text-white/35 text-[10px] mb-2 leading-relaxed">
-              One packaged product per line — same idea as Thrifty&apos;s brand list. Generate picks from this list (shuffled); GPT still invents the full label, score, and pack shot for each slot.
+              One real packaged product per line — same idea as Thrifty&apos;s brand list. Generate picks from this list (shuffled); GPT uses that real SKU for name/brand/pack image while analysis still uses fictional scanner compound names.
             </p>
             <textarea
               value={brandItemsRaw}
