@@ -5,6 +5,7 @@ import { getFontEmbedCSS, toCanvas, toJpeg } from "html-to-image";
 import { DISPLAY_SCALE } from "./VideoPreview";
 import { getSlideInfo, slideIndexToSlotIndex } from "@/lib/slideLayout";
 import { getBrand } from "@/lib/brand";
+import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
 
 function parseDataUrl(dataUrl) {
   if (!dataUrl || typeof dataUrl !== "string") return null;
@@ -458,9 +459,9 @@ export default function ConfigPanel({
         // Starter pack / POV vibe: generate an iPhone photo of the prompt itself (not clothing-only).
         const scenePrompt = (prompt || "").trim() || brandName;
         const fullPrompt = `
-Aspect ratio requirement: Generate the image in 9:16 vertical portrait orientation only. Mandatory.
+${iphoneRetailPhotoImperfectionPrompt()}
 
-Make it look like a real iPhone photo (default Camera app, no Portrait mode, no filters). Natural color, indoor fluorescent lighting if applicable. Deep focus, not blurry, not cinematic. No text overlays, no captions, no watermarks.
+No text overlays, no captions, no watermarks.
 
 ${isValcoin
   ? `Reference-image rule (CRITICAL): Make the photo EXACT 1:1 as the reference image, just swap out the coin with the chosen coin.`
@@ -501,16 +502,7 @@ If the subject is an object (like germ-x, a mask, receipt piles, shipping labels
         throw new Error("No image returned");
       }
 
-      const SHARED_RULES_INTRO = `
-Aspect ratio requirement: Generate the image in 9:16 vertical portrait orientation only. This is mandatory. The image must be tall (portrait), optimized for smartphone viewing similar to TikTok or Instagram Reels. Do not generate square or landscape images. The composition must fill a 9:16 portrait frame from top to bottom.
-
-The photo should look like it was taken with an iPhone main rear camera using the default Camera app (Photo mode, no Portrait mode, no filter). Color should match iPhone’s natural output: restrained saturation — noticeably less saturated than typical AI images or “vivid” social posts; true-to-life fabric and environment colors; no neon punch, no oversaturated primaries, no cinematic teal-orange grading. Aim for the calm, accurate look of an unedited shot in the iOS Photos app: moderate contrast, natural shadow roll-off, no HDR halos or glowing edges.
-
-Color temperature and white balance: overhead fluorescent retail lighting, neutral-to-slightly-cool white balance around 4500–5500K with a very slight green-neutral cast. Whites clean and neutral — not warm orange or amber. Zero golden-hour warmth, zero vintage filter, zero beauty-mode skin smoothing on any distant figures.
-
-Lens character (subtle): Include a very faint authentic smartphone-lens imperfection — a small soft smeared glare or streak near the brightest specular highlights (overhead tubes reflecting on lens glass), mild greenish or neutral flare typical of iPhone optics. Keep it minimal and realistic, not a dramatic sun-star or cinematic lens-flare overlay.
-
-Focus and depth (critical): Sharp focus from foreground through background across the entire 9:16 frame — deep focus only. No shallow depth of field, no background blur, no bokeh, no portrait-mode separation, no artificial Gaussian blur on the environment. Store floor, distant racks, cart, and clothes must all read clearly in focus, like a casual phone snapshot with everything sharp.`.trim();
+      const SHARED_RULES_INTRO = iphoneRetailPhotoImperfectionPrompt("thrift");
 
       const SHARED_RULES_NO_HANDS_MID = `
 No hands or people rule (critical): Do not show human hands, arms, fingers, wrists, or any partial limbs. Do not show people in the foreground or midground. Do not show gloves that imply a hand inside. The product must never be held or carried. If distant background shoppers are visible, they must be tiny and incidental — still in focus with the rest of the scene (no extra blur on people); show no discernible hands or arms.
