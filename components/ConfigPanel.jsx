@@ -119,6 +119,21 @@ const freshSlot = (i) => ({
   labelyLegalNote: "No lawsuits found.",
 });
 
+/** Reset Labely AI fields when this slot's photo no longer matches cached analysis (shuffle/reorder/new batch row). */
+function labelySlotAfterImageSwap(prevSlot, imageUrl, slotIndex) {
+  return {
+    ...prevSlot,
+    imageUrl,
+    itemName: `Item ${slotIndex + 1}`,
+    labelyBrand: "",
+    labelyScore: 0,
+    labelyVerdict: "",
+    labelyAnalysis: "",
+    labelyAnalysisTitle: "Labely's Analysis",
+    labelyLegalNote: "No lawsuits found.",
+  };
+}
+
 const waitForPreviewPaint = () =>
   new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
@@ -641,6 +656,39 @@ ${SHARED_RULES_OUTRO}`;
       return await res.json();
     } catch {
       return null;
+    }
+  };
+
+  /** Re-run vision on preview slots 0–5 so Labely copy matches batch photos after shuffle/reorder. */
+  const runLabelyVisionForPreviewSlots = async (batchUrls) => {
+    if (!isLabely || config.labelyAiProducts) return;
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    try {
+      for (let i = 0; i < Math.min(6, batchUrls.length); i++) {
+        const url = batchUrls[i];
+        if (!url) continue;
+        setGeneratingSlot(i);
+        setAiErrors((p) => ({ ...p, [i]: null }));
+        const ly = await fillLabelyFromImage(url);
+        if (ly?.name) {
+          const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
+          updateSlot(i, {
+            itemName: ly.name,
+            labelyBrand: ly.brand ?? "",
+            labelyScore: sc,
+            labelyVerdict: ly.verdict || "",
+            labelyAnalysis: ly.analysis ?? "",
+            labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
+            labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
+          });
+        } else {
+          setAiErrors((p) => ({ ...p, [i]: "Could not analyze this photo." }));
+        }
+      }
+    } finally {
+      setGeneratingSlot(null);
+      abortRef.current = null;
     }
   };
 
@@ -1240,10 +1288,12 @@ ${SHARED_RULES_OUTRO}`;
     setBatchImageDataUrls(Array.from({ length: batchImagesNeeded }, () => null));
     setConfig((prev) => ({
       ...prev,
-      slots: prev.slots.map((s) => ({ ...s, imageUrl: null })),
+      slots: prev.slots.map((s, i) =>
+        isLabely ? labelySlotAfterImageSwap(s, null, i) : { ...s, imageUrl: null }
+      ),
     }));
     setAiErrors({});
-  }, [batchImagesNeeded, labelyUploadsLocked, generatingSlot, setConfig]);
+  }, [batchImagesNeeded, isLabely, labelyUploadsLocked, generatingSlot, setConfig]);
 
   useEffect(() => {
     const need = numSlideshows * batchSlotCount;
@@ -1256,6 +1306,7 @@ ${SHARED_RULES_OUTRO}`;
 
   const reorderBatchRows = (fromIndex, toIndex) => {
     if (fromIndex === toIndex) return;
+    if (generatingSlot !== null) return;
     setBatchImageDataUrls((prev) => {
       if (fromIndex < 0 || toIndex < 0 || fromIndex >= prev.length || toIndex >= prev.length) return prev;
       const next = [...prev];
@@ -1263,10 +1314,17 @@ ${SHARED_RULES_OUTRO}`;
       next.splice(toIndex, 0, moved);
       setConfig((p) => ({
         ...p,
-        slots: p.slots.map((s, i) =>
-          i < 6 && i < next.length ? { ...s, imageUrl: next[i] ?? null } : s
-        ),
+        slots: p.slots.map((s, i) => {
+          if (!(i < 6 && i < next.length)) return s;
+          const url = next[i] ?? null;
+          return isLabely && !labelyUploadsLocked
+            ? labelySlotAfterImageSwap(s, url, i)
+            : { ...s, imageUrl: url };
+        }),
       }));
+      if (isLabely && !labelyUploadsLocked) {
+        void runLabelyVisionForPreviewSlots(next);
+      }
       return next;
     });
   };
@@ -1312,10 +1370,18 @@ ${SHARED_RULES_OUTRO}`;
         setBatchImageDataUrls(nextBatch);
         setConfig((prev) => ({
           ...prev,
-          slots: prev.slots.map((s, i) =>
-            i < 6 && i < nextBatch.length ? { ...s, imageUrl: nextBatch[i] ?? null } : s
-          ),
+          slots: prev.slots.map((s, i) => {
+            if (!(i < 6 && i < nextBatch.length)) return s;
+            const url = nextBatch[i] ?? null;
+            return isLabely && !config.labelyAiProducts
+              ? labelySlotAfterImageSwap(s, url, i)
+              : { ...s, imageUrl: url };
+          }),
         }));
+
+        if (isLabely && !config.labelyAiProducts) {
+          void runLabelyVisionForPreviewSlots(nextBatch);
+        }
       } else {
         const need = showsBefore * perShow;
         setBatchImageDataUrls((prev) =>
