@@ -79,7 +79,13 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
         <img
           src={slot.imageUrl}
           alt={slot.itemName || "Item"}
-          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: isLabely ? "contain" : "cover",
+            objectPosition: "center",
+            display: "block",
+          }}
         />
       ) : (
         <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "#1c1c1c" }}>

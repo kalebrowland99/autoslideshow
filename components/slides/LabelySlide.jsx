@@ -167,7 +167,7 @@ export default function LabelySlide({ slot, S }) {
             }}
           >
             {slot.imageUrl ? (
-              <img src={slot.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              <img src={slot.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center", display: "block" }} />
             ) : (
               <div style={{ width: "100%", height: "100%", background: "linear-gradient(145deg,#2a2a2a,#0a0a0a)" }} />
             )}

@@ -179,7 +179,7 @@ export default function LabelyView({ fillViewport = true }) {
               <img
                 src={data.imageDataUrl}
                 alt=""
-                className="h-full w-full object-cover"
+                className="h-full w-full object-contain object-center"
               />
             ) : (
               <div className="h-full w-full bg-gradient-to-br from-zinc-800 to-black" />

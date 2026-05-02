@@ -1112,6 +1112,8 @@ ${SHARED_RULES_OUTRO}`;
   const [numSlideshows, setNumSlideshows] = useState(3);
   /** Data URLs in play order: show 1 slots 1…6 (or 1 for iMessage mom), then show 2, … Row count = length. */
   const [batchImageDataUrls, setBatchImageDataUrls] = useState([]);
+  const [bulkDropHover, setBulkDropHover] = useState(false);
+  const bulkFileInputRef = useRef(null);
 
   const batchSlotCount =
     (config.outputFormat ?? "standard") === "imessageMom" ? 1 : 6;
@@ -1141,6 +1143,42 @@ ${SHARED_RULES_OUTRO}`;
       }));
       return next;
     });
+  };
+
+  /**
+   * @param {File[]} fileList
+   * @param {{ replace?: boolean }} opts replace: fill row 1… from first file (square drop); false = merge into existing rows (file picker).
+   */
+  const handleBulkImageFiles = async (fileList, opts = { replace: true }) => {
+    if (generatingSlot !== null) return;
+    const imageFiles = [...fileList].filter((f) => f?.type?.startsWith("image/"));
+    if (!imageFiles.length) return;
+    const showsBefore = numSlideshows;
+    const perShow = batchSlotCount;
+    try {
+      const urls = await Promise.all(imageFiles.map((f) => readFileToDataUrl(f)));
+      const minShows = Math.max(1, Math.ceil(urls.length / perShow));
+      if (opts.replace) {
+        const newShows = Math.max(showsBefore, minShows);
+        const need = newShows * perShow;
+        const nextBatch = Array.from({ length: need }, (_, i) => urls[i] ?? null);
+        setNumSlideshows(newShows);
+        setBatchImageDataUrls(nextBatch);
+        setConfig((prev) => ({
+          ...prev,
+          slots: prev.slots.map((s, i) =>
+            i < 6 && i < nextBatch.length ? { ...s, imageUrl: nextBatch[i] ?? null } : s
+          ),
+        }));
+      } else {
+        const need = showsBefore * perShow;
+        setBatchImageDataUrls((prev) =>
+          Array.from({ length: need }, (_, i) => urls[i] ?? prev[i] ?? null)
+        );
+      }
+    } catch {
+      alert("Could not read one or more images.");
+    }
   };
 
   // Generate one complete slideshow into a local slots array, save via callback.
@@ -2091,6 +2129,64 @@ ${SHARED_RULES_OUTRO}`;
               ? " Labely analyzes rows 1–6 (live preview); rows 7+ are analyzed when you run batch."
               : " Rows 1–6 match the live preview. AI uses the brand list for any row left empty when generating."}
           </p>
+
+          <div className="mb-3 flex flex-col items-center gap-2">
+            <input
+              ref={bulkFileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="sr-only"
+              tabIndex={-1}
+              aria-hidden
+              disabled={generatingSlot !== null}
+              onChange={(e) => {
+                const files = [...(e.target.files || [])];
+                e.target.value = "";
+                if (files.length) void handleBulkImageFiles(files, { replace: true });
+              }}
+            />
+            <button
+              type="button"
+              disabled={generatingSlot !== null}
+              onClick={() => bulkFileInputRef.current?.click()}
+              onDragEnter={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setBulkDropHover(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!e.currentTarget.contains(e.relatedTarget)) setBulkDropHover(false);
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "copy";
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setBulkDropHover(false);
+                if (e.dataTransfer.files?.length) void handleBulkImageFiles(e.dataTransfer.files, { replace: true });
+              }}
+              className={`flex aspect-square w-full max-w-[200px] cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed p-3 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                bulkDropHover
+                  ? "border-violet-400 bg-violet-500/15 text-violet-100"
+                  : "border-white/22 bg-white/[0.04] text-white/50 hover:border-white/40 hover:bg-white/[0.07]"
+              }`}
+              aria-label="Drop multiple images to fill slideshow rows, or click to choose files"
+            >
+              <span className="text-2xl leading-none" aria-hidden>
+                ⤓
+              </span>
+              <span className="text-[11px] font-semibold leading-tight">Bulk drop photos</span>
+              <span className="text-[9px] leading-snug text-white/35">
+                Fills row order (#1·1 …). If you add more than fit, slideshow qty increases automatically.
+              </span>
+            </button>
+          </div>
+
           <div className="space-y-1.5 max-h-[min(70vh,520px)] overflow-y-auto pr-0.5">
             {Array.from({ length: batchImagesNeeded }, (_, rowIdx) => {
               const showNum = Math.floor(rowIdx / batchSlotCount) + 1;
@@ -2226,7 +2322,7 @@ ${SHARED_RULES_OUTRO}`;
           <div className="mb-2 rounded-lg border border-white/10 bg-black/25 px-2.5 py-2">
             <div className="text-white/45 text-[10px] font-semibold mb-1">Bulk fill rows (optional)</div>
             <p className="text-white/30 text-[10px] leading-relaxed mb-2">
-              Multi-select fills row 1, then 2, … up to your current row count ({batchImagesNeeded}). Same order as the list above.
+              Multi-select merges into existing rows (same qty). The square above replaces from row 1 and raises qty if you drop more photos than fit.
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <input
@@ -2235,19 +2331,10 @@ ${SHARED_RULES_OUTRO}`;
                 multiple
                 disabled={generatingSlot !== null}
                 className="text-white/50 text-[11px] flex-1 min-w-0 file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:bg-white/10 file:text-white/80"
-                onChange={async (e) => {
-                  const files = [...(e.target.files || [])].filter((f) => f.type.startsWith("image/"));
+                onChange={(e) => {
+                  const files = [...(e.target.files || [])];
                   e.target.value = "";
-                  if (!files.length) return;
-                  try {
-                    const urls = await Promise.all(files.map((f) => readFileToDataUrl(f)));
-                    setBatchImageDataUrls((prev) => {
-                      const need = numSlideshows * batchSlotCount;
-                      return Array.from({ length: need }, (_, i) => urls[i] ?? prev[i] ?? null);
-                    });
-                  } catch {
-                    alert("Could not read one or more images.");
-                  }
+                  if (files.length) void handleBulkImageFiles(files, { replace: false });
                 }}
               />
               {batchImageDataUrls.some(Boolean) ? (
