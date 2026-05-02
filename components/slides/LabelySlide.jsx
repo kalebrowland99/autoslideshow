@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { getLabelyLawsuitBadgeLabel } from "@/lib/labelyLawsuitBadge";
+import { clampLabelyScore, ratingLabelFromScore } from "@/lib/labelyRating";
 
 const IPHONE_SCALE = 1080 / 390;
 
@@ -35,17 +36,18 @@ const C = {
   wordmarkColor: "#7B4F2E",
 };
 
-function clampScore(score) {
-  const n = Number(score);
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, Math.min(100, Math.round(n)));
-}
-
 function scoreColors(score) {
-  const s = clampScore(score);
+  const s = clampLabelyScore(score);
   if (s <= 20) {
     return {
       dot: "#E54D42",
+      scoreColor: C.title,
+      verdictColor: C.textMuted,
+    };
+  }
+  if (s <= 45) {
+    return {
+      dot: "#FF6B35",
       scoreColor: C.title,
       verdictColor: C.textMuted,
     };
@@ -57,18 +59,18 @@ function scoreColors(score) {
       verdictColor: C.textMuted,
     };
   }
+  if (s <= 80) {
+    return {
+      dot: "#9CCC65",
+      scoreColor: C.title,
+      verdictColor: C.textMuted,
+    };
+  }
   return {
     dot: "#34C759",
     scoreColor: C.title,
     verdictColor: C.textMuted,
   };
-}
-
-function verdictFromScore(score) {
-  const s = clampScore(score);
-  if (s <= 20) return "Avoid";
-  if (s <= 60) return "Limit";
-  return "Good";
 }
 
 /** Renders **bold** in analysis as strong (plain text otherwise). */
@@ -137,11 +139,11 @@ export default function LabelySlide({ slot, S }) {
 
   const name = (slot.itemName || "").trim() || "Product";
   const brand = (slot.labelyBrand || "").trim();
-  const score = clampScore(slot.labelyScore ?? 0);
-  const verdict = (slot.labelyVerdict || "").trim() || verdictFromScore(score);
+  const score = clampLabelyScore(slot.labelyScore ?? 0);
+  const verdict = (slot.labelyVerdict || "").trim() || ratingLabelFromScore(score);
   const analysis =
     (slot.labelyAnalysis || "").trim()
-    || "Generate this slide from the sidebar to add a Labely analysis.";
+    || "Generate this slide from the sidebar to add a clean-ingredient analysis.";
   const lawsuitBadgeLabel = useMemo(
     () =>
       getLabelyLawsuitBadgeLabel(
@@ -295,7 +297,15 @@ export default function LabelySlide({ slot, S }) {
                 >
                   {score}/100
                 </span>
-                <span style={{ fontSize: px(12), color: colors.verdictColor, fontWeight: 400, lineHeight: 1 }}>
+                <span
+                  style={{
+                    fontSize: px(11),
+                    color: colors.verdictColor,
+                    fontWeight: 400,
+                    lineHeight: 1.15,
+                    wordBreak: "break-word",
+                  }}
+                >
                   {verdict}
                 </span>
               </div>

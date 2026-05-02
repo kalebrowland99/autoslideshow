@@ -7,19 +7,16 @@ import {
   isLikelyRasterImageFile,
   IMAGE_FILE_ACCEPT,
 } from "@/lib/fileToDisplayableDataUrl";
-
-function clampScore(score) {
-  const n = Number(score);
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, Math.min(100, Math.round(n)));
-}
+import { clampLabelyScore, ratingLabelFromScore } from "@/lib/labelyRating";
 
 /** Score dot + default verdict label */
 function scoreTheme(score) {
-  const s = clampScore(score);
-  if (s <= 20) return { dot: "bg-[#E54D42]", verdict: "Avoid" };
-  if (s <= 60) return { dot: "bg-[#FFB01A]", verdict: "Limit" };
-  return { dot: "bg-[#34C759]", verdict: "Good" };
+  const s = clampLabelyScore(score);
+  if (s <= 20) return { dot: "bg-[#E54D42]", verdict: ratingLabelFromScore(s) };
+  if (s <= 45) return { dot: "bg-[#FF6B35]", verdict: ratingLabelFromScore(s) };
+  if (s <= 60) return { dot: "bg-[#FFB01A]", verdict: ratingLabelFromScore(s) };
+  if (s <= 80) return { dot: "bg-[#9CCC65]", verdict: ratingLabelFromScore(s) };
+  return { dot: "bg-[#34C759]", verdict: ratingLabelFromScore(s) };
 }
 
 function ShareIcon({ className }) {
@@ -103,7 +100,7 @@ const emptyLabely = {
   name: "",
   brand: "",
   score: 0,
-  verdict: "Limit",
+  verdict: ratingLabelFromScore(0),
   analysis: "",
   imageDataUrl: null,
 };
@@ -241,7 +238,7 @@ export default function LabelyView({ fillViewport = true }) {
               />
               <div className="flex min-w-0 flex-col gap-px leading-none">
                 <span className="text-[20px] font-semibold tabular-nums tracking-tight text-[#1A1A1A]">
-                  {clampScore(data?.score ?? 0)}/100
+                  {clampLabelyScore(data?.score ?? 0)}/100
                 </span>
                 <span className="text-[12px] font-normal leading-none text-[#8E8E93]">
                   {data?.verdict ?? theme.verdict}

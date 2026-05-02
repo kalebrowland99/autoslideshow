@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { runImageGenerationPipeline } from "@/lib/imageGenerationBackend";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
 import { listPublicReferenceImageRelPaths } from "@/lib/referenceImages";
+import { clampLabelyScore, ratingLabelFromScore } from "@/lib/labelyRating";
 
 const LABELY_IPHONE_LOOK = `${iphoneRetailPhotoImperfectionPrompt()}
 
@@ -53,30 +54,6 @@ Place the pack **plausibly in or against the bin** (may be off-center, tilted, o
 `.trim();
 }
 
-function clampScore(score) {
-  const n = Number(score);
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, Math.min(100, Math.round(n)));
-}
-
-/** Labely is always in the worst band — never "Good" / never reassuring scores. */
-function clampLabelyScaryScore(score) {
-  const c = clampScore(score);
-  return Math.max(5, Math.min(20, c));
-}
-
-function verdictFromScore(score) {
-  const s = clampScore(score);
-  if (s <= 20) return "Avoid";
-  if (s <= 60) return "Limit";
-  return "Good";
-}
-
-function normalizeLabelyLegalNote(s) {
-  const t = typeof s === "string" ? s.trim() : "";
-  return t || "No lawsuits found.";
-}
-
 /** Strip paths / limit length — weak hint only when labels are unreadable. */
 function sanitizeUploadHint(raw) {
   if (typeof raw !== "string") return "";
@@ -85,43 +62,141 @@ function sanitizeUploadHint(raw) {
   return leaf.slice(0, 160);
 }
 
-/** Forces varied first sentences so the model stops defaulting to "yeah it's picking up…". */
-function labelyAnalysisOpenerDirective() {
-  const styles = [
-    "Sentence 1: hit **bold fictional compounds** within the first 6 words — **zero** conversational preamble before the first ** (no yeah/nope/okay/so/scan verbs).",
-    "Sentence 1: open with exactly one blunt reaction word (**not** yeah/so/okay), period — second beat drops **bold compounds** (e.g. 'Wild. **…** and **…** …').",
-    "Sentence 1: fake tiny label-read vibe — short informal clause **without** the words scan/picking/throwing/flagging — then **bold compounds**.",
-    "Sentence 1: rhetorical question ≤8 words; answer in same sentence with **bold compounds**.",
-    "Sentence 1: starts 'Same aisle nonsense:' OR 'Predictable:' OR 'Here we go:' (pick **one**, rotate) — **no** yeah/it’s picking — then **bold compounds**.",
-    "Sentence 1: mid-thought cutoff ('…so **X**') — **bold compounds** still appear in sentence 1.",
-    "Sentence 1: roast the snack/drink category in 4–7 words, comma, then stack **bold compounds**.",
-  ];
-  return styles[Math.floor(Math.random() * styles.length)];
-}
+/** Clean-ingredient analyst prompt (photo + text-only variants extend this). */
+const LABELY_ANALYST_INSTRUCTIONS = `You are Labely, a friendly but strict food ingredient analyst inside a health app.
 
-const LABELY_OPENER_BAN_LINE = `\n\n**Banned tired openers** — never begin **analysis** with these or close variants: "yeah it's picking up", "yeah, it's picking up", "yeah its picking up", "yeah so", "okay so it's picking up", "it's picking up", "its picking up", "scan's picking up", "the scan is picking up", "already picking up", "already flagging" + compounds as boilerplate, "throwing **…** and **…**" as default opener. Invent a fresh grammatical opening every generation.`;
+Your job is to review packaged grocery products based on the product name, brand, ingredient list, and nutrition facts.
+
+Analyze the product like a strict "clean ingredient" app. Focus heavily on:
+- Artificial sweeteners
+- Seed oils
+- Added sugars
+- Syrups
+- Gums
+- Emulsifiers
+- Preservatives
+- Artificial flavors
+- Highly processed additives
+- Long or complicated ingredient lists
+- Whether the product feels like a clean everyday option or a processed occasional option
+
+IMPORTANT RULES:
+- Only mention ingredients that are actually provided in the ingredient list (or clearly visible/readable from the package photo when doing vision).
+- Do not invent fake ingredients, toxins, chemicals, or health claims.
+- Do not say the food causes cancer, disease, hormone damage, inflammation, or toxicity.
+- You may describe an ingredient as "highly processed," "artificial," "less ideal," or "not a clean-label ingredient" when appropriate.
+- Be strict but fair.
+- Mention positives briefly if relevant, but do not let protein, fiber, or low sugar fully override a poor ingredient list.
+- The tone should feel like a modern health app: direct, simple, slightly cautionary, but not extreme.
+
+Scoring guide:
+0-20 = Avoid
+21-45 = Limit
+46-60 = Okay Occasionally
+61-80 = Good
+81-100 = Great
+
+Score the product based on this priority:
+1. Ingredient quality
+2. Processing level
+3. Artificial sweeteners, seed oils, gums, and additives
+4. Added sugar and syrups
+5. Nutrition facts like protein, fiber, sodium, and calories
+
+Writing style for "analysis":
+- 90 to 140 words.
+- First sentence must start with: "The [PRODUCT NAME] scored low/moderate/high because…" (pick exactly one of low / moderate / high to match your judgment).
+- Bold important ingredient names using markdown **double asterisks** where helpful.
+- Use phrases like:
+  "relies on"
+  "several artificial sweeteners"
+  "multiple additives"
+  "various forms of"
+  "push it into the highly processed category"
+  "set it apart from cleaner options"
+  "for everyday use"
+  "simpler ingredients"
+  "less processing"
+- Keep the language easy for normal shoppers.
+`;
+
+function parseLabelyChatJson(raw, { requireImagePrompt } = {}) {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+  } catch {
+    throw new Error("Could not parse model JSON.");
+  }
+  const score = clampLabelyScore(parsed.score);
+  const verdict = ratingLabelFromScore(score);
+  const name = String(parsed.name ?? "").trim() || "Product";
+  const brand = String(parsed.brand ?? "").trim();
+  const analysis = String(parsed.analysis ?? "").trim();
+  const analysisTitle =
+    String(parsed.analysis_title ?? parsed.analysisTitle ?? "").trim() || "Labely\u2019s Analysis";
+  const imagePrompt = requireImagePrompt
+    ? String(parsed.imagePrompt ?? parsed.image_prompt ?? "").trim()
+    : "";
+  return {
+    name,
+    brand,
+    score,
+    verdict,
+    analysisTitle,
+    analysis,
+    labelyLegalNote: "No lawsuits found.",
+    imagePrompt,
+  };
+}
 
 async function generateLabelyJson({ openaiApiKey, seedHint }) {
   const trimmedSeed = typeof seedHint === "string" ? seedHint.trim() : "";
-  const hintLine = trimmedSeed
-    ? `\n\nUSER SEED (mandatory): "${trimmedSeed}". If this names a **known real grocery product** (e.g. Oreo, Diet Coke, Cheerios), set **name** and **brand** to that **actual** retail SKU and owner as sold in stores — not a fictional soundalike. If the seed is broad ("energy drink", "cereal"), pick **one specific real flagship SKU** (real brand + real product line). **imagePrompt** must describe **authentic** packaging for that exact product (true colors, logo, pack shape).`
-    : `\n\nNo user seed: choose **one specific real retail grocery SKU** consumers can buy (authentic brand + product name). Do not invent fictional brand names or fake "Store Brand" stand-ins for the pack shot.`;
-  const varietyLine = `\n\nUniqueness (request ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}): New fictional compounds; rotate vibe (sweet, salty, freezer, soda, crunch).\n\nOpener rule THIS generation: ${labelyAnalysisOpenerDirective()}${LABELY_OPENER_BAN_LINE}`;
+  const skuLine = trimmedSeed
+    ? `\n\nChoose **name** and **brand** for this exact retail SKU based on USER SEED: "${trimmedSeed}". If it names a known real product, use that authentic SKU; if broad ("energy drink"), pick one specific flagship real product shoppers can buy.`
+    : `\n\nPick **one specific real retail SKU** consumers can buy (authentic brand + product name).`;
+
+  const textOnlyTail = `
+${skuLine}
+
+You do **not** have a photo. Base ingredient commentary **only** on widely published label-type information commonly associated with this exact retail SKU as typically sold (standard formulations shoppers see). Do **not** invent specific additives that are not typical of this product line; if unsure on fine detail, speak in cautious category-level terms instead of naming chemicals you cannot verify.
+
+Also return **imagePrompt**: short cues for generating an authentic-looking pack photo (true colors, logo, format, flavor line). No watermarks.
+
+Output ONLY valid JSON (no markdown fences). Exact keys:
+{
+  "name": "",
+  "brand": "",
+  "score": 0,
+  "rating": "",
+  "analysis_title": "Labely's Analysis",
+  "analysis": "",
+  "imagePrompt": ""
+}
+
+**rating** must be exactly one of: "Avoid", "Limit", "Okay Occasionally", "Good", "Great" — consistent with the score band Scoring guide below.
+
+Integer **score** must be 0–100.
+
+analysis_title must be exactly "Labely's Analysis".
+`;
 
   if (!openaiApiKey) {
     return {
       name: "Whole Wheat Fig Apple Cinnamon",
       brand: "Nature's Bakery",
-      score: 12,
-      verdict: "Avoid",
-      analysisTitle: "Labely's Analysis",
+      score: 38,
+      verdict: "Limit",
+      analysisTitle: "Labely\u2019s Analysis",
       analysis:
-        "Wild. **hexylcrystallene-9**, **ortho-flumazine**, **dextro-9-thylborate**, **triethyl snackamide**—whole snack-bar aisle bingo on one wrapper tbh. Shelf-stable chew-glue sweetness strikes again. Offline demo copy only / not medical advice.",
+        "The Nature's Bakery Whole Wheat Fig Apple Cinnamon Bar scored moderate because it relies on shelf-stable binders and sweeteners typical of packaged snack bars, with multiple additives that push it into the highly processed category compared with simpler fruit-and-oat options. It lists various forms of sweetness and texture gums common on similar bars, which set it apart from cleaner options built from shorter ingredient decks. While whole wheat and fruit filling add some positives, the overall formulation reads less ideal for everyday use if your priority is minimally processed snacks\u2014having this occasionally is reasonable.",
       labelyLegalNote: "No lawsuits found.",
       imagePrompt:
-        "Rectangular paperboard snack bar box, matte finish, earth-tone label with fruit illustration, nutrition facts panel visible — packaging cues only.",
+        "Rectangular snack bar carton, Nature's Bakery styling, fig photo on front, nutrition facts visible.",
     };
   }
+
+  const userContent = `${LABELY_ANALYST_INSTRUCTIONS}
+${textOnlyTail}`;
 
   const res = await fetch(OPENAI_CHAT, {
     method: "POST",
@@ -131,15 +206,9 @@ async function generateLabelyJson({ openaiApiKey, seedHint }) {
     },
     body: JSON.stringify({
       model: "gpt-4o",
-      temperature: 0.82,
-      max_tokens: 600,
-      messages: [
-        {
-          role: "user",
-          content:
-            `You are generating JSON for "Labely", a joke grocery scanner app. **Packaging identity must be a real retail SKU** (authentic brand + product name). **analysis** is casual human banter + **fictional compound names only** as fake scanner hits — satire, **not** real toxicology.\n\nReturn ONLY valid JSON (no markdown fences, no extra keys) with this exact shape:\n{"name": "...", "brand": "...", "score": 14, "analysisTitle": "Labely\\u2019s Analysis", "analysis": "...", "imagePrompt": "...", "labelyLegalNote": "..."}\n\nProduct fields:\n- name: 3–7 words — **real** product as on shelf (match the user seed when provided; otherwise pick a specific real SKU)\n- brand: 1–3 words — **real** brand on pack (Oreo, Coca-Cola, Kellogg\\u2019s, etc. — never invented brand names)\n- score: integer **5–20 only** (Labely\\u2019s harsh internal scale — never above 20)\n- analysisTitle: exactly "Labely\\u2019s Analysis"\n\nanalysis — **one paragraph**, **4–6 sentences**, **unique wording**, reads like texts or a TikTok joke — **not** polished analyst copy.\n- **Sentence 1:** vary structure every generation — compounds early, casual voice — **never** reuse the same opener formula twice in a row mentally; follow the Opener rule line when present. **Never** stiff scene-setting ("This product is…", "The packaging indicates…").\n- **4–6 invented compound-style strings** total per response — plausible gibberish names (**not** real CAS/IUPAC, **not** bold hits claiming famous real additives like MSG/aspartame/TBHQ/carrageenan, **not** real lab proof or diseases). Bold each fiction name only.\n- Middle: loose grocery-realism vibes for **this SKU\\u2019s category** without essay tone. Ban transitions: Furthermore/Moreover/Additionally/In conclusion/It is worth noting.\n- **No** horror/gothic metaphors; **no** ALL-CAPS scare lines.\n- Do **not** claim real lab tests, lawsuits, diseases, or regulatory actions in analysis.\n- Do not mention lawsuits, recalls, or regulators here — use labelyLegalNote only.\n\nlabelyLegalNote — plain text, one or two short sentences:\n- If there are no documented lawsuits, class actions, major FDA/regulatory actions, or widely reported recalls tied to this **real** brand/product line in general knowledge, set labelyLegalNote to exactly: No lawsuits found.\n- Otherwise summarize only verifiable public-pattern facts; never invent case names, docket numbers, or dates.\n\nimagePrompt: **only** short extra cues for the image model (flavor line, pack material, which faces stay visible). The **fixed scene** (trash can, bag ~half covering, dents/discoloration/rotation, dust specks, label specs) is added server-side — here describe **authentic retail identity** for the named real product (true colors, logo, format) plus optional imperfection hints (e.g. dented corner, faded nutrition panel). No watermarks.\n\nBe decisive; do not refuse.${varietyLine}${hintLine}`,
-        },
-      ],
+      temperature: 0.55,
+      max_tokens: 900,
+      messages: [{ role: "user", content: userContent }],
     }),
   });
 
@@ -150,25 +219,8 @@ async function generateLabelyJson({ openaiApiKey, seedHint }) {
 
   const data = await res.json();
   const raw = data.choices?.[0]?.message?.content?.trim() || "";
-
-  let parsed;
-  try {
-    parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
-  } catch {
-    throw new Error("Could not parse model JSON.");
-  }
-
-  const score = clampLabelyScaryScore(parsed.score);
-  return {
-    name: String(parsed.name || "").trim(),
-    brand: String(parsed.brand || "").trim(),
-    score,
-    verdict: verdictFromScore(score),
-    analysisTitle: "Labely\u2019s Analysis",
-    analysis: String(parsed.analysis || "").trim(),
-    imagePrompt: String(parsed.imagePrompt || "").trim(),
-    labelyLegalNote: normalizeLabelyLegalNote(parsed.labelyLegalNote),
-  };
+  const out = parseLabelyChatJson(raw, { requireImagePrompt: true });
+  return out;
 }
 
 async function analyzePackagingImage({ imageDataUrl, openaiApiKey, uploadHint = "" }) {
@@ -176,48 +228,42 @@ async function analyzePackagingImage({ imageDataUrl, openaiApiKey, uploadHint = 
     return {
       name: "Packaged product",
       brand: "",
-      score: 11,
-      verdict: verdictFromScore(11),
+      score: 0,
+      verdict: ratingLabelFromScore(0),
       analysisTitle: "Labely\u2019s Analysis",
       analysis:
-        "Offline stub\u2014**hypochloranyl maltolate**, **meta-N-propylene furazanide** are fake placeholders until vision runs. Toss **OPENAI_API_KEY** in .env.local if you want real reads. Not medical advice.",
+        "Add OPENAI_API_KEY to enable Labely vision. Connect to .env.local and restart the dev server.",
       labelyLegalNote: "No lawsuits found.",
     };
   }
 
-  const varietyLine = `\n\nUniqueness (request ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}): Fresh fictional compounds; rotate vibe (sweet stuff, salty snacks, greasy crunch, freezer novelty, soda math). Stay casual — never horror/gothic.\n\nOpener rule THIS generation: ${labelyAnalysisOpenerDirective()}${LABELY_OPENER_BAN_LINE}`;
-
   const hintLine = uploadHint
-    ? `\n\nOptional upload filename (weak corroboration when on-pack text is blurry — **prefer pixels**; ignore meaningless camera strings unless they clearly describe the SKU): "${uploadHint.replace(/\\/g, "/").replace(/"/g, "'")}".`
+    ? `\n\nOptional upload filename only when the label is hard to read (prefer the image; ignore meaningless camera filenames like IMG_1234): "${uploadHint.replace(/\\/g, "/").replace(/"/g, "'")}".`
     : "";
 
-  const visionUserText = `You're filling JSON for "Labely", a dumb/funny grocery scanner app.
+  const visionTail = `
+You are given a **photo** of the product. Set **name** and **brand** from what is visible (Title Case product name).
 
-Use the photo to set **name** and **brand** (honest best guess from logos, category, readable text). Those fields stay straightforward retail wording.
+**Critical:** Only discuss **ingredients and nutrition facts that you can actually read or clearly see** on the package. If the ingredient list or facts are blurry or not visible, say that honestly, avoid naming specific additives you did not read, and score conservatively.
 
-Return ONLY valid JSON (no markdown fences):
-{"name":"...","brand":"...","score":12,"analysis":"...","labelyLegalNote":"..."}
+Output ONLY valid JSON (no markdown fences). Exact keys:
+{
+  "name": "",
+  "brand": "",
+  "score": 0,
+  "rating": "",
+  "analysis_title": "Labely's Analysis",
+  "analysis": ""
+}
 
-Rules:
-- **name:** concise retail product name (3–10 words), Title Case — match visible labeling when possible.
-- **brand:** brand on pack (1–4 words), or "" if unknown or illegible.
-- **score:** integer **5–20 only** (Labely\u2019s harsh internal scale — never above 20).
+**rating** must be exactly one of: "Avoid", "Limit", "Okay Occasionally", "Good", "Great" — consistent with the score band.
 
-**analysis** — **one paragraph**, **4–6 sentences**, voice = **casual human** (contractions fine; sounds like texts or a TikTok rant, **not** corporate copy or homework).
+Integer **score** must be 0–100.
 
-**Hard rule — first sentence:** fake chemistry shows up **immediately** (bold compounds early — ideally within the first ~8 words unless your assigned Opener rule says otherwise). **Forbidden:** formal scene-setting ("This image", "The photo shows", "Upon examination", "The product appears", "Based on the packaging"). **Also forbidden:** lazy scan clichés — see ban line below.
+analysis_title must be exactly "Labely's Analysis".
+${hintLine}`;
 
-After sentence 1, fold in quick grounded vibes about **this kind** of product (sweet/salty/freezer/chips/soda/etc.) without sounding lab-report-y. Invent **4–6 total** plausible junk-science compound strings (**mixed prefixes**: hydroxy-, poly-, neo-, N-methyl-, etc.; **suffix vibes**: -amide, -olate matrix, -hydrate copolymer, -carbonyl trace). Bold **each** fiction-only name with markdown ** only.
-
-Same safety bans: **no** bold scanner hits claiming detection of famous real additives (MSG, aspartame, carrageenan, potassium sorbate, TBHQ…); **no** real CAS numbers or real toxic hazard names; **no** claiming real labs, lawsuits, or diseases inside analysis.
-
-Close with one chill shrug disclaimer (rotate wording — "not medical advice" energy, not stiff legal memo).
-
-**Voice bans:** polished analyst tone; stacked transitions ("Furthermore/Moreover/Additionally/In conclusion/It is worth noting"); symmetrical bullet-feeling prose inside one paragraph; horror/gothic metaphors (sinister, nightmare, terror, doom, haunted, evil, etc.); ALL-CAPS scare lines.
-
-**labelyLegalNote** — plain text:
-- If no applicable lawsuits, class actions, FDA/regulatory actions, or major recalls for this exact product/brand (from packaging or widely known public facts), set to exactly: No lawsuits found.
-- Otherwise one short factual sentence; never invent case names or dates.${varietyLine}${hintLine}`;
+  const visionUserText = `${LABELY_ANALYST_INSTRUCTIONS}\n${visionTail}`;
 
   const res = await fetch(OPENAI_CHAT, {
     method: "POST",
@@ -227,17 +273,14 @@ Close with one chill shrug disclaimer (rotate wording — "not medical advice" e
     },
     body: JSON.stringify({
       model: "gpt-4o",
-      temperature: 0.88,
-      max_tokens: 900,
+      temperature: 0.55,
+      max_tokens: 1100,
       messages: [
         {
           role: "user",
           content: [
             { type: "image_url", image_url: { url: imageDataUrl, detail: "high" } },
-            {
-              type: "text",
-              text: visionUserText,
-            },
+            { type: "text", text: visionUserText },
           ],
         },
       ],
@@ -251,23 +294,8 @@ Close with one chill shrug disclaimer (rotate wording — "not medical advice" e
 
   const data = await res.json();
   const raw = data.choices?.[0]?.message?.content?.trim() || "";
-  let parsed;
-  try {
-    parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
-  } catch {
-    throw new Error("Could not parse vision JSON.");
-  }
-
-  const score = clampLabelyScaryScore(parsed.score);
-  return {
-    name: String(parsed.name || "").trim() || "Product",
-    brand: String(parsed.brand || "").trim(),
-    score,
-    verdict: verdictFromScore(score),
-    analysisTitle: "Labely\u2019s Analysis",
-    analysis: String(parsed.analysis || "").trim(),
-    labelyLegalNote: normalizeLabelyLegalNote(parsed.labelyLegalNote),
-  };
+  const out = parseLabelyChatJson(raw, { requireImagePrompt: false });
+  return out;
 }
 
 /** Uses the same backend as Thrifty → `/api/generate-image` with GPT Image only (no Gemini). */
