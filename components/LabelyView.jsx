@@ -188,12 +188,24 @@ export default function LabelyView({ fillViewport = true }) {
         </div>
 
         <div className="flex items-start gap-4">
-          <div className="h-[118px] w-[118px] shrink-0 overflow-hidden rounded-2xl bg-black shadow-[0_6px_16px_rgba(0,0,0,0.12)]">
+          <div className="relative h-[118px] w-[118px] shrink-0 overflow-hidden rounded-2xl bg-black shadow-[0_6px_16px_rgba(0,0,0,0.12)]">
             {data?.imageDataUrl ? (
               <img
                 src={data.imageDataUrl}
                 alt=""
-                className="h-full w-full object-contain object-center"
+                className="pointer-events-none block max-w-none"
+                style={{
+                  position: "absolute",
+                  left: "50%",
+                  top: "50%",
+                  minWidth: "100%",
+                  minHeight: "100%",
+                  width: "auto",
+                  height: "auto",
+                  objectFit: "cover",
+                  objectPosition: "center",
+                  transform: "translate(-50%, -50%) scale(1.2)",
+                }}
               />
             ) : (
               <div className="h-full w-full bg-gradient-to-br from-zinc-800 to-black" />

@@ -7,10 +7,11 @@ import { makeJitter } from "@/lib/jitter";
 
 export default function CollageSlide({ config, S }) {
   const { captionText, captionPosition, captionBold, captionStyle = "tiktok", captionBg = "#e03030", captionColor = "#ffffff", slots } = config;
+  const isLabely = (config.appId ?? "thrifty") === "labely";
 
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
-  const gap = Math.round(3 * S);
+  const gap = isLabely ? 0 : Math.round(3 * S);
 
   const J = makeJitter(config.jitterSeed ?? 0);
 
@@ -54,16 +55,40 @@ export default function CollageSlide({ config, S }) {
           gridTemplateColumns: "1fr 1fr",
           gridTemplateRows: "1fr 1fr 1fr",
           gap: `${gap}px`,
-          background: "#111",
+          background: isLabely ? "#0a0a0a" : "#111",
         }}
       >
         {slots.map((slot, i) => (
-          <div key={i} style={{ overflow: "hidden", position: "relative", background: "#1c1c1c" }}>
+          <div
+            key={i}
+            style={{
+              position: "relative",
+              overflow: "hidden",
+              minWidth: 0,
+              minHeight: 0,
+              width: "100%",
+              height: "100%",
+              background: "#1c1c1c",
+            }}
+          >
             {slot.imageUrl ? (
               <img
                 src={slot.imageUrl}
                 alt={`Slot ${i + 1}`}
-                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                style={{
+                  position: "absolute",
+                  left: "50%",
+                  top: "50%",
+                  minWidth: "100%",
+                  minHeight: "100%",
+                  width: "auto",
+                  height: "auto",
+                  maxWidth: "none",
+                  objectFit: "cover",
+                  objectPosition: "center",
+                  display: "block",
+                  transform: isLabely ? "translate(-50%, -50%) scale(1.22)" : "translate(-50%, -50%)",
+                }}
               />
             ) : (
               <EmptyCell index={i} S={S} />

@@ -76,17 +76,32 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
     <div style={{ width: W, height: H, position: "relative", background: "#000", overflow: "hidden" }}>
       {/* Full-screen image */}
       {slot.imageUrl ? (
-        <img
-          src={slot.imageUrl}
-          alt={slot.itemName || "Item"}
+        <div
           style={{
-            width: "100%",
-            height: "100%",
-            objectFit: isLabely ? "contain" : "cover",
-            objectPosition: "center",
-            display: "block",
+            position: "absolute",
+            inset: 0,
+            overflow: "hidden",
           }}
-        />
+        >
+          <img
+            src={slot.imageUrl}
+            alt={slot.itemName || "Item"}
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: "50%",
+              minWidth: "100%",
+              minHeight: "100%",
+              width: "auto",
+              height: "auto",
+              maxWidth: "none",
+              objectFit: "cover",
+              objectPosition: "center",
+              display: "block",
+              transform: isLabely ? "translate(-50%, -50%) scale(1.18)" : "translate(-50%, -50%)",
+            }}
+          />
+        </div>
       ) : (
         <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "#1c1c1c" }}>
           <svg width={px(120)} height={px(120)} fill="none" viewBox="0 0 24 24" stroke="rgba(255,255,255,0.12)" strokeWidth={0.8}>

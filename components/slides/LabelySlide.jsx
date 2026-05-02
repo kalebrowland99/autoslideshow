@@ -169,6 +169,7 @@ export default function LabelySlide({ slot, S }) {
         <div style={{ display: "flex", alignItems: "flex-start", gap: px(16) }}>
           <div
             style={{
+              position: "relative",
               width: px(118),
               height: px(118),
               borderRadius: px(16),
@@ -179,7 +180,24 @@ export default function LabelySlide({ slot, S }) {
             }}
           >
             {slot.imageUrl ? (
-              <img src={slot.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center", display: "block" }} />
+              <img
+                src={slot.imageUrl}
+                alt=""
+                style={{
+                  position: "absolute",
+                  left: "50%",
+                  top: "50%",
+                  minWidth: "100%",
+                  minHeight: "100%",
+                  width: "auto",
+                  height: "auto",
+                  maxWidth: "none",
+                  objectFit: "cover",
+                  objectPosition: "center",
+                  display: "block",
+                  transform: "translate(-50%, -50%) scale(1.2)",
+                }}
+              />
             ) : (
               <div style={{ width: "100%", height: "100%", background: "linear-gradient(145deg,#2a2a2a,#0a0a0a)" }} />
             )}
