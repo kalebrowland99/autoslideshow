@@ -191,7 +191,6 @@ export default function LabelySlide({ slot, S }) {
               minWidth: 0,
               paddingTop: px(2),
               position: "relative",
-              paddingRight: px(102),
             }}
           >
             <div
@@ -223,9 +222,11 @@ export default function LabelySlide({ slot, S }) {
                 fontWeight: 700,
                 letterSpacing: "-0.02em",
                 color: C.title,
-                whiteSpace: "nowrap",
                 overflow: "hidden",
-                textOverflow: "ellipsis",
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+                wordBreak: "break-word",
               }}
             >
               {name}
@@ -238,9 +239,11 @@ export default function LabelySlide({ slot, S }) {
                   fontWeight: 400,
                   letterSpacing: "0.01em",
                   color: C.textMuted,
-                  whiteSpace: "nowrap",
                   overflow: "hidden",
-                  textOverflow: "ellipsis",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  wordBreak: "break-word",
                 }}
               >
                 {brand}
@@ -254,6 +257,7 @@ export default function LabelySlide({ slot, S }) {
                 alignItems: "flex-start",
                 gap: px(4),
                 maxWidth: "100%",
+                paddingRight: px(102),
               }}
             >
               <span

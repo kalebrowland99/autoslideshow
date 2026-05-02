@@ -195,7 +195,7 @@ export default function LabelyView({ fillViewport = true }) {
             )}
           </div>
 
-          <div className="relative min-w-0 flex-1 pr-[6.5rem] pt-0.5">
+          <div className="relative min-w-0 flex-1 pt-0.5">
             <button
               type="button"
               className="absolute bottom-0 right-0 top-auto flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-[#DCDCE0] bg-[#EFEFEF] px-3.5"
@@ -206,16 +206,16 @@ export default function LabelyView({ fillViewport = true }) {
               </span>
               <ShareIcon className="h-5 w-5 text-[#5C5C5C]" />
             </button>
-            <h1 className="truncate text-[22px] font-bold leading-snug tracking-tight text-[#1A1A1A]">
+            <h1 className="line-clamp-2 break-words text-[22px] font-bold leading-snug tracking-tight text-[#1A1A1A]">
               {data?.name || "Product name"}
             </h1>
             {(data?.brand ?? "").trim() ? (
-              <p className="mt-1.5 truncate text-[16px] font-normal tracking-wide text-[#8E8E93]">
+              <p className="mt-1.5 line-clamp-2 break-words text-[16px] font-normal tracking-wide text-[#8E8E93]">
                 {data?.brand}
               </p>
             ) : null}
 
-            <div className="mt-4 flex max-w-full items-start gap-1">
+            <div className="mt-4 flex max-w-full items-start gap-1 pr-[6.5rem]">
               <span
                 className={`mt-[0.28em] h-3 w-3 shrink-0 rounded-full ${theme.dot}`}
                 aria-hidden="true"
@@ -263,8 +263,8 @@ export default function LabelyView({ fillViewport = true }) {
             />
           ) : (
             <p className="mt-4 text-[16px] leading-[1.5] text-[#3C3C43]">
-              Upload a clear photo of the front label of a packaged food or drink. Labely will read the pack and write a
-              health-style summary like the in-app card.
+              Upload a clear photo of the front label of a packaged food or drink. Labely reads the name and brand, then
+              writes a short satirical blurb with made-up bad chemical names in bold — not real toxicology.
             </p>
           )}
         </div>
