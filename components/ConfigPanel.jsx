@@ -65,6 +65,21 @@ const DEFAULT_BRAND_LIST = [
   "Naruto anime tee","vintage Vivienne Westwood",
 ].join("\n");
 
+const DEFAULT_LABELY_ITEMS = [
+  "Nature's Bakery whole wheat fig bar (apple cinnamon)",
+  "Core Power Elite chocolate protein shake bottle",
+  "Barebells creamy crisp protein bar",
+  "Cinnamon Toast Crunch family size cereal box",
+  "Oatly Original oatmilk half gallon",
+  "Chobani Flip strawberry cheesecake yogurt cup",
+  "RXBar chocolate sea salt protein bar",
+  "KIND dark chocolate nuts & sea salt bar",
+  "Goldfish cheddar snack crackers carton",
+  "Yasso frozen Greek yogurt bars (fudge)",
+  "Liquid I.V. hydration multiplier stick packs",
+  "Perfect Bar peanut butter refrigerated bar",
+].join("\n");
+
 // Minimal slot factory — used for batch generation (avoids circular import with page.js)
 const freshSlot = (i) => ({
   imageUrl: null, prompt: "",
@@ -78,6 +93,11 @@ const freshSlot = (i) => ({
   revealCaptionSize: 72, revealCaptionBold: true,
   thriftyCaptionText: "", thriftyCaptionBg: "", thriftyCaptionColor: "",
   thriftyCaptionPosition: "top", thriftyCaptionSize: 72, thriftyCaptionBold: true,
+  labelyBrand: "",
+  labelyScore: 0,
+  labelyVerdict: "",
+  labelyAnalysis: "",
+  labelyAnalysisTitle: "Labely's Analysis",
 });
 
 const waitForPreviewPaint = () =>
@@ -116,6 +136,15 @@ const waitForImagesDecoded = async (root) => {
 // Scale preview DOM → 1080px wide export without forcing canvasWidth/height (breaks img paint in foreignObject on some browsers).
 const EXPORT_CAPTURE_PIXEL_RATIO = 1080 / Math.round(1080 * DISPLAY_SCALE);
 
+function readFileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = () => reject(new Error("Could not read file"));
+    r.readAsDataURL(file);
+  });
+}
+
 export default function ConfigPanel({
   config, updateConfig, updateSlot, updateMatchItem,
   currentSlide, setCurrentSlide, totalSlides,
@@ -126,6 +155,7 @@ export default function ConfigPanel({
 }) {
   const brand = getBrand(config);
   const isValcoin = brand.appId === "valcoin";
+  const isLabely = brand.appId === "labely";
 
   const VALUABLE_US_COINS = [
     // Key-date / classic
@@ -168,6 +198,8 @@ export default function ConfigPanel({
 
   const DEFAULT_PROMPT = isValcoin
     ? "A single valuable US quarter coin on a wooden table, photographed like a real iPhone photo shot on 0.5× (ultra-wide). The coin should be a real existing valuable variety (random pick), natural room lighting, no hands, no text overlays, no other coins, no props. Composition: the coin should appear smaller in the frame (not filling the shot) with lots of surrounding table visible. Lens/look: subtle ultra-wide edge stretch and mild barrel distortion like iPhone 0.5×. Quality: intentionally a bit worse/rough — slightly blurry/soft focus like a quick snap, less sharp, mild motion blur or missed focus is okay. Color: iPhone-like but a bit bland/flat (slightly desaturated, lower contrast), not cinematic. Texture: visible sensor grain and minor compression artifacts. Include realistic imperfections: light dust, tiny lint specks, faint fingerprints/smudges, small nicks, micro-scratches, slight wear/toning, and minor surface blemishes."
+    : isLabely
+    ? "Labely uses your uploaded photos only — this prompt is not used to generate images. You can leave it or add notes for yourself."
     : "POV into a blue thrift shopping cart (buggy) full of tossed secondhand clothes — garments may lie upside-down or sideways; bottom hems/waistbands should look softly folded or cuffed (no people, no hands). XXL hero piece: faded washed-out colors only, cotton lint balls, stray dog hair, slight print/color imperfections. Concrete floor and aisles behind, fluorescent light, shallow DOF, no overlays.";
 
   const [imageModel, setImageModelRaw] = useState("gpt-image-1"); // "gpt-image-1" | "gemini"
@@ -214,7 +246,7 @@ export default function ConfigPanel({
     else setGlobalPrompt(DEFAULT_PROMPT);
     const savedBrands = localStorage.getItem(storeKey("ts_brand_items"));
     if (savedBrands?.trim()) setBrandItemsRaw(savedBrands);
-    else setBrandItemsRaw(isValcoin ? VALUABLE_US_COINS.join("\n") : DEFAULT_BRAND_LIST);
+    else setBrandItemsRaw(isValcoin ? VALUABLE_US_COINS.join("\n") : isLabely ? DEFAULT_LABELY_ITEMS : DEFAULT_BRAND_LIST);
     const savedHooks = localStorage.getItem(storeKey("ts_hooks"));
     if (savedHooks) setHooksRaw(savedHooks);
     else setHooksRaw(isValcoin ? DEFAULT_HOOKS_VALCOIN : DEFAULT_HOOKS_THRIFTY);
@@ -261,11 +293,13 @@ export default function ConfigPanel({
     return DEFAULT_BRAND_LIST.split("\n").map((l) => l.trim()).filter(Boolean);
   })();
 
-  // Parsed hook captions (non-empty lines)
-  const hookItems = hooksRaw
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
+  // Parsed hook captions (non-empty lines). Labely never uses collage hooks.
+  const hookItems = isLabely
+    ? []
+    : hooksRaw
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean);
 
   const getCaptureNode = () => document.getElementById("video-preview-root");
 
@@ -387,6 +421,7 @@ export default function ConfigPanel({
       let b64 = null;
 
       const outFmt = config.outputFormat ?? "standard";
+
       const isNonApparelScene = outFmt === "starterPack" || isValcoin;
 
       const brandName = brandItem || prompt?.trim() || "a clothing brand";
@@ -560,11 +595,156 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
+  const fillLabelyFromImage = async (imageDataUrl) => {
+    try {
+      const res = await fetch("/api/labely", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: abortRef.current?.signal,
+        body: JSON.stringify({ imageDataUrl }),
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  };
+
+  /** Row index across all shows: 0…(qty×slotsPerShow−1). Rows 0–5 mirror live preview slots. */
+  const handleLabelySlotUpload = async (globalIdx, file) => {
+    if (!file?.type?.startsWith("image/")) return;
+    setAiErrors((p) => ({ ...p, [globalIdx]: null }));
+    setGeneratingSlot(globalIdx);
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    try {
+      const dataUrl = await readFileToDataUrl(file);
+      setBatchImageDataUrls((prev) => {
+        const need = Math.max(prev.length, globalIdx + 1);
+        const next = Array.from({ length: need }, (_, i) => (i < prev.length ? prev[i] : null));
+        next[globalIdx] = dataUrl;
+        return next;
+      });
+      if (globalIdx < 6) {
+        updateSlot(globalIdx, { imageUrl: dataUrl });
+        const ly = await fillLabelyFromImage(dataUrl);
+        if (ly?.name) {
+          const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
+          updateSlot(globalIdx, {
+            itemName: ly.name,
+            labelyBrand: ly.brand ?? "",
+            labelyScore: sc,
+            labelyVerdict: ly.verdict || "",
+            labelyAnalysis: ly.analysis ?? "",
+            labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
+          });
+        } else {
+          setAiErrors((p) => ({ ...p, [globalIdx]: "Could not analyze this photo." }));
+        }
+      }
+      setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
+    } catch (e) {
+      setAiErrors((p) => ({ ...p, [globalIdx]: e?.message || "Upload failed" }));
+    } finally {
+      setGeneratingSlot(null);
+      abortRef.current = null;
+    }
+  };
+
+  /** User-uploaded photo for Thrifty / Valcoin (no AI image gen). globalIdx ≥ 6 = batch-only row. */
+  const handleThriftyValcoinSlotFile = async (globalIdx, file) => {
+    if (!file?.type?.startsWith("image/")) return;
+    setAiErrors((p) => ({ ...p, [globalIdx]: null }));
+    setGeneratingSlot(globalIdx);
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    try {
+      const dataUrl = await readFileToDataUrl(file);
+      setBatchImageDataUrls((prev) => {
+        const need = Math.max(prev.length, globalIdx + 1);
+        const next = Array.from({ length: need }, (_, i) => (i < prev.length ? prev[i] : null));
+        next[globalIdx] = dataUrl;
+        return next;
+      });
+      if (globalIdx >= 6) {
+        setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
+        return;
+      }
+      const slot = config.slots[globalIdx];
+      const weightedPool = buildWeightedPool(brandItems);
+      const randomBrand = weightedPool.length > 0
+        ? weightedPool[Math.floor(Math.random() * weightedPool.length)]
+        : null;
+      const coinPick = isValcoin ? pickValuableUSCoin() : null;
+      const hint = isValcoin ? coinPick : randomBrand;
+      const priceUpdates =
+        !slot.spentPrice && !slot.soldPrice
+          ? (isValcoin && hint ? (await coinPrices(hint)) : null) ?? autoRandomPrices()
+          : {};
+      const isPlaceholderName = /^item\s+\d+$/i.test((slot.itemName ?? "").trim());
+      updateSlot(globalIdx, {
+        imageUrl: dataUrl,
+        ...priceUpdates,
+        ...(isValcoin && hint && (isPlaceholderName || !(slot.itemName ?? "").trim()) ? { itemName: hint } : {}),
+      });
+      const grail = await autoTitleFromImage(dataUrl);
+      let resolvedName = slot.itemName;
+      let resolvedPrice = priceUpdates.soldPrice ?? slot.soldPrice;
+      if (grail?.title) {
+        resolvedName = grail.title;
+        resolvedPrice = grail.price ?? resolvedPrice;
+        updateSlot(globalIdx, {
+          itemName: resolvedName,
+          ...(grail.price ? { soldPrice: resolvedPrice } : {}),
+          matchItems: autoSoldListings(resolvedName, resolvedPrice),
+        });
+      }
+      if ((config.outputFormat ?? "standard") === "imessageMom") {
+        const thread = await generateImessageThread(resolvedName, resolvedPrice);
+        if (thread) updateSlot(globalIdx, { imessageThread: thread });
+      }
+      setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
+    } catch (e) {
+      setAiErrors((p) => ({ ...p, [globalIdx]: e?.message || "Upload failed" }));
+    } finally {
+      setGeneratingSlot(null);
+      abortRef.current = null;
+    }
+  };
+
   const handleGenerateOne = async (index) => {
     setAiErrors((p) => ({ ...p, [index]: null }));
     setGeneratingSlot(index);
     abortRef.current?.abort();
     abortRef.current = new AbortController();
+    if (isLabely) {
+      try {
+        const slot = config.slots[index];
+        if (!slot.imageUrl?.trim()) {
+          setAiErrors((p) => ({ ...p, [index]: "Upload a photo for this slot first (sidebar)." }));
+        } else {
+          const ly = await fillLabelyFromImage(slot.imageUrl);
+          if (ly?.name) {
+            const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
+            updateSlot(index, {
+              itemName: ly.name,
+              labelyBrand: ly.brand ?? "",
+              labelyScore: sc,
+              labelyVerdict: ly.verdict || "",
+              labelyAnalysis: ly.analysis ?? "",
+              labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
+            });
+            setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
+          } else {
+            setAiErrors((p) => ({ ...p, [index]: "Could not analyze this photo." }));
+          }
+        }
+      } finally {
+        setGeneratingSlot(null);
+        abortRef.current = null;
+      }
+      return;
+    }
     const weightedPool = buildWeightedPool(brandItems);
     const randomBrand = weightedPool.length > 0
       ? weightedPool[Math.floor(Math.random() * weightedPool.length)]
@@ -749,16 +929,33 @@ ${SHARED_RULES_OUTRO}`;
     if (!slot.imageUrl) { setAiErrors((p) => ({ ...p, [`title_${index}`]: "Upload an image first." })); return; }
     setAiErrors((p) => ({ ...p, [`title_${index}`]: null }));
     setGeneratingSlot(`title_${index}`);
-    const grail = await autoTitleFromImage(slot.imageUrl);
-    if (grail?.title) {
-      const resolvedPrice = grail.price ?? slot.soldPrice;
-      updateSlot(index, {
-        itemName: grail.title,
-        ...(grail.price ? { soldPrice: grail.price } : {}),
-        matchItems: autoSoldListings(grail.title, resolvedPrice),
-      });
+    if (isLabely) {
+      const ly = await fillLabelyFromImage(slot.imageUrl);
+      if (ly?.name) {
+        const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
+        updateSlot(index, {
+          itemName: ly.name,
+          labelyBrand: ly.brand ?? "",
+          labelyScore: sc,
+          labelyVerdict: ly.verdict || "",
+          labelyAnalysis: ly.analysis ?? "",
+          labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
+        });
+      } else {
+        setAiErrors((p) => ({ ...p, [`title_${index}`]: "Could not analyze packaging." }));
+      }
     } else {
-      setAiErrors((p) => ({ ...p, [`title_${index}`]: "Could not identify item." }));
+      const grail = await autoTitleFromImage(slot.imageUrl);
+      if (grail?.title) {
+        const resolvedPrice = grail.price ?? slot.soldPrice;
+        updateSlot(index, {
+          itemName: grail.title,
+          ...(grail.price ? { soldPrice: grail.price } : {}),
+          matchItems: autoSoldListings(grail.title, resolvedPrice),
+        });
+      } else {
+        setAiErrors((p) => ({ ...p, [`title_${index}`]: "Could not identify item." }));
+      }
     }
     setGeneratingSlot(null);
   };
@@ -784,10 +981,18 @@ ${SHARED_RULES_OUTRO}`;
       // All slots are active if brand items list has items; otherwise filter by slot prompt
       const activeSlots = allSlots
         .map((s, i) => ({ slot: s, i: isMomFmt ? 0 : i }))
-        .filter(({ slot }) => brandItems.length > 0 || slot.prompt?.trim());
+        .filter(({ slot, i }) =>
+          isLabely
+            ? Boolean((batchImageDataUrls[i] ?? slot.imageUrl)?.trim())
+            : brandItems.length > 0 || slot.prompt?.trim()
+        );
 
       if (activeSlots.length === 0) {
-        alert("Add items to the Brand Items List or add a prompt to at least one slot.");
+        alert(
+          isLabely
+            ? "Upload at least one slot photo under Product photos, then run Generate again."
+            : "Add items to the Brand Items List or add a prompt to at least one slot."
+        );
         return;
       }
 
@@ -823,44 +1028,67 @@ ${SHARED_RULES_OUTRO}`;
         const brandItem = shuffledUnique.length > 0 ? shuffledUnique[idx] : null;
         const brandLabel = brandItem ? ` — "${brandItem}"` : "";
 
-        // Phase 1 — generate image
-        setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Generating image ${stepLabel}${brandLabel}…`, slotsDone: new Set(slotsDone) });
         const hint = isValcoin ? pickValuableUSCoin() : brandItem;
         const p = hint ? `${prompt}\n\nSpecific item to depict: ${hint}.` : prompt;
-        const url = await generateImage(i, p, hint);
 
-        if (url) {
+        if (isLabely) {
           const slot = config.slots[i];
-          const priceUpdates = (!slot.spentPrice && !slot.soldPrice)
-            ? (isValcoin && hint ? (await coinPrices(hint)) : null) ?? autoRandomPrices()
-            : {};
-          const isPlaceholderName = /^item\s+\d+$/i.test((slot.itemName ?? "").trim());
-          updateSlot(i, {
-            imageUrl: url,
-            ...priceUpdates,
-            ...(isValcoin && hint && (isPlaceholderName || !(slot.itemName ?? "").trim()) ? { itemName: hint } : {}),
-          });
-
-          // Phase 2 — auto-title
-          setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Analyzing item ${stepLabel}…`, slotsDone: new Set(slotsDone) });
-          const grail = await autoTitleFromImage(url);
-          if (grail?.title) {
-            const resolvedPrice = grail.price ?? priceUpdates.soldPrice ?? slot.soldPrice;
+          const url = (batchImageDataUrls[i] ?? slot.imageUrl)?.trim();
+          setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Labely analysis ${stepLabel}…`, slotsDone: new Set(slotsDone) });
+          const ly = await fillLabelyFromImage(url);
+          if (ly?.name) {
+            const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
             updateSlot(i, {
-              itemName: grail.title,
-              ...(grail.price ? { soldPrice: grail.price } : {}),
-              matchItems: autoSoldListings(grail.title, resolvedPrice),
+              itemName: ly.name,
+              labelyBrand: ly.brand ?? "",
+              labelyScore: sc,
+              labelyVerdict: ly.verdict || "",
+              labelyAnalysis: ly.analysis ?? "",
+              labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
             });
+            slotsDone.add(i);
+            setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Slot ${stepLabel} complete`, slotsDone: new Set(slotsDone) });
+          } else {
+            failedCount++;
+            const errMsg = aiErrors[i] || "analysis failed";
+            setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Slot ${stepLabel} failed: ${errMsg}`, slotsDone: new Set(slotsDone) });
+            await new Promise((r) => setTimeout(r, 2500));
           }
-
-          slotsDone.add(i);
-          setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Item ${stepLabel} complete`, slotsDone: new Set(slotsDone) });
         } else {
-          // Generation failed — count it but don't mark as done
-          failedCount++;
-          const errMsg = aiErrors[i] || "unknown error";
-          setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Slot ${stepLabel} failed: ${errMsg}`, slotsDone: new Set(slotsDone) });
-          await new Promise((r) => setTimeout(r, 2500)); // longer pause so user can read error
+          setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Generating image ${stepLabel}${brandLabel}…`, slotsDone: new Set(slotsDone) });
+          const url = await generateImage(i, p, hint);
+
+          if (url) {
+            const slot = config.slots[i];
+            const priceUpdates = (!slot.spentPrice && !slot.soldPrice)
+              ? (isValcoin && hint ? (await coinPrices(hint)) : null) ?? autoRandomPrices()
+              : {};
+            const isPlaceholderName = /^item\s+\d+$/i.test((slot.itemName ?? "").trim());
+            updateSlot(i, {
+              imageUrl: url,
+              ...priceUpdates,
+              ...(isValcoin && hint && (isPlaceholderName || !(slot.itemName ?? "").trim()) ? { itemName: hint } : {}),
+            });
+
+            setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Analyzing item ${stepLabel}…`, slotsDone: new Set(slotsDone) });
+            const grail = await autoTitleFromImage(url);
+            if (grail?.title) {
+              const resolvedPrice = grail.price ?? priceUpdates.soldPrice ?? slot.soldPrice;
+              updateSlot(i, {
+                itemName: grail.title,
+                ...(grail.price ? { soldPrice: grail.price } : {}),
+                matchItems: autoSoldListings(grail.title, resolvedPrice),
+              });
+            }
+
+            slotsDone.add(i);
+            setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Item ${stepLabel} complete`, slotsDone: new Set(slotsDone) });
+          } else {
+            failedCount++;
+            const errMsg = aiErrors[i] || "unknown error";
+            setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Slot ${stepLabel} failed: ${errMsg}`, slotsDone: new Set(slotsDone) });
+            await new Promise((r) => setTimeout(r, 2500));
+          }
         }
       }
 
@@ -882,18 +1110,60 @@ ${SHARED_RULES_OUTRO}`;
 
   // ── Batch generation: produce N complete slideshows sequentially ─────────────
   const [numSlideshows, setNumSlideshows] = useState(3);
+  /** Data URLs in play order: show 1 slots 1…6 (or 1 for iMessage mom), then show 2, … Row count = length. */
+  const [batchImageDataUrls, setBatchImageDataUrls] = useState([]);
+
+  const batchSlotCount =
+    (config.outputFormat ?? "standard") === "imessageMom" ? 1 : 6;
+  const batchImagesNeeded = numSlideshows * batchSlotCount;
+
+  useEffect(() => {
+    const need = numSlideshows * batchSlotCount;
+    if (need <= 0) return;
+    setBatchImageDataUrls((prev) => {
+      if (prev.length === need) return prev;
+      return Array.from({ length: need }, (_, i) => (i < prev.length ? prev[i] ?? null : null));
+    });
+  }, [numSlideshows, batchSlotCount]);
+
+  const reorderBatchRows = (fromIndex, toIndex) => {
+    if (fromIndex === toIndex) return;
+    setBatchImageDataUrls((prev) => {
+      if (fromIndex < 0 || toIndex < 0 || fromIndex >= prev.length || toIndex >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      setConfig((p) => ({
+        ...p,
+        slots: p.slots.map((s, i) =>
+          i < 6 && i < next.length ? { ...s, imageUrl: next[i] ?? null } : s
+        ),
+      }));
+      return next;
+    });
+  };
 
   // Generate one complete slideshow into a local slots array, save via callback.
   const generateOneSlideshow = async (showIndex, totalShows) => {
     const isMomFmt = (config.outputFormat ?? "standard") === "imessageMom";
     const slotCount = isMomFmt ? 1 : 6;
+    const base = showIndex * slotCount;
+    const slice =
+      batchImageDataUrls.length > base
+        ? Array.from({ length: slotCount }, (_, si) =>
+            base + si < batchImageDataUrls.length ? batchImageDataUrls[base + si] ?? null : null
+          )
+        : null;
 
-    let hookCaption = hookItems.length > 0
-      ? hookItems[Math.floor(Math.random() * hookItems.length)]
-      : config.captionText;
-    hookCaption = await ensureUniqueHookCaption(hookCaption, batchCaptionsRef);
+    let hookCaption = "";
+    if (!isLabely) {
+      hookCaption =
+        hookItems.length > 0
+          ? hookItems[Math.floor(Math.random() * hookItems.length)]
+          : config.captionText;
+      hookCaption = await ensureUniqueHookCaption(hookCaption, batchCaptionsRef);
+    }
 
-    // Pick brand items for this show (1 for mom format, 6 for standard)
     const uniqueBrands = [...new Set(brandItems)];
     const shuffled = [...uniqueBrands].sort(() => Math.random() - 0.5);
     while (shuffled.length > 0 && shuffled.length < slotCount)
@@ -901,28 +1171,83 @@ ${SHARED_RULES_OUTRO}`;
 
     const localSlots = Array.from({ length: 6 }, (_, i) => freshSlot(i));
 
+    if (isLabely) {
+      for (let si = 0; si < slotCount; si++) {
+        if (cancelGenRef.current) break;
+        const pre = slice?.[si] ?? null;
+        setGenAllProgress({
+          total: slotCount,
+          done: si,
+          current: si,
+          phase: `Show ${showIndex + 1}/${totalShows} · Photo ${si + 1}/${slotCount}${pre ? "" : " (skipped — no queued image)"}…`,
+          slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
+        });
+        if (!pre) continue;
+        localSlots[si] = { ...localSlots[si], imageUrl: pre };
+        const ly = await fillLabelyFromImage(pre);
+        if (ly?.name) {
+          const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
+          localSlots[si] = {
+            ...localSlots[si],
+            itemName: ly.name,
+            labelyBrand: ly.brand ?? "",
+            labelyScore: sc,
+            labelyVerdict: ly.verdict || "",
+            labelyAnalysis: ly.analysis ?? "",
+            labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
+          };
+        }
+        updateConfig("slots", [...localSlots]);
+      }
+      const hasAny = localSlots.some((s) => s.imageUrl?.trim());
+      if (!hasAny) return null;
+      updateConfig("captionText", "");
+      await waitForPreviewPaint();
+      const previewScreenshot = await captureLivePreviewThumbnail();
+      onSlideshowSaved?.({
+        slots: [...localSlots],
+        captionText: "",
+        previewScreenshot,
+        outputFormat: config.outputFormat,
+        appId: config.appId,
+      });
+      return localSlots;
+    }
+
     for (let si = 0; si < slotCount; si++) {
       if (cancelGenRef.current) break;
       const brandItem = shuffled.length > 0 ? shuffled[si] : null;
+      const pre = slice?.[si] ?? null;
       setGenAllProgress({
-        total: slotCount, done: si, current: si,
-        phase: `Show ${showIndex + 1}/${totalShows} · Image ${si + 1}/${slotCount}${brandItem ? ` — "${brandItem}"` : ""}…`,
+        total: slotCount,
+        done: si,
+        current: si,
+        phase: pre
+          ? `Show ${showIndex + 1}/${totalShows} · Upload ${si + 1}/${slotCount}…`
+          : `Show ${showIndex + 1}/${totalShows} · Image ${si + 1}/${slotCount}${brandItem ? ` — "${brandItem}"` : ""}…`,
         slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
       });
-      const hint = isValcoin ? pickValuableUSCoin() : brandItem;
-      const p = hint ? `${globalPrompt}\n\nSpecific item to depict: ${hint}.` : globalPrompt;
-      const url = await generateImage(si, p, hint);
+      const hintGen = isValcoin ? pickValuableUSCoin() : brandItem;
+      const p = hintGen ? `${globalPrompt}\n\nSpecific item to depict: ${hintGen}.` : globalPrompt;
+      let url = pre;
+      if (!url) url = await generateImage(si, p, hintGen);
       if (url) {
-        const prices = (isValcoin && hint ? (await coinPrices(hint)) : null) ?? autoRandomPrices();
+        const prices = pre
+          ? autoRandomPrices()
+          : (isValcoin && hintGen ? (await coinPrices(hintGen)) : null) ?? autoRandomPrices();
         const isPlaceholderName = /^item\s+\d+$/i.test((localSlots[si]?.itemName ?? "").trim());
         localSlots[si] = {
           ...localSlots[si],
           imageUrl: url,
           ...prices,
-          ...(isValcoin && hint && (isPlaceholderName || !(localSlots[si]?.itemName ?? "").trim()) ? { itemName: hint } : {}),
+          ...(isValcoin && hintGen && !pre && (isPlaceholderName || !(localSlots[si]?.itemName ?? "").trim())
+            ? { itemName: hintGen }
+            : {}),
         };
         setGenAllProgress({
-          total: slotCount, done: si, current: si,
+          total: slotCount,
+          done: si,
+          current: si,
           phase: `Show ${showIndex + 1}/${totalShows} · Analyzing item ${si + 1}/${slotCount}…`,
           slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
         });
@@ -930,13 +1255,18 @@ ${SHARED_RULES_OUTRO}`;
         if (grail?.title) {
           const rp = grail.price ?? prices.soldPrice;
           localSlots[si] = {
-            ...localSlots[si], itemName: grail.title,
+            ...localSlots[si],
+            itemName: grail.title,
             ...(grail.price ? { soldPrice: grail.price } : {}),
             matchItems: autoSoldListings(grail.title, rp),
           };
         }
+        if ((config.outputFormat ?? "standard") === "imessageMom") {
+          const slotNow = localSlots[si];
+          const thread = await generateImessageThread(slotNow.itemName, slotNow.soldPrice);
+          if (thread) localSlots[si] = { ...localSlots[si], imessageThread: thread };
+        }
       }
-      // Update live preview so user can watch along
       updateConfig("slots", [...localSlots]);
     }
     updateConfig("captionText", hookCaption);
@@ -953,8 +1283,13 @@ ${SHARED_RULES_OUTRO}`;
   };
 
   const handleGenerateBatch = async () => {
-    if (brandItems.length === 0) {
-      alert("Add items to the Brand Items List first.");
+    if (isLabely) {
+      if (!batchImageDataUrls.some(Boolean)) {
+        alert("Add at least one photo in the image rows above (or use multi-select). Order is slideshow #1 first, then #2, etc.");
+        return;
+      }
+    } else if (brandItems.length === 0 && !batchImageDataUrls.some(Boolean)) {
+      alert("Add brand items for AI images, or queue batch uploads — or both (uploads fill first, AI fills gaps).");
       return;
     }
     setGeneratingSlot("all");
@@ -1562,8 +1897,9 @@ ${SHARED_RULES_OUTRO}`;
 
       <div className="border-b border-white/5" />
 
-      {/* ── COLLAGE CAPTION ── */}
-      <Section title="Collage Caption" icon="💬">
+      {/* ── COLLAGE CAPTION (hooks + collage text — Labely has none) ── */}
+      <Section title={isLabely ? "Reveal captions" : "Collage Caption"} icon="💬">
+        {!isLabely && (
         <div className="flex items-start gap-2">
           <Textarea
             value={config.captionText}
@@ -1580,6 +1916,7 @@ ${SHARED_RULES_OUTRO}`;
             🎲
           </button>
         </div>
+        )}
 
         {/* ── Caption style toggle ── */}
         <div className="mt-3 flex items-center gap-2">
@@ -1657,7 +1994,7 @@ ${SHARED_RULES_OUTRO}`;
           </div>
         )}
 
-        {/* Hook list */}
+        {!isLabely && (
         <div className="mt-3 bg-white/4 border border-white/10 rounded-xl p-3">
           <div className="flex items-center justify-between mb-1">
             <Label>Hook Captions</Label>
@@ -1674,11 +2011,12 @@ ${SHARED_RULES_OUTRO}`;
           />
           <p className="text-white/25 text-[10px] mt-1">One caption per line. A random one is picked each time you generate.</p>
         </div>
+        )}
       </Section>
 
       {/* ── AI GENERATION ── */}
       <Section title="AI Generation" icon="✨">
-        {/* Model selector */}
+        {!isLabely && (
         <div className="flex gap-2 mb-3">
           {[
             { id: "gpt-image-1", label: "GPT-Image-1.5", color: "border-emerald-500 bg-emerald-500/15 text-emerald-200" },
@@ -1706,17 +2044,19 @@ ${SHARED_RULES_OUTRO}`;
             );
           })}
         </div>
+        )}
 
         <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/8 px-3 py-2.5 text-xs text-emerald-200">
           <div className="font-semibold">AI keys are managed on the server.</div>
           <div className="mt-1 text-emerald-100/70">
-            This deployment uses the Vercel environment variables for image generation and auto-title,
-            so teammates can use the app without entering API keys here.
+            {isLabely
+              ? "Labely analyzes your uploaded photos with vision (OpenAI). No AI-generated product images."
+              : "This deployment uses the Vercel environment variables for image generation and auto-title, so teammates can use the app without entering API keys here."}
           </div>
         </div>
 
         {/* Reference images status — only rendered client-side to avoid hydration mismatch */}
-        {mounted && <div className={`mt-2 flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
+        {mounted && !isLabely && <div className={`mt-2 flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
           referenceImages === null ? "bg-white/4 border border-white/8 text-white/35"
           : referenceImages.length > 0 ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"
           : "bg-white/4 border border-white/8 text-white/35"
@@ -1740,32 +2080,123 @@ ${SHARED_RULES_OUTRO}`;
             </span>
           )}
         </div>}
-        {/* Brand Items List */}
+        {/* Image slots (all brands): qty × slots per show rows + brand list for AI */}
         <div className="mt-3 bg-white/4 border border-white/10 rounded-xl p-3">
-          <div className="flex items-center justify-between mb-1">
-            <Label>Brand Items List</Label>
-            {mounted && brandItems.length > 0 && (
-              <span className="text-violet-300 text-[10px] font-medium">{brandItems.length} item{brandItems.length > 1 ? "s" : ""}</span>
-            )}
-          </div>
-          <textarea
-            value={brandItemsRaw}
-            onChange={(e) => { setBrandItemsRaw(e.target.value); localStorage.setItem(storeKey("ts_brand_items"), e.target.value); }}
-            placeholder={"vintage Carhartt double-knee pants\nSupreme box logo hoodie\nvintage Levi's 501\nKapital boro jacket\nvintage Nike windbreaker"}
-            rows={5}
-            className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/15 resize-none"
-          />
-          <p className="text-white/25 text-[10px] mt-1">
-            {isValcoin
-              ? "Coins — one per line. Each slot picks a different valuable US coin (or your custom list)."
-              : "Clothing only — one garment per line. Each slot gets a different piece from this list, shown in the messy cart pile."}
+          <Label>Image slots</Label>
+          <p className="text-white/35 text-[10px] mb-2 leading-relaxed">
+            <span className="text-white/50">{batchImagesNeeded}</span> rows = <span className="text-white/50">{numSlideshows}</span> slideshow
+            {numSlideshows !== 1 ? "s" : ""} × {batchSlotCount} photo{batchSlotCount !== 1 ? "s" : ""} each. Drag{" "}
+            <span className="text-white/50">⋮⋮</span> to reorder. Drop a photo or pick a file per row.
+            {isLabely
+              ? " Labely analyzes rows 1–6 (live preview); rows 7+ are analyzed when you run batch."
+              : " Rows 1–6 match the live preview. AI uses the brand list for any row left empty when generating."}
           </p>
+          <div className="space-y-1.5 max-h-[min(70vh,520px)] overflow-y-auto pr-0.5">
+            {Array.from({ length: batchImagesNeeded }, (_, rowIdx) => {
+              const showNum = Math.floor(rowIdx / batchSlotCount) + 1;
+              const slotInShow = (rowIdx % batchSlotCount) + 1;
+              const url =
+                (rowIdx < batchImageDataUrls.length ? batchImageDataUrls[rowIdx] : null)
+                ?? (rowIdx < 6 ? config.slots[rowIdx]?.imageUrl : null);
+              return (
+                <div
+                  key={rowIdx}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = e.dataTransfer.types?.includes?.("Files") ? "copy" : "move";
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const file = e.dataTransfer.files?.[0];
+                    if (file?.type?.startsWith("image/")) {
+                      if (isLabely) void handleLabelySlotUpload(rowIdx, file);
+                      else void handleThriftyValcoinSlotFile(rowIdx, file);
+                      return;
+                    }
+                    const raw = e.dataTransfer.getData("text/plain");
+                    if (raw?.startsWith("batch-reorder:")) {
+                      const from = Number(raw.slice("batch-reorder:".length));
+                      if (!Number.isNaN(from)) reorderBatchRows(from, rowIdx);
+                    }
+                  }}
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-white/6 bg-black/20 px-2 py-1.5 min-h-[40px]"
+                >
+                  <button
+                    type="button"
+                    title="Drag to reorder"
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("text/plain", `batch-reorder:${rowIdx}`);
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
+                    className="touch-none cursor-grab active:cursor-grabbing text-white/30 hover:text-white/55 text-xs font-bold px-1 shrink-0 select-none leading-none"
+                    aria-label={`Drag to reorder row ${rowIdx + 1}`}
+                  >
+                    ⋮⋮
+                  </button>
+                  <span className="text-white/30 text-[9px] w-[52px] shrink-0 tabular-nums leading-tight">
+                    #{showNum}·{slotInShow}
+                  </span>
+                  <div className="h-9 w-9 shrink-0 rounded-md overflow-hidden bg-white/5 border border-white/10">
+                    {url ? <img src={url} alt="" className="h-full w-full object-cover" /> : null}
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="text-white/50 text-[11px] max-w-[200px] min-w-0 flex-1 file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:bg-white/10 file:text-white/80"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      if (isLabely) void handleLabelySlotUpload(rowIdx, f);
+                      else void handleThriftyValcoinSlotFile(rowIdx, f);
+                      e.target.value = "";
+                    }}
+                  />
+                  {url && generatingSlot !== rowIdx ? (
+                    <span className="text-emerald-400/90 text-[10px] font-medium shrink-0">Ready</span>
+                  ) : null}
+                  {generatingSlot === rowIdx ? (
+                    <span className="text-violet-300 text-[10px] shrink-0">{isLabely ? "Analyzing…" : "Working…"}</span>
+                  ) : null}
+                  {aiErrors[rowIdx] ? (
+                    <span className="text-red-400/90 text-[10px] shrink-0 max-w-[140px]">{aiErrors[rowIdx]}</span>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+
+          {!isLabely ? (
+            <>
+              <div className="flex items-center justify-between mb-1 mt-4">
+                <Label>Brand Items List</Label>
+                {mounted && brandItems.length > 0 && (
+                  <span className="text-violet-300 text-[10px] font-medium">{brandItems.length} item{brandItems.length > 1 ? "s" : ""}</span>
+                )}
+              </div>
+              <textarea
+                value={brandItemsRaw}
+                onChange={(e) => {
+                  setBrandItemsRaw(e.target.value);
+                  localStorage.setItem(storeKey("ts_brand_items"), e.target.value);
+                }}
+                placeholder={"vintage Carhartt double-knee pants\nSupreme box logo hoodie\nvintage Levi's 501\nKapital boro jacket\nvintage Nike windbreaker"}
+                rows={5}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/15 resize-none"
+              />
+              <p className="text-white/25 text-[10px] mt-1">
+                {isValcoin
+                  ? "Coins — one per line. Each AI slot picks a different valuable US coin (or your custom list)."
+                  : "Clothing only — one garment per line. Each AI slot gets a different piece from this list."}
+              </p>
+            </>
+          ) : null}
         </div>
 
         <div className="mt-2 flex gap-2">
           <button onClick={handleGenerateAll} disabled={generatingSlot !== null}
             className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-semibold transition-colors">
-            {generatingSlot === "all" ? "Generating…" : "✨ Generate 1 Slideshow"}
+            {generatingSlot === "all" ? "Generating…" : isLabely ? "✨ Generate 1 Slideshow (analyze uploads)" : "✨ Generate 1 Slideshow"}
           </button>
           {generatingSlot === "all" && (
             <button
@@ -1792,21 +2223,75 @@ ${SHARED_RULES_OUTRO}`;
               />
             </div>
           </div>
+          <div className="mb-2 rounded-lg border border-white/10 bg-black/25 px-2.5 py-2">
+            <div className="text-white/45 text-[10px] font-semibold mb-1">Bulk fill rows (optional)</div>
+            <p className="text-white/30 text-[10px] leading-relaxed mb-2">
+              Multi-select fills row 1, then 2, … up to your current row count ({batchImagesNeeded}). Same order as the list above.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                disabled={generatingSlot !== null}
+                className="text-white/50 text-[11px] flex-1 min-w-0 file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:bg-white/10 file:text-white/80"
+                onChange={async (e) => {
+                  const files = [...(e.target.files || [])].filter((f) => f.type.startsWith("image/"));
+                  e.target.value = "";
+                  if (!files.length) return;
+                  try {
+                    const urls = await Promise.all(files.map((f) => readFileToDataUrl(f)));
+                    setBatchImageDataUrls((prev) => {
+                      const need = numSlideshows * batchSlotCount;
+                      return Array.from({ length: need }, (_, i) => urls[i] ?? prev[i] ?? null);
+                    });
+                  } catch {
+                    alert("Could not read one or more images.");
+                  }
+                }}
+              />
+              {batchImageDataUrls.some(Boolean) ? (
+                <button
+                  type="button"
+                  disabled={generatingSlot !== null}
+                  onClick={() =>
+                    setBatchImageDataUrls(Array.from({ length: numSlideshows * batchSlotCount }, () => null))
+                  }
+                  className="shrink-0 text-[10px] font-semibold text-red-400/90 hover:text-red-300 disabled:opacity-40"
+                >
+                  Clear all photos
+                </button>
+              ) : null}
+            </div>
+            <p className="text-white/35 text-[10px] mt-1.5">
+              <span className="text-violet-300/90 font-medium">{batchImageDataUrls.filter(Boolean).length}</span> /{" "}
+              {batchImagesNeeded} with photos
+              {!isLabely && batchImageDataUrls.some(Boolean) && batchImageDataUrls.filter(Boolean).length < batchImagesNeeded ? (
+                <span className="text-amber-400/80"> · empty rows use AI in batch (Thrifty/Valcoin)</span>
+              ) : null}
+            </p>
+          </div>
           <button
             onClick={handleGenerateBatch}
-            disabled={generatingSlot !== null}
+            disabled={
+              generatingSlot !== null
+              || (isLabely && !batchImageDataUrls.some(Boolean))
+              || (!isLabely && brandItems.length === 0 && !batchImageDataUrls.some(Boolean))
+            }
             className="w-full py-2.5 rounded-xl bg-fuchsia-700 hover:bg-fuchsia-600 disabled:opacity-40 text-white text-sm font-bold transition-colors"
           >
             {generatingSlot === "all" ? "Generating…" : `🎬 Generate ${numSlideshows} Slideshow${numSlideshows > 1 ? "s" : ""}`}
           </button>
+          {!isLabely && (
           <p className="text-white/25 text-[10px] mt-1.5 text-center">
             {(() => {
               const isMom = (config.outputFormat ?? "standard") === "imessageMom";
               const imgs = isMom ? 1 : 6;
               const cost = imageModel === "gpt-image-1" ? 0.015 * imgs : 0.07 * imgs;
-              return `est. $${(numSlideshows * cost).toFixed(2)} · each goes to gallery on the right`;
+              return `est. $${(numSlideshows * cost).toFixed(2)} if all slots are AI · less when uploads fill the queue · each goes to gallery on the right`;
             })()}
           </p>
+          )}
         </div>
 
         {/* Progress tracker */}

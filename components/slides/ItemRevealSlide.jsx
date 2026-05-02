@@ -26,6 +26,7 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
   const captionBg    = config.captionBg    ?? "#e03030";
   const captionColor = config.captionColor ?? "#ffffff";
   const outputFormat = config.outputFormat ?? "standard";
+  const isLabely = (config.appId ?? "thrifty") === "labely";
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
   const px = (n) => Math.round(n * S);
@@ -33,24 +34,33 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
   const spentLine = (slot.spentPrice ? `spent $${slot.spentPrice}` : "spent $?");
   const itemLine  = slot.itemName ? `(${slot.itemName.toLowerCase()})` : null;
   const showLetsCheckApp = outputFormat === "standard" || outputFormat === "appOnly";
+  /** Labely: no thrift-style spent/item lines — only the “lets check labely!” callout. */
+  const showMainSpentCaption = !isLabely;
 
   // All random values derived from a stable seed — same layout every render/export
   const seed = useMemo(() => slotSeed(slot), [slot.itemName, slot.spentPrice, slot.soldPrice]);
 
   const captionSizePx = useMemo(
-    () => captionFontSize1080(`${slot.itemName}|${slot.spentPrice}|${slot.soldPrice}|reveal`),
-    [slot.itemName, slot.spentPrice, slot.soldPrice]
+    () =>
+      captionFontSize1080(
+        isLabely
+          ? `${slot.itemName || "labely"}|reveal-labely`
+          : `${slot.itemName}|${slot.spentPrice}|${slot.soldPrice}|reveal`
+      ),
+    [slot.itemName, slot.spentPrice, slot.soldPrice, isLabely]
   );
 
   const REVEAL_SAFE_ZONES = [0.06, 0.14, 0.28, 0.42, 0.56, 0.68, 0.76];
   const captionLineH = Math.round(captionSizePx * S * 1.2);
   const captionPadY = Math.round(10 * S) * 2;
   const captionInnerGap = Math.round(4 * S);
-  const mainLines = 1 + (itemLine ? 1 : 0);
-  const mainBoxH = captionPadY + mainLines * captionLineH + Math.max(0, mainLines - 1) * captionInnerGap;
-  const blankLineGapH = captionLineH * 2; // two "auto line breaks"
+  const mainLines = showMainSpentCaption ? 1 + (itemLine ? 1 : 0) : 0;
+  const mainBoxH = showMainSpentCaption
+    ? captionPadY + mainLines * captionLineH + Math.max(0, mainLines - 1) * captionInnerGap
+    : 0;
+  const blankLineGapH = showMainSpentCaption && showLetsCheckApp ? captionLineH * 2 : 0; // spacer only above “lets check” when main lines exist
   const appBoxH = showLetsCheckApp ? (captionPadY + captionLineH) : 0;
-  const captionBoxH = mainBoxH + (showLetsCheckApp ? blankLineGapH + appBoxH : 0);
+  const captionBoxH = mainBoxH + blankLineGapH + appBoxH;
   const maxTop = H - captionBoxH - Math.round(H * 0.02);
 
   const zoneIdx = useMemo(() => Math.floor(seededRand(seed + 1) * REVEAL_SAFE_ZONES.length), [seed]);
@@ -90,7 +100,7 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
         }}
       />
 
-      {/* "spent $X (item name)" caption — flex-centered wrapper avoids calc() in html2canvas */}
+      {/* Thrifty/Valcoin: spent + item; Labely: “lets check labely!” only — flex-centered for html2canvas */}
       <div
         style={{
           position: "absolute",
@@ -113,7 +123,7 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
             alignItems: "center",
           }}
         >
-          {/* Main caption box */}
+          {showMainSpentCaption && (
           <div style={{
             ...captionWrapperStyle(S, { captionStyle, captionBg }),
             padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
@@ -138,11 +148,11 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
               </span>
             )}
           </div>
+          )}
 
-          {/* Two line breaks worth of space, then separate tickerbox */}
           {showLetsCheckApp && (
             <>
-              <div style={{ height: captionLineH * 2 }} />
+              {blankLineGapH > 0 ? <div style={{ height: blankLineGapH }} /> : null}
               <div style={{
                 ...captionWrapperStyle(S, { captionStyle: "tickerBox", captionBg }),
                 padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,

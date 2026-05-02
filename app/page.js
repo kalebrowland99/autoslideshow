@@ -1,9 +1,14 @@
 "use client";
 
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import VideoPreview from "@/components/VideoPreview";
 import ConfigPanel from "@/components/ConfigPanel";
 import { getTotalSlides } from "@/lib/slideLayout";
+import {
+  mergePersistedConfig,
+  readHomeSession,
+  writeHomeSession,
+} from "@/lib/homeSessionStorage";
 
 export const emptySlot = (i) => ({
   imageUrl: null,
@@ -33,6 +38,12 @@ export const emptySlot = (i) => ({
   voicemailTranscript: "",
   /** iMessage mom — AI-generated text thread [{from:"mom"|"son", text:string}] (null → seeded fallback) */
   imessageThread: null,
+  /** Labely (nutrition-style UI) — filled when appId is labely */
+  labelyBrand: "",
+  labelyScore: 0,
+  labelyVerdict: "",
+  labelyAnalysis: "",
+  labelyAnalysisTitle: "Labely's Analysis",
 });
 
 export const defaultConfig = {
@@ -58,7 +69,7 @@ export const defaultConfig = {
   /** Add a random track from public/audio/ to the exported video. */
   useRandomAudio: false,
   outputFormat: "standard", // "standard" | "appOnly" | "posePerson" | "imessageMom" | "starterPack"
-  appId: "thrifty", // "thrifty" | "valcoin"
+  appId: "thrifty", // "thrifty" | "valcoin" | "labely"
   /** Headline text shown at the top of the Starter Pack slide */
   starterPackHeadline: "",
   /** Changed each generation so every export has unique pixel-level layout (anti-fingerprint). */
@@ -75,10 +86,51 @@ export default function Home() {
   const [exportStatus, setExportStatus] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const refreshHandlerRef = useRef(null);
+  /** Skip persisting until the first restore from localStorage has finished (avoids overwriting with defaults). */
+  const skipSaveUntilHydrated = useRef(true);
 
   // ── Batch slideshow gallery ──────────────────────────────────────────────────
   const [savedSlideshows, setSavedSlideshows] = useState([]);
   const [activeShowIdx, setActiveShowIdx] = useState(null);
+
+  useEffect(() => {
+    const raw = readHomeSession();
+    if (!raw) {
+      skipSaveUntilHydrated.current = false;
+      return;
+    }
+    let merged = defaultConfig;
+    if (raw.config && typeof raw.config === "object") {
+      merged = mergePersistedConfig(defaultConfig, emptySlot, raw.config);
+      setConfig(merged);
+    }
+    if (Array.isArray(raw.savedSlideshows)) {
+      setSavedSlideshows(raw.savedSlideshows);
+    }
+    const maxSlide = Math.max(0, getTotalSlides(merged) - 1);
+    const cs = typeof raw.currentSlide === "number" ? raw.currentSlide : 0;
+    setCurrentSlide(Math.min(Math.max(0, cs), maxSlide));
+    if (typeof raw.activeShowIdx === "number" && raw.activeShowIdx >= 0) {
+      const n = Array.isArray(raw.savedSlideshows) ? raw.savedSlideshows.length : 0;
+      setActiveShowIdx(n > 0 ? Math.min(raw.activeShowIdx, n - 1) : null);
+    } else {
+      setActiveShowIdx(null);
+    }
+    skipSaveUntilHydrated.current = false;
+  }, []);
+
+  useEffect(() => {
+    if (skipSaveUntilHydrated.current) return;
+    const t = window.setTimeout(() => {
+      writeHomeSession({
+        config,
+        savedSlideshows,
+        activeShowIdx,
+        currentSlide,
+      });
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [config, savedSlideshows, activeShowIdx, currentSlide]);
 
   const handleSlideshowSaved = useCallback((showData) => {
     setSavedSlideshows((prev) => {
@@ -89,10 +141,11 @@ export default function Home() {
   }, []);
 
   const loadShow = useCallback((showData, idx) => {
+    const isLabelyShow = showData.appId === "labely";
     setConfig((prev) => ({
       ...prev,
       slots: showData.slots,
-      captionText: showData.captionText,
+      captionText: isLabelyShow ? "" : showData.captionText,
       ...(showData.outputFormat != null ? { outputFormat: showData.outputFormat } : {}),
       ...(showData.appId != null ? { appId: showData.appId } : {}),
     }));
@@ -110,6 +163,9 @@ export default function Home() {
         if (!["standard", "appOnly"].includes(next.outputFormat ?? "standard")) {
           next.outputFormat = "standard";
         }
+      }
+      if (key === "appId" && value === "labely") {
+        next.captionText = "";
       }
       if (key === "outputFormat") {
         const maxSlide = Math.max(0, getTotalSlides(next) - 1);
@@ -165,6 +221,7 @@ export default function Home() {
             >
               <option value="thrifty" className="bg-[#0f0f0f] text-white">Thrifty Slideshows</option>
               <option value="valcoin" className="bg-[#0f0f0f] text-white">Valcoin Slideshows</option>
+              <option value="labely" className="bg-[#0f0f0f] text-white">Labely</option>
             </select>
             <span className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-white/60 text-xs">▼</span>
           </div>
@@ -177,7 +234,7 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         <aside className="w-[420px] border-r border-white/10 overflow-y-auto shrink-0">
           <ConfigPanel
             config={config}
@@ -200,7 +257,7 @@ export default function Home() {
           />
         </aside>
 
-        <main className="flex-1 flex items-center justify-center p-8 overflow-auto bg-[#080808]">
+        <main className="flex-1 min-h-0 flex items-center justify-center p-8 overflow-auto bg-[#080808]">
           <div className="flex flex-col items-center gap-4">
             <p className="text-white/40 text-xs uppercase tracking-widest">Live Preview</p>
             <VideoPreview

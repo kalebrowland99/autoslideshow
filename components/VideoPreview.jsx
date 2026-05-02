@@ -3,6 +3,7 @@
 import CollageSlide from "./slides/CollageSlide";
 import ItemRevealSlide from "./slides/ItemRevealSlide";
 import ThriftySlide from "./slides/ThriftySlide";
+import LabelySlide from "./slides/LabelySlide";
 import FullBleedSlide from "./slides/FullBleedSlide";
 import IMessageMomSlide from "./slides/IMessageMomSlide";
 import VoicemailMomSlide from "./slides/VoicemailMomSlide";
@@ -22,6 +23,7 @@ function SlideRenderer({ config, info, S }) {
       {info.type === "collage" && <CollageSlide config={config} S={S} />}
       {info.type === "reveal" && <ItemRevealSlide slot={info.slot} S={S} config={config} />}
       {info.type === "thrifty" && <ThriftySlide slot={info.slot} S={S} config={config} />}
+      {info.type === "labely" && <LabelySlide slot={info.slot} S={S} />}
       {info.type === "fullBleed" && <FullBleedSlide slot={info.slot} S={S} />}
       {info.type === "imessage"     && <IMessageMomSlide  slot={info.slot} S={S} config={config} />}
       {info.type === "voicemail"    && <VoicemailMomSlide slot={info.slot} S={S} config={config} />}
@@ -53,11 +55,12 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
       if (currentSlide === 0) return "iMessage (photo)";
       if (currentSlide === 1) return "Voicemail";
       if (currentSlide === 2) return "iMessage (texts)";
-      return `${brand.appName} Price`;
+      return brand.appId === "labely" ? "Labely" : `${brand.appName} Price`;
     }
     if (fmt === "starterPack") return "Starter Pack";
     const item = Math.floor((currentSlide - 1) / 2) + 1;
-    const type = (currentSlide - 1) % 2 === 0 ? "Reveal" : `${brand.appName} Price`;
+    const appSlideLabel = brand.appId === "labely" ? "Labely" : `${brand.appName} Price`;
+    const type = (currentSlide - 1) % 2 === 0 ? "Reveal" : appSlideLabel;
     return `Item ${item} — ${type}`;
   };
 
@@ -104,7 +107,13 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
         <button
           onClick={() => !isGenerating && onRefreshSlide?.(currentSlide)}
           disabled={isGenerating}
-          title={isGenerating ? "Generating…" : "Regenerate with AI"}
+          title={
+            isGenerating
+              ? "Generating…"
+              : brand.appId === "labely"
+                ? "Re-analyze this slot (uses uploaded photo)"
+                : "Regenerate with AI"
+          }
           style={{
             position: "absolute",
             bottom: Math.round(14 * S),
@@ -191,7 +200,7 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-fuchsia-400 inline-block"/>iMessage</span>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block"/>Voicemail</span>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-pink-400 inline-block"/>Text reply</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>{brand.appName}</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>{brand.appId === "labely" ? "Labely" : brand.appName}</span>
             </>
           ) : (
             <>
@@ -199,7 +208,7 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
               {fmt === "standard" && (
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block"/>Reveal</span>
               )}
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>{brand.appName}</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>{brand.appId === "labely" ? "Labely" : brand.appName}</span>
             </>
           )}
         </div>
