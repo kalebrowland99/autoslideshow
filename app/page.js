@@ -95,10 +95,16 @@ export default function Home() {
   const refreshHandlerRef = useRef(null);
   /** Skip persisting until the first restore from localStorage has finished (avoids overwriting with defaults). */
   const skipSaveUntilHydrated = useRef(true);
+  /** After true, safe to render session-dependent chrome (avoids React #418 hydration mismatches). */
+  const [headerHydrated, setHeaderHydrated] = useState(false);
 
   // ── Batch slideshow gallery ──────────────────────────────────────────────────
   const [savedSlideshows, setSavedSlideshows] = useState([]);
   const [activeShowIdx, setActiveShowIdx] = useState(null);
+
+  useEffect(() => {
+    setHeaderHydrated(true);
+  }, []);
 
   useEffect(() => {
     const raw = readHomeSession();
@@ -234,7 +240,7 @@ export default function Home() {
               <span className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-white/60 text-xs">▼</span>
             </div>
           </div>
-          {config.appId === "labely" ? (
+          {headerHydrated && config.appId === "labely" ? (
             <div className="flex items-center gap-2 pl-1 border-l border-white/15">
               <span className="text-white/45 text-xs font-medium shrink-0">Freiburg</span>
               <div className="relative">
