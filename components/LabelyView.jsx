@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState, Fragment } from "react";
+import { getLabelyLawsuitBadgeLabel } from "@/lib/labelyLawsuitBadge";
 
 function clampScore(score) {
   const n = Number(score);
@@ -111,6 +112,14 @@ export default function LabelyView({ fillViewport = true }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const theme = useMemo(() => scoreTheme(data?.score ?? 0), [data?.score]);
+
+  const lawsuitBadgeLabel = useMemo(
+    () =>
+      getLabelyLawsuitBadgeLabel(
+        `${data?.name ?? ""}|${data?.brand ?? ""}|${data?.score ?? 0}`
+      ),
+    [data?.name, data?.brand, data?.score]
+  );
 
   const analyzeDataUrl = useCallback(async (imageDataUrl) => {
     setBusy(true);
@@ -223,14 +232,19 @@ export default function LabelyView({ fillViewport = true }) {
           </div>
         </div>
 
-        <button
-          type="button"
-          disabled
-          className="mt-[22px] flex h-11 w-full cursor-default items-center justify-center gap-2 rounded-full border-2 border-[#6B9080] bg-[#EEF4F0] px-4 text-[15px] font-bold tracking-wide text-[#3D5C4E] opacity-90"
-        >
-          <span>Add to Pantry</span>
-          <SaveBookmarkIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
-        </button>
+        <div className="mt-[22px] flex w-full items-center gap-2.5">
+          <button
+            type="button"
+            disabled
+            className="flex h-11 shrink-0 cursor-default items-center justify-center gap-2 rounded-full border-2 border-[#6B9080] bg-[#EEF4F0] px-5 text-[15px] font-bold tracking-wide text-[#3D5C4E] opacity-90"
+          >
+            <span>Add to Pantry</span>
+            <SaveBookmarkIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
+          </button>
+          <div className="flex h-11 min-w-0 flex-1 cursor-default items-center justify-center rounded-full border-2 border-[#8B5A2B] bg-[#FAF4EF] px-4 text-[13px] font-bold tracking-wide text-[#5C3D1E]">
+            <span className="min-w-0 truncate">{lawsuitBadgeLabel}</span>
+          </div>
+        </div>
 
         <div className="mt-6 rounded-[20px] border border-[#C9E8DE] bg-white p-[22px] shadow-[0_4px_28px_rgba(122,195,170,0.28)]">
           <div className="flex justify-center">

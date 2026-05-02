@@ -98,6 +98,7 @@ const freshSlot = (i) => ({
   labelyVerdict: "",
   labelyAnalysis: "",
   labelyAnalysisTitle: "Labely's Analysis",
+  labelyLegalNote: "No lawsuits found.",
 });
 
 const waitForPreviewPaint = () =>
@@ -670,6 +671,7 @@ ${SHARED_RULES_OUTRO}`;
             labelyVerdict: ly.verdict || "",
             labelyAnalysis: ly.analysis ?? "",
             labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
+            labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
           });
         } else {
           setAiErrors((p) => ({ ...p, [globalIdx]: "Could not analyze this photo." }));
@@ -768,6 +770,7 @@ ${SHARED_RULES_OUTRO}`;
               labelyVerdict: ly.verdict || "",
               labelyAnalysis: ly.analysis ?? "",
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
+              labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
               ...(ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
             });
             setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
@@ -789,6 +792,7 @@ ${SHARED_RULES_OUTRO}`;
                 labelyVerdict: ly.verdict || "",
                 labelyAnalysis: ly.analysis ?? "",
                 labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
+                labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
               });
               setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
             } else {
@@ -997,6 +1001,7 @@ ${SHARED_RULES_OUTRO}`;
           labelyVerdict: ly.verdict || "",
           labelyAnalysis: ly.analysis ?? "",
           labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
+          labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
         });
       } else {
         setAiErrors((p) => ({ ...p, [`title_${index}`]: "Could not analyze packaging." }));
@@ -1119,6 +1124,7 @@ ${SHARED_RULES_OUTRO}`;
               labelyVerdict: ly.verdict || "",
               labelyAnalysis: ly.analysis ?? "",
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
+              labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
               ...(config.labelyAiProducts && ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
             });
             slotsDone.add(i);
@@ -1308,6 +1314,7 @@ ${SHARED_RULES_OUTRO}`;
               labelyVerdict: ly.verdict || "",
               labelyAnalysis: ly.analysis ?? "",
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
+              labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
               ...(ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
             };
           }
@@ -1337,6 +1344,7 @@ ${SHARED_RULES_OUTRO}`;
             labelyVerdict: ly.verdict || "",
             labelyAnalysis: ly.analysis ?? "",
             labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
+            labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
           };
         }
         updateConfig("slots", [...localSlots]);

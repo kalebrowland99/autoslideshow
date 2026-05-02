@@ -1,25 +1,36 @@
-import { readFile, readdir } from "fs/promises";
-import { join } from "path";
 import { NextResponse } from "next/server";
+import { runImageGenerationPipeline } from "@/lib/imageGenerationBackend";
+import { listPublicReferenceImageRelPaths } from "@/lib/referenceImages";
 
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
-const OPENAI_GENERATIONS = "https://api.openai.com/v1/images/generations";
-const OPENAI_EDITS = "https://api.openai.com/v1/images/edits";
 
-function mimeFromPath(filePath) {
-  const ext = filePath.split(".").pop()?.toLowerCase();
-  return { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif" }[ext] ?? "image/jpeg";
+/** Same prompt skeleton as ConfigPanel starter-pack / Valcoin branch → POST /api/generate-image. */
+function buildLabelyPackPromptWithReference({ name, brand, imagePrompt }) {
+  const scenePrompt = `${name}. Brand on pack: ${brand}. Packaging notes: ${(imagePrompt || "").trim() || "realistic retail grocery packaging."}`;
+  return `
+Aspect ratio requirement: Generate the image in 9:16 vertical portrait orientation only. Mandatory.
+
+Make it look like a real iPhone photo (default Camera app, no Portrait mode, no filters). Natural color, indoor fluorescent lighting if applicable. Deep focus, not blurry, not cinematic. No text overlays, no captions, no watermarks.
+
+Reference-image rule (CRITICAL): Make the photo EXACT 1:1 as the reference image, just swap out the main packaged food or beverage product to match the subject below.
+
+Subject: ${scenePrompt}
+
+If the subject is an object (packaged snack, bottle, carton, frozen bag), center it and make it visually obvious and physically plausible in the scene.
+`.trim();
 }
 
-async function listLabelyReferenceBasenames() {
-  const dir = join(process.cwd(), "public", "labely", "references");
-  let entries;
-  try {
-    entries = await readdir(dir);
-  } catch {
-    return [];
-  }
-  return entries.filter((e) => /\.(jpe?g|png|webp|gif)$/i.test(e));
+function buildLabelyPackPromptNoReference({ name, brand, imagePrompt }) {
+  const scenePrompt = `${name}. Brand on pack: ${brand}. ${(imagePrompt || "").trim() || "Realistic retail grocery packaging."}`;
+  return `
+Aspect ratio requirement: Generate the image in 9:16 vertical portrait orientation only. Mandatory.
+
+Make it look like a real iPhone photo (default Camera app, no Portrait mode, no filters). Natural color, indoor fluorescent lighting if applicable. Deep focus, not blurry, not cinematic. No text overlays, no captions, no watermarks.
+
+Subject: ${scenePrompt}
+
+If the subject is an object (packaged snack, bottle, carton, frozen bag), center it and make it visually obvious what it is.
+`.trim();
 }
 
 function clampScore(score) {
@@ -33,6 +44,11 @@ function verdictFromScore(score) {
   if (s <= 20) return "Avoid";
   if (s <= 60) return "Limit";
   return "Good";
+}
+
+function normalizeLabelyLegalNote(s) {
+  const t = typeof s === "string" ? s.trim() : "";
+  return t || "No lawsuits found.";
 }
 
 async function generateLabelyJson({ openaiApiKey, seedHint }) {
@@ -49,9 +65,10 @@ async function generateLabelyJson({ openaiApiKey, seedHint }) {
       verdict: "Avoid",
       analysisTitle: "Labely's Analysis",
       analysis:
-        "The **Whole Wheat Fig Apple Cinnamon** bar scored low because it relies on **canola oil** (a **seed oil**) and several processed sugars like **cane sugar** and **brown rice syrup**. It also contains multiple additives such as **glycerin**, **pectin**, and **citric acid**, which push it into the highly processed category. For everyday snacking, simpler options with fewer processed ingredients and no seed oils would be a better fit for your goals.",
+        "The **Whole Wheat Fig Apple Cinnamon** bar scores low for everyday snacking because it leans on refined sweeteners, canola-based fat, and several texture additives typical of highly processed snack bars — fine occasionally, but not what most people want as a daily default.",
+      labelyLegalNote: "No lawsuits found.",
       imagePrompt:
-        "A clean product photo of a boxed snack bar package on a plain white background, realistic studio lighting, centered, sharp focus, minimal shadow, 1:1.",
+        "Rectangular paperboard snack bar box, matte finish, earth-tone label with fruit illustration, nutrition facts panel visible — packaging cues only.",
     };
   }
 
@@ -62,14 +79,14 @@ async function generateLabelyJson({ openaiApiKey, seedHint }) {
       Authorization: `Bearer ${openaiApiKey}`,
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
-      temperature: 0.8,
-      max_tokens: 450,
+      model: "gpt-4o",
+      temperature: 0.55,
+      max_tokens: 900,
       messages: [
         {
           role: "user",
           content:
-            `You are generating content for an app called "Labely" that gives a simple 0-100 score and a short explanation.\n\nReturn ONLY valid JSON (no markdown, no extra keys) with this exact shape:\n{"name": "...", "brand": "...", "score": 42, "analysisTitle": "Labely\\u2019s Analysis", "analysis": "...", "imagePrompt": "..."}\n\nRules:\n- name: 3-7 words, like a real grocery item\n- brand: 1-3 words\n- score: integer 0-100\n- analysisTitle: exactly "Labely\\u2019s Analysis"\n- analysis: 2-4 sentences; REQUIRED **markdown bold** on the product **name** once and on each concerning ingredient or class you mention (e.g. **seed oils**, **carrageenan**); leave non-problem phrases unbolded\n- imagePrompt: concise prompt for generating a realistic product photo for this item (boxed/bottled/etc) on a plain background\n- Be decisive; do not hedge or refuse.${hintLine}`,
+            `You are generating content for "Labely", a grocery label-scanning style app. Be concrete about ingredients and processing — not vague wellness talk.\n\nReturn ONLY valid JSON (no markdown fences, no extra keys) with this exact shape:\n{"name": "...", "brand": "...", "score": 42, "analysisTitle": "Labely\\u2019s Analysis", "analysis": "...", "imagePrompt": "...", "labelyLegalNote": "..."}\n\nProduct fields:\n- name: 3–7 words, realistic grocery retail\n- brand: 1–3 words\n- score: integer 0–100\n- analysisTitle: exactly "Labely\\u2019s Analysis"\n\nanalysis — one flowing paragraph, 5–8 sentences. Not medical advice.\n- Use **markdown bold** only **1 to 3 times total** in the entire analysis (count **pairs**). Typically: bold the **product name** once, then at most **two** other bold spans for the most important ingredient or concern — never more than three bold spans.\n- Without extra bolding, still name specific additives, oils, sweeteners, and processing issues in plain text where relevant.\n- Do not mention lawsuits, recalls, or regulators here — that belongs only in labelyLegalNote.\n\nlabelyLegalNote — plain text, one or two short sentences:\n- If there are no documented lawsuits, class actions, major FDA/regulatory actions, or widely reported recalls tied to this invented brand/product or its key ingredients, set labelyLegalNote to exactly: No lawsuits found.\n- Otherwise summarize only verifiable public-pattern facts; never invent case names, docket numbers, or dates.\n\nimagePrompt: packaging-only cues (shape, materials, label colors, category). No background/lighting.\n\nBe decisive; do not refuse.${hintLine}`,
         },
       ],
     }),
@@ -99,6 +116,7 @@ async function generateLabelyJson({ openaiApiKey, seedHint }) {
     analysisTitle: "Labely\u2019s Analysis",
     analysis: String(parsed.analysis || "").trim(),
     imagePrompt: String(parsed.imagePrompt || "").trim(),
+    labelyLegalNote: normalizeLabelyLegalNote(parsed.labelyLegalNote),
   };
 }
 
@@ -112,6 +130,7 @@ async function analyzePackagingImage({ imageDataUrl, openaiApiKey }) {
       analysisTitle: "Labely\u2019s Analysis",
       analysis:
         "Add **OPENAI_API_KEY** on the server to enable vision analysis of your uploaded product photos.",
+      labelyLegalNote: "No lawsuits found.",
     };
   }
 
@@ -132,19 +151,28 @@ async function analyzePackagingImage({ imageDataUrl, openaiApiKey }) {
             { type: "image_url", image_url: { url: imageDataUrl, detail: "high" } },
             {
               type: "text",
-              text: `You are "Labely", a grocery / packaged-food nutrition analyst (like a clear in-app product card).
+              text: `You are "Labely", a grocery label-scanning analyst. Prioritize what is literally visible on the package (ingredient list, Nutrition Facts, claims). Infer cautiously only where the label is unreadable.
 
-From the packaging photo, read labels and infer the exact product name and brand as shown (best guess if partially obscured).
+From the photo: read product name, brand, and every ingredient line you can see. Prefer quoting real label language.
 
 Return ONLY valid JSON (no markdown fences) with this exact shape:
-{"name":"...","brand":"...","score":0,"analysis":"..."}
+{"name":"...","brand":"...","score":0,"analysis":"...","labelyLegalNote":"..."}
 
 Rules:
-- name: concise retail product name (3–10 words), Title Case, as a shopper would say it
+- name: concise retail product name (3–10 words), Title Case, as on shelf
 - brand: brand on pack (1–4 words), or "" if unknown
-- score: integer 0–100 (whole/minimally processed / simple ingredients higher; ultra-processed, artificial sweeteners, heavy sugar, controversial additives, seed oils where relevant → lower)
-- analysis: ONE flowing paragraph only (no bullets, no numbered lists, no line breaks). Length about 4–8 sentences, like a premium food-scanning app summary.
-  Markdown bold (wrap text in **double asterisks**) is REQUIRED for scannability: (1) bold the full product **name** exactly once in the opening clause; (2) bold every concerning ingredient, additive, sweetener, oil, or ingredient class you name (e.g. **sucralose**, **acesulfame potassium**, **carrageenan**, **artificial sweeteners**, **seed oils**, **high-fructose corn syrup**). Aim for roughly 4–8 bold spans total so negatives pop like a premium label-scan app. Leave the closing balanced takeaway sentence unbolded unless it repeats a specific ingredient name. Plain sentences between bold phrases stay regular weight. Tone: helpful, decisive, not alarmist.`,
+- score: integer 0–100 (whole/minimally processed / simple ingredients higher; ultra-processed, artificial sweeteners, heavy sugar/sodium, controversial additives → lower)
+
+analysis — ONE flowing paragraph, 6–10 sentences (no bullets). Premium scanner tone; concrete detail in plain text:
+- Use **markdown bold** only **1 to 3 times total** (count **pairs**). Usually bold the **product name** once; optionally bold one or two other critical ingredients — never more than three bold spans.
+- Name specific ingredients, additives, and nutrition issues from the label in full sentences; do not rely only on bold for detail.
+- Do not mention lawsuits or regulators in analysis — use labelyLegalNote only.
+
+labelyLegalNote — plain text:
+- If no applicable lawsuits, class actions, FDA/regulatory actions, or major recalls for this exact product/brand (from what you can verify from the package or widely known public facts), set to exactly: No lawsuits found.
+- Otherwise one short factual sentence; never invent case names or dates.
+
+Not medical advice. Tone: helpful, decisive, not alarmist.`,
             },
           ],
         },
@@ -174,71 +202,45 @@ Rules:
     verdict: verdictFromScore(score),
     analysisTitle: "Labely\u2019s Analysis",
     analysis: String(parsed.analysis || "").trim(),
+    labelyLegalNote: normalizeLabelyLegalNote(parsed.labelyLegalNote),
   };
 }
 
-async function generateProductImage({ openaiApiKey, imagePrompt }) {
-  if (!openaiApiKey) return null;
-  if (!imagePrompt) return null;
+/** Uses the same backend as Thrifty → `/api/generate-image` with GPT Image only (no Gemini). */
+async function generateProductImage({ imagePrompt, name, brand }) {
+  const promptOk = (imagePrompt || "").trim();
+  const titleOk = (name || "").trim() || (brand || "").trim();
+  if (!promptOk && !titleOk) return null;
 
-  const headers = { Authorization: `Bearer ${openaiApiKey}` };
-  const refs = await listLabelyReferenceBasenames();
-  const refName = refs.length > 0 ? refs[Math.floor(Math.random() * refs.length)] : null;
+  const refs = await listPublicReferenceImageRelPaths("labely");
+  const refFile = refs.length > 0 ? refs[Math.floor(Math.random() * refs.length)] : null;
 
-  if (refName) {
-    const filePath = join(process.cwd(), "public", "labely", "references", refName);
-    let fileBuffer;
-    try {
-      fileBuffer = await readFile(filePath);
-    } catch {
-      fileBuffer = null;
-    }
-    if (fileBuffer) {
-      const mimeType = mimeFromPath(refName);
-      const blob = new Blob([fileBuffer], { type: mimeType });
-      const ext = refName.split(".").pop()?.toLowerCase() || "png";
-      const fileName = `reference.${ext}`;
-      const form = new FormData();
-      form.append("image", blob, fileName);
-      form.append("prompt", imagePrompt);
-      form.append("model", "gpt-image-1.5");
-      form.append("size", "1024x1024");
-      form.append("quality", "low");
-      form.append("n", "1");
+  const prompt = refFile
+    ? buildLabelyPackPromptWithReference({
+        name: name || "Packaged product",
+        brand: brand || "",
+        imagePrompt: promptOk || "Realistic retail grocery packaging.",
+      })
+    : buildLabelyPackPromptNoReference({
+        name: name || "Packaged product",
+        brand: brand || "",
+        imagePrompt: promptOk || "Realistic retail grocery packaging.",
+      });
 
-      const editRes = await fetch(OPENAI_EDITS, { method: "POST", headers, body: form });
-      const editData = await editRes.json().catch(() => ({}));
-      const b64Edit = editData?.data?.[0]?.b64_json;
-      if (editRes.ok && b64Edit) {
-        return `data:image/png;base64,${b64Edit}`;
-      }
-      console.error("[labely] reference edit failed; falling back to text-to-image", editData?.error || editRes.status);
-    }
-  }
-
-  const res = await fetch(OPENAI_GENERATIONS, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...headers,
-    },
-    body: JSON.stringify({
-      model: "gpt-image-1.5",
-      prompt: imagePrompt,
-      size: "1024x1024",
-      quality: "low",
-      n: 1,
-    }),
+  const result = await runImageGenerationPipeline({
+    prompt,
+    referenceFile: refFile || null,
+    referenceInline: undefined,
+    referenceRoot: refFile ? "labely/references" : undefined,
+    model: "gpt-image-1",
   });
 
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data?.error?.message || `OpenAI image error ${res.status}`);
+  if (result.error) {
+    console.error("[labely] image pipeline", result.error);
+    return null;
   }
-
-  const b64 = data?.data?.[0]?.b64_json;
-  if (!b64) return null;
-  return `data:image/png;base64,${b64}`;
+  if (result.b64) return `data:image/png;base64,${result.b64}`;
+  return null;
 }
 
 export async function POST(req) {
@@ -263,6 +265,7 @@ export async function POST(req) {
         verdict: analyzed.verdict,
         analysisTitle: analyzed.analysisTitle,
         analysis: analyzed.analysis,
+        labelyLegalNote: analyzed.labelyLegalNote,
         imageDataUrl: null,
       });
     }
@@ -271,8 +274,9 @@ export async function POST(req) {
     let outImage = null;
     try {
       outImage = await generateProductImage({
-        openaiApiKey,
         imagePrompt: base.imagePrompt,
+        name: base.name,
+        brand: base.brand,
       });
     } catch (e) {
       console.error("[labely] image generation failed", e);
@@ -286,6 +290,7 @@ export async function POST(req) {
       verdict: base.verdict,
       analysisTitle: base.analysisTitle,
       analysis: base.analysis,
+      labelyLegalNote: base.labelyLegalNote,
       imageDataUrl: outImage,
     });
   } catch (err) {

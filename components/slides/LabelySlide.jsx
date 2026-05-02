@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { getLabelyLawsuitBadgeLabel } from "@/lib/labelyLawsuitBadge";
 
 const IPHONE_SCALE = 1080 / 390;
 
@@ -22,6 +23,10 @@ const C = {
   pantryBorderSage: "#6B9080",
   pantryBgSage: "#EEF4F0",
   pantryTextSage: "#3D5C4E",
+  /** Lawsuits badge — warm brown (pairs with wordmark) */
+  lawsuitBorder: "#8B5A2B",
+  lawsuitBg: "#FAF4EF",
+  lawsuitText: "#5C3D1E",
   /** Analysis card — white + pale mint edge / glow */
   cardBorderMint: "#C9E8DE",
   cardShadowMint: "0 4px 28px rgba(122, 195, 170, 0.28)",
@@ -137,6 +142,13 @@ export default function LabelySlide({ slot, S }) {
   const analysis =
     (slot.labelyAnalysis || "").trim()
     || "Generate this slide from the sidebar to add a Labely analysis.";
+  const lawsuitBadgeLabel = useMemo(
+    () =>
+      getLabelyLawsuitBadgeLabel(
+        `${slot.itemName || ""}|${slot.labelyBrand || ""}|${slot.labelyScore ?? 0}`
+      ),
+    [slot.itemName, slot.labelyBrand, slot.labelyScore]
+  );
   const colors = scoreColors(score);
 
   return (
@@ -280,22 +292,56 @@ export default function LabelySlide({ slot, S }) {
           style={{
             marginTop: px(22),
             width: "100%",
-            height: px(44),
-            borderRadius: px(999),
-            border: `${bw}px solid ${C.pantryBorderSage}`,
-            background: C.pantryBgSage,
-            color: C.pantryTextSage,
             display: "flex",
             alignItems: "center",
-            justifyContent: "center",
-            gap: px(7),
-            fontSize: px(15),
-            fontWeight: 700,
-            letterSpacing: "0.01em",
+            gap: px(10),
           }}
         >
+          <div
+            style={{
+              flexShrink: 0,
+              height: px(44),
+              paddingLeft: px(20),
+              paddingRight: px(20),
+              borderRadius: px(999),
+              border: `${bw}px solid ${C.pantryBorderSage}`,
+              background: C.pantryBgSage,
+              color: C.pantryTextSage,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: px(7),
+              fontSize: px(15),
+              fontWeight: 700,
+              letterSpacing: "0.01em",
+            }}
+          >
           <span>Add to Pantry</span>
           <SaveGlyph px={px} stroke={C.pantryTextSage} icon={17} />
+        </div>
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              height: px(44),
+              paddingLeft: px(16),
+              paddingRight: px(16),
+              borderRadius: px(999),
+              border: `${bw}px solid ${C.lawsuitBorder}`,
+              background: C.lawsuitBg,
+              color: C.lawsuitText,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: px(13),
+              fontWeight: 700,
+              letterSpacing: "0.01em",
+            }}
+          >
+            <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {lawsuitBadgeLabel}
+            </span>
+          </div>
         </div>
       </div>
 

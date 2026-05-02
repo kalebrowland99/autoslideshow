@@ -44,6 +44,7 @@ export const emptySlot = (i) => ({
   labelyVerdict: "",
   labelyAnalysis: "",
   labelyAnalysisTitle: "Labely's Analysis",
+  labelyLegalNote: "No lawsuits found.",
 });
 
 export const defaultConfig = {
