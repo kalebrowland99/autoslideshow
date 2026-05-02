@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 import { NextResponse } from "next/server";
-import { FREIBURG_ALL_CLASSES, isFreiburgCategoryId } from "@/lib/freiburgGroceriesClasses";
+import { FREIBURG_ALL_CLASSES, normalizeFreiburgCategoryParam } from "@/lib/freiburgGroceriesClasses";
 import { listCachedFreiburgImageAbsPaths } from "@/lib/freiburgGroceriesPublicPaths";
 
 function mimeForPath(absPath) {
@@ -12,9 +12,9 @@ function mimeForPath(absPath) {
 
 export async function GET(request) {
   const raw = request.nextUrl.searchParams.get("category")?.trim() || "";
-  const category = raw ? raw.toUpperCase().replace(/\s+/g, "_") : "";
+  const category = normalizeFreiburgCategoryParam(raw);
 
-  if (category && !isFreiburgCategoryId(category)) {
+  if (raw && !category) {
     return NextResponse.json(
       {
         error: `Unknown category "${raw}". Use one of: ${FREIBURG_ALL_CLASSES.join(", ")}`,

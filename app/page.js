@@ -9,7 +9,11 @@ import {
   readHomeSession,
   writeHomeSession,
 } from "@/lib/homeSessionStorage";
-import { FREIBURG_ALL_CLASSES, formatFreiburgCategoryLabel } from "@/lib/freiburgGroceriesClasses";
+import {
+  FREIBURG_ALL_CLASSES,
+  formatFreiburgCategoryLabel,
+  normalizeFreiburgCategoryParam,
+} from "@/lib/freiburgGroceriesClasses";
 
 export const emptySlot = (i) => ({
   imageUrl: null,
@@ -245,7 +249,7 @@ export default function Home() {
               <span className="text-white/45 text-xs font-medium shrink-0">Freiburg</span>
               <div className="relative">
                 <select
-                  value={config.labelyFreiburgCategory ?? ""}
+                  value={normalizeFreiburgCategoryParam(config.labelyFreiburgCategory)}
                   onChange={(e) => updateConfig("labelyFreiburgCategory", e.target.value)}
                   className="text-white font-semibold text-sm tracking-tight bg-transparent outline-none appearance-none pr-6 cursor-pointer max-w-[min(52vw,220px)] truncate"
                   aria-label="Freiburg groceries category for random shelf photo"
@@ -274,6 +278,7 @@ export default function Home() {
         <aside className="w-[420px] border-r border-white/10 overflow-y-auto shrink-0">
           <ConfigPanel
             config={config}
+            setConfig={setConfig}
             updateConfig={updateConfig}
             updateSlot={updateSlot}
             updateMatchItem={updateMatchItem}

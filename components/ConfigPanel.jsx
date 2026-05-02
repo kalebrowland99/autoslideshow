@@ -5,6 +5,7 @@ import { getFontEmbedCSS, toCanvas, toJpeg } from "html-to-image";
 import { DISPLAY_SCALE } from "./VideoPreview";
 import { getSlideInfo, slideIndexToSlotIndex } from "@/lib/slideLayout";
 import { getBrand } from "@/lib/brand";
+import { normalizeFreiburgCategoryParam } from "@/lib/freiburgGroceriesClasses";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
 
 function parseDataUrl(dataUrl) {
@@ -148,7 +149,7 @@ function readFileToDataUrl(file) {
 }
 
 export default function ConfigPanel({
-  config, updateConfig, updateSlot, updateMatchItem,
+  config, setConfig, updateConfig, updateSlot, updateMatchItem,
   currentSlide, setCurrentSlide, totalSlides,
   isExporting, setIsExporting, exportProgress, setExportProgress,
   exportStatus, setExportStatus,
@@ -686,9 +687,8 @@ ${SHARED_RULES_OUTRO}`;
   /** Random crop from cached Freiburg Groceries (category from header config). */
   const handleLabelyFreiburgSlot = async (globalIdx) => {
     if (config.labelyAiProducts) return;
-    const qs = config.labelyFreiburgCategory
-      ? `?category=${encodeURIComponent(config.labelyFreiburgCategory)}`
-      : "";
+    const cat = normalizeFreiburgCategoryParam(config.labelyFreiburgCategory);
+    const qs = cat ? `?category=${encodeURIComponent(cat)}` : "";
     try {
       const res = await fetch(`/api/labely/freiburg-random${qs}`);
       const json = await res.json();
