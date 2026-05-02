@@ -187,9 +187,8 @@ export default function LabelyView({ fillViewport = true }) {
             className="w-full text-[11px] text-[#5C5C5C] file:mr-2 file:rounded-lg file:border-0 file:bg-[#EEF4F0] file:px-3 file:py-2 file:text-[12px] file:font-semibold file:text-[#3D5C4E]"
           />
           <p className="mt-2 text-[10px] leading-relaxed text-[#8E8E93]">
-            Freiburg dataset randoms live in the main editor: choose <strong className="text-[#5C5C5C]">Labely</strong> in
-            the top-left app menu, set the <strong className="text-[#5C5C5C]">Freiburg</strong> category, then use the
-            green <strong className="text-[#5C5C5C]">Freiburg</strong> button on each image row.
+            Full slideshow editing lives in the main app: choose <strong className="text-[#5C5C5C]">Labely</strong> in the
+            top-left menu, then upload photos or use AI-generated products in the sidebar.
           </p>
           {busy ? <p className="mt-2 text-[11px] text-[#6B9080]">Analyzing packaging…</p> : null}
           {error ? <p className="mt-2 text-[11px] text-red-600">{error}</p> : null}

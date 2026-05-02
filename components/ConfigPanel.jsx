@@ -6,7 +6,6 @@ import { getFontEmbedCSS, toCanvas, toJpeg } from "html-to-image";
 import { DISPLAY_SCALE } from "./VideoPreview";
 import { getSlideInfo, slideIndexToSlotIndex } from "@/lib/slideLayout";
 import { getBrand } from "@/lib/brand";
-import { normalizeFreiburgCategoryParam } from "@/lib/freiburgGroceriesClasses";
 import {
   fileToDisplayableDataUrl,
   tryFileToDisplayableDataUrl,
@@ -696,32 +695,6 @@ ${SHARED_RULES_OUTRO}`;
       return;
     }
     await runLabelySlotWithDataUrl(globalIdx, dataUrl);
-  };
-
-  /** Random crop from cached Freiburg Groceries (category from header config). */
-  const handleLabelyFreiburgSlot = async (globalIdx) => {
-    if (config.labelyAiProducts) return;
-    const cat = normalizeFreiburgCategoryParam(config.labelyFreiburgCategory);
-    const qs = cat ? `?category=${encodeURIComponent(cat)}` : "";
-    try {
-      const res = await fetch(`/api/labely/freiburg-random${qs}`);
-      const json = await res.json();
-      if (!res.ok) {
-        setAiErrors((p) => ({
-          ...p,
-          [globalIdx]: json?.error || "Could not load Freiburg image.",
-        }));
-        return;
-      }
-      const url = typeof json.imageDataUrl === "string" ? json.imageDataUrl : "";
-      if (!url) {
-        setAiErrors((p) => ({ ...p, [globalIdx]: "Empty image from server." }));
-        return;
-      }
-      await runLabelySlotWithDataUrl(globalIdx, url);
-    } catch (e) {
-      setAiErrors((p) => ({ ...p, [globalIdx]: e?.message || "Freiburg load failed" }));
-    }
   };
 
   /** User-uploaded photo for Thrifty / Valcoin (no AI image gen). globalIdx ≥ 6 = batch-only row. */
@@ -2358,7 +2331,7 @@ ${SHARED_RULES_OUTRO}`;
             {labelyUploadsLocked
               ? " AI mode is on — uploads are disabled; run Generate to fill slots."
               : isLabely
-              ? " Labely analyzes rows 1–6 (live preview); rows 7+ are analyzed when you run batch. Freiburg: pick category in the header, then the green Freiburg button per row."
+              ? " Labely analyzes rows 1–6 (live preview); rows 7+ are analyzed when you run batch. Upload photos per row or use AI-generated products."
               : " Rows 1–6 match the live preview. AI uses the brand list for any row left empty when generating."}
           </p>
 
@@ -2487,17 +2460,6 @@ ${SHARED_RULES_OUTRO}`;
                       e.target.value = "";
                     }}
                   />
-                  {isLabely && !labelyUploadsLocked ? (
-                    <button
-                      type="button"
-                      title="Random Freiburg shelf photo (category in header)"
-                      disabled={generatingSlot !== null}
-                      onClick={() => void handleLabelyFreiburgSlot(rowIdx)}
-                      className="shrink-0 rounded-lg border border-emerald-500/35 bg-emerald-500/15 px-2 py-1 text-[10px] font-bold tracking-wide text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-40"
-                    >
-                      Freiburg
-                    </button>
-                  ) : null}
                   {url && generatingSlot !== rowIdx ? (
                     <span className="text-emerald-400/90 text-[10px] font-medium shrink-0">Ready</span>
                   ) : null}
