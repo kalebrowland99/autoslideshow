@@ -111,6 +111,7 @@ export default function LabelyView({ fillViewport = true }) {
   const [data, setData] = useState(emptyLabely);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [useFreiburgRandom, setUseFreiburgRandom] = useState(false);
   const theme = useMemo(() => scoreTheme(data?.score ?? 0), [data?.score]);
 
   const lawsuitBadgeLabel = useMemo(
@@ -160,6 +161,24 @@ export default function LabelyView({ fillViewport = true }) {
     [analyzeDataUrl]
   );
 
+  const loadRandomFreiburg = useCallback(async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch("/api/labely/freiburg-random");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Could not load a random dataset image.");
+      const url = typeof json.imageDataUrl === "string" ? json.imageDataUrl : "";
+      if (!url) throw new Error("Empty image from server.");
+      await analyzeDataUrl(url);
+    } catch (e) {
+      console.error("[labely] freiburg random failed", e);
+      setError(e?.message || "Freiburg random load failed.");
+    } finally {
+      setBusy(false);
+    }
+  }, [analyzeDataUrl]);
+
   const shell = fillViewport
     ? "min-h-screen flex items-center justify-center bg-[#F9F9F9] px-[22px] py-10 text-[#1A1A1A]"
     : "flex min-h-full w-full items-center justify-center bg-[#F9F9F9] px-[22px] py-10 text-[#1A1A1A]";
@@ -171,13 +190,50 @@ export default function LabelyView({ fillViewport = true }) {
           <label className="block text-[11px] font-semibold text-[#3D5C4E] mb-2">
             Upload a product photo
           </label>
+          <label className="mb-3 flex cursor-pointer items-start gap-2.5 text-[12px] leading-snug text-[#3C3C43]">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-[#C9E8DE] accent-[#3D5C4E]"
+              checked={useFreiburgRandom}
+              disabled={busy}
+              onChange={(e) => {
+                setUseFreiburgRandom(e.target.checked);
+                setError("");
+              }}
+            />
+            <span>
+              Use random junk-food shelf photo from the{" "}
+              <a
+                href="https://github.com/PhilJd/freiburg_groceries_dataset"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold text-[#3D5C4E] underline decoration-[#C9E8DE] underline-offset-2"
+              >
+                Freiburg Groceries
+              </a>{" "}
+              dataset (candy, chips, soda, cake, …). Run{" "}
+              <code className="rounded bg-[#EEF4F0] px-1 py-0.5 text-[10px]">npm run cache:freiburg-junk</code> once
+              to download crops into <code className="rounded bg-[#EEF4F0] px-1 py-0.5 text-[10px]">public/freiburg/</code>
+              .
+            </span>
+          </label>
           <input
             type="file"
             accept="image/*"
-            disabled={busy}
+            disabled={busy || useFreiburgRandom}
             onChange={onPickFile}
-            className="w-full text-[11px] text-[#5C5C5C] file:mr-2 file:rounded-lg file:border-0 file:bg-[#EEF4F0] file:px-3 file:py-2 file:text-[12px] file:font-semibold file:text-[#3D5C4E]"
+            className="w-full text-[11px] text-[#5C5C5C] file:mr-2 file:rounded-lg file:border-0 file:bg-[#EEF4F0] file:px-3 file:py-2 file:text-[12px] file:font-semibold file:text-[#3D5C4E] disabled:opacity-45"
           />
+          {useFreiburgRandom ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void loadRandomFreiburg()}
+              className="mt-3 w-full rounded-lg border border-[#3D5C4E] bg-[#EEF4F0] px-3 py-2.5 text-[12px] font-bold tracking-wide text-[#3D5C4E] disabled:opacity-50"
+            >
+              {busy ? "Working…" : "Load random & analyze"}
+            </button>
+          ) : null}
           {busy ? <p className="mt-2 text-[11px] text-[#6B9080]">Analyzing packaging…</p> : null}
           {error ? <p className="mt-2 text-[11px] text-red-600">{error}</p> : null}
         </div>

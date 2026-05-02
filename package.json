@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "cache:freiburg-junk": "node scripts/cache-freiburg-junk.mjs"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.6",

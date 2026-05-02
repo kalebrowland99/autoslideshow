@@ -40,3 +40,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Freiburg groceries crops (npm run cache:freiburg-junk)
+/public/freiburg/**/*.png
+/public/freiburg/**/*.jpg
+/public/freiburg/**/*.jpeg
+/.cache/
