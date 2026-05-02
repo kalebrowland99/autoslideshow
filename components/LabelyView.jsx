@@ -2,7 +2,6 @@
 
 import { useCallback, useMemo, useState, Fragment } from "react";
 import { getLabelyLawsuitBadgeLabel } from "@/lib/labelyLawsuitBadge";
-import { FREIBURG_ALL_CLASSES, formatFreiburgCategoryLabel } from "@/lib/freiburgGroceriesClasses";
 
 function clampScore(score) {
   const n = Number(score);
@@ -112,9 +111,6 @@ export default function LabelyView({ fillViewport = true }) {
   const [data, setData] = useState(emptyLabely);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [useFreiburgRandom, setUseFreiburgRandom] = useState(false);
-  /** "" = any cached class; otherwise one of FREIBURG_ALL_CLASSES */
-  const [freiburgCategory, setFreiburgCategory] = useState("");
   const theme = useMemo(() => scoreTheme(data?.score ?? 0), [data?.score]);
 
   const lawsuitBadgeLabel = useMemo(
@@ -164,27 +160,6 @@ export default function LabelyView({ fillViewport = true }) {
     [analyzeDataUrl]
   );
 
-  const loadRandomFreiburg = useCallback(async () => {
-    setBusy(true);
-    setError("");
-    try {
-      const qs = freiburgCategory
-        ? `?category=${encodeURIComponent(freiburgCategory)}`
-        : "";
-      const res = await fetch(`/api/labely/freiburg-random${qs}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Could not load a random dataset image.");
-      const url = typeof json.imageDataUrl === "string" ? json.imageDataUrl : "";
-      if (!url) throw new Error("Empty image from server.");
-      await analyzeDataUrl(url);
-    } catch (e) {
-      console.error("[labely] freiburg random failed", e);
-      setError(e?.message || "Freiburg random load failed.");
-    } finally {
-      setBusy(false);
-    }
-  }, [analyzeDataUrl, freiburgCategory]);
-
   const shell = fillViewport
     ? "min-h-screen flex items-center justify-center bg-[#F9F9F9] px-[22px] py-10 text-[#1A1A1A]"
     : "flex min-h-full w-full items-center justify-center bg-[#F9F9F9] px-[22px] py-10 text-[#1A1A1A]";
@@ -196,68 +171,18 @@ export default function LabelyView({ fillViewport = true }) {
           <label className="block text-[11px] font-semibold text-[#3D5C4E] mb-2">
             Upload a product photo
           </label>
-          <label className="mb-3 flex cursor-pointer items-start gap-2.5 text-[12px] leading-snug text-[#3C3C43]">
-            <input
-              type="checkbox"
-              className="mt-0.5 h-4 w-4 shrink-0 rounded border-[#C9E8DE] accent-[#3D5C4E]"
-              checked={useFreiburgRandom}
-              disabled={busy}
-              onChange={(e) => {
-                setUseFreiburgRandom(e.target.checked);
-                setError("");
-              }}
-            />
-            <span>
-              Use a random shelf photo from the{" "}
-              <a
-                href="https://github.com/PhilJd/freiburg_groceries_dataset"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-semibold text-[#3D5C4E] underline decoration-[#C9E8DE] underline-offset-2"
-              >
-                Freiburg Groceries
-              </a>{" "}
-              dataset (25 product classes). Run{" "}
-              <code className="rounded bg-[#EEF4F0] px-1 py-0.5 text-[10px]">npm run cache:freiburg-junk</code> once
-              to download crops into <code className="rounded bg-[#EEF4F0] px-1 py-0.5 text-[10px]">public/freiburg/</code>
-              .
-            </span>
-          </label>
-          {useFreiburgRandom ? (
-            <label className="mb-3 block text-[11px] font-semibold text-[#3D5C4E]">
-              Category
-              <select
-                value={freiburgCategory}
-                disabled={busy}
-                onChange={(e) => setFreiburgCategory(e.target.value)}
-                className="mt-1.5 block w-full rounded-lg border border-[#C9E8DE] bg-white px-3 py-2 text-[13px] font-normal text-[#1A1A1A]"
-              >
-                <option value="">Any (random class)</option>
-                {FREIBURG_ALL_CLASSES.map((id) => (
-                  <option key={id} value={id}>
-                    {formatFreiburgCategoryLabel(id)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
           <input
             type="file"
             accept="image/*"
-            disabled={busy || useFreiburgRandom}
+            disabled={busy}
             onChange={onPickFile}
-            className="w-full text-[11px] text-[#5C5C5C] file:mr-2 file:rounded-lg file:border-0 file:bg-[#EEF4F0] file:px-3 file:py-2 file:text-[12px] file:font-semibold file:text-[#3D5C4E] disabled:opacity-45"
+            className="w-full text-[11px] text-[#5C5C5C] file:mr-2 file:rounded-lg file:border-0 file:bg-[#EEF4F0] file:px-3 file:py-2 file:text-[12px] file:font-semibold file:text-[#3D5C4E]"
           />
-          {useFreiburgRandom ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void loadRandomFreiburg()}
-              className="mt-3 w-full rounded-lg border border-[#3D5C4E] bg-[#EEF4F0] px-3 py-2.5 text-[12px] font-bold tracking-wide text-[#3D5C4E] disabled:opacity-50"
-            >
-              {busy ? "Working…" : "Load random & analyze"}
-            </button>
-          ) : null}
+          <p className="mt-2 text-[10px] leading-relaxed text-[#8E8E93]">
+            Freiburg dataset randoms live in the main editor: choose <strong className="text-[#5C5C5C]">Labely</strong> in
+            the top-left app menu, set the <strong className="text-[#5C5C5C]">Freiburg</strong> category, then use the
+            green <strong className="text-[#5C5C5C]">Freiburg</strong> button on each image row.
+          </p>
           {busy ? <p className="mt-2 text-[11px] text-[#6B9080]">Analyzing packaging…</p> : null}
           {error ? <p className="mt-2 text-[11px] text-red-600">{error}</p> : null}
         </div>

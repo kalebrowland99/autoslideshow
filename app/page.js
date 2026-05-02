@@ -9,6 +9,7 @@ import {
   readHomeSession,
   writeHomeSession,
 } from "@/lib/homeSessionStorage";
+import { FREIBURG_ALL_CLASSES, formatFreiburgCategoryLabel } from "@/lib/freiburgGroceriesClasses";
 
 export const emptySlot = (i) => ({
   imageUrl: null,
@@ -80,6 +81,8 @@ export const defaultConfig = {
 
   /** Labely only: true = AI-generated packaged-food cards + product images (no uploads). false = vision + uploads (current default). */
   labelyAiProducts: false,
+  /** Labely + Freiburg random: "" = any class; else one of FREIBURG_ALL_CLASSES (header dropdown). */
+  labelyFreiburgCategory: "",
 };
 
 export default function Home() {
@@ -207,28 +210,51 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
       <header className="border-b border-white/10 px-6 py-4 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center">
-            <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center">
+              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div className="relative">
+              <select
+                value={config.appId ?? "thrifty"}
+                onChange={(e) => {
+                  const nextAppId = e.target.value;
+                  updateConfig("appId", nextAppId);
+                }}
+                className="text-white font-bold text-lg tracking-tight bg-transparent outline-none appearance-none pr-6 cursor-pointer"
+                aria-label="Select app brand"
+              >
+                <option value="thrifty" className="bg-[#0f0f0f] text-white">Thrifty Slideshows</option>
+                <option value="valcoin" className="bg-[#0f0f0f] text-white">Valcoin Slideshows</option>
+                <option value="labely" className="bg-[#0f0f0f] text-white">Labely</option>
+              </select>
+              <span className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-white/60 text-xs">▼</span>
+            </div>
           </div>
-          <div className="relative">
-            <select
-              value={config.appId ?? "thrifty"}
-              onChange={(e) => {
-                const nextAppId = e.target.value;
-                updateConfig("appId", nextAppId);
-              }}
-              className="text-white font-bold text-lg tracking-tight bg-transparent outline-none appearance-none pr-6 cursor-pointer"
-              aria-label="Select app brand"
-            >
-              <option value="thrifty" className="bg-[#0f0f0f] text-white">Thrifty Slideshows</option>
-              <option value="valcoin" className="bg-[#0f0f0f] text-white">Valcoin Slideshows</option>
-              <option value="labely" className="bg-[#0f0f0f] text-white">Labely</option>
-            </select>
-            <span className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-white/60 text-xs">▼</span>
-          </div>
+          {config.appId === "labely" ? (
+            <div className="flex items-center gap-2 pl-1 border-l border-white/15">
+              <span className="text-white/45 text-xs font-medium shrink-0">Freiburg</span>
+              <div className="relative">
+                <select
+                  value={config.labelyFreiburgCategory ?? ""}
+                  onChange={(e) => updateConfig("labelyFreiburgCategory", e.target.value)}
+                  className="text-white font-semibold text-sm tracking-tight bg-transparent outline-none appearance-none pr-6 cursor-pointer max-w-[min(52vw,220px)] truncate"
+                  aria-label="Freiburg groceries category for random shelf photo"
+                >
+                  <option value="" className="bg-[#0f0f0f] text-white">Any class</option>
+                  {FREIBURG_ALL_CLASSES.map((id) => (
+                    <option key={id} value={id} className="bg-[#0f0f0f] text-white">
+                      {formatFreiburgCategoryLabel(id)}
+                    </option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-white/60 text-[10px]">▼</span>
+              </div>
+            </div>
+          ) : null}
         </div>
         <div className="flex items-center gap-3">
           <span className="text-white/30 text-xs">

@@ -636,15 +636,14 @@ ${SHARED_RULES_OUTRO}`;
   };
 
   /** Row index across all shows: 0…(qty×slotsPerShow−1). Rows 0–5 mirror live preview slots. */
-  const handleLabelySlotUpload = async (globalIdx, file) => {
+  const runLabelySlotWithDataUrl = async (globalIdx, dataUrl) => {
     if (config.labelyAiProducts) return;
-    if (!file?.type?.startsWith("image/")) return;
+    if (!dataUrl || typeof dataUrl !== "string") return;
     setAiErrors((p) => ({ ...p, [globalIdx]: null }));
     setGeneratingSlot(globalIdx);
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     try {
-      const dataUrl = await readFileToDataUrl(file);
       setBatchImageDataUrls((prev) => {
         const need = Math.max(prev.length, globalIdx + 1);
         const next = Array.from({ length: need }, (_, i) => (i < prev.length ? prev[i] : null));
@@ -675,6 +674,39 @@ ${SHARED_RULES_OUTRO}`;
     } finally {
       setGeneratingSlot(null);
       abortRef.current = null;
+    }
+  };
+
+  const handleLabelySlotUpload = async (globalIdx, file) => {
+    if (!file?.type?.startsWith("image/")) return;
+    const dataUrl = await readFileToDataUrl(file);
+    await runLabelySlotWithDataUrl(globalIdx, dataUrl);
+  };
+
+  /** Random crop from cached Freiburg Groceries (category from header config). */
+  const handleLabelyFreiburgSlot = async (globalIdx) => {
+    if (config.labelyAiProducts) return;
+    const qs = config.labelyFreiburgCategory
+      ? `?category=${encodeURIComponent(config.labelyFreiburgCategory)}`
+      : "";
+    try {
+      const res = await fetch(`/api/labely/freiburg-random${qs}`);
+      const json = await res.json();
+      if (!res.ok) {
+        setAiErrors((p) => ({
+          ...p,
+          [globalIdx]: json?.error || "Could not load Freiburg image.",
+        }));
+        return;
+      }
+      const url = typeof json.imageDataUrl === "string" ? json.imageDataUrl : "";
+      if (!url) {
+        setAiErrors((p) => ({ ...p, [globalIdx]: "Empty image from server." }));
+        return;
+      }
+      await runLabelySlotWithDataUrl(globalIdx, url);
+    } catch (e) {
+      setAiErrors((p) => ({ ...p, [globalIdx]: e?.message || "Freiburg load failed" }));
     }
   };
 
@@ -2294,7 +2326,7 @@ ${SHARED_RULES_OUTRO}`;
             {labelyUploadsLocked
               ? " AI mode is on — uploads are disabled; run Generate to fill slots."
               : isLabely
-              ? " Labely analyzes rows 1–6 (live preview); rows 7+ are analyzed when you run batch."
+              ? " Labely analyzes rows 1–6 (live preview); rows 7+ are analyzed when you run batch. Freiburg: pick category in the header, then the green Freiburg button per row."
               : " Rows 1–6 match the live preview. AI uses the brand list for any row left empty when generating."}
           </p>
 
@@ -2423,6 +2455,17 @@ ${SHARED_RULES_OUTRO}`;
                       e.target.value = "";
                     }}
                   />
+                  {isLabely && !labelyUploadsLocked ? (
+                    <button
+                      type="button"
+                      title="Random Freiburg shelf photo (category in header)"
+                      disabled={generatingSlot !== null}
+                      onClick={() => void handleLabelyFreiburgSlot(rowIdx)}
+                      className="shrink-0 rounded-lg border border-emerald-500/35 bg-emerald-500/15 px-2 py-1 text-[10px] font-bold tracking-wide text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-40"
+                    >
+                      Freiburg
+                    </button>
+                  ) : null}
                   {url && generatingSlot !== rowIdx ? (
                     <span className="text-emerald-400/90 text-[10px] font-medium shrink-0">Ready</span>
                   ) : null}
