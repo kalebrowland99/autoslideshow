@@ -7,6 +7,12 @@ import { DISPLAY_SCALE } from "./VideoPreview";
 import { getSlideInfo, slideIndexToSlotIndex } from "@/lib/slideLayout";
 import { getBrand } from "@/lib/brand";
 import { normalizeFreiburgCategoryParam } from "@/lib/freiburgGroceriesClasses";
+import {
+  fileToDisplayableDataUrl,
+  tryFileToDisplayableDataUrl,
+  isLikelyRasterImageFile,
+  IMAGE_FILE_ACCEPT,
+} from "@/lib/fileToDisplayableDataUrl";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
 
 function parseDataUrl(dataUrl) {
@@ -149,15 +155,6 @@ const waitForImagesDecoded = async (root) => {
 
 // Scale preview DOM → 1080px wide export without forcing canvasWidth/height (breaks img paint in foreignObject on some browsers).
 const EXPORT_CAPTURE_PIXEL_RATIO = 1080 / Math.round(1080 * DISPLAY_SCALE);
-
-function readFileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result));
-    r.onerror = () => reject(new Error("Could not read file"));
-    r.readAsDataURL(file);
-  });
-}
 
 export default function ConfigPanel({
   config, setConfig, updateConfig, updateSlot, updateMatchItem,
@@ -690,8 +687,14 @@ ${SHARED_RULES_OUTRO}`;
   };
 
   const handleLabelySlotUpload = async (globalIdx, file) => {
-    if (!file?.type?.startsWith("image/")) return;
-    const dataUrl = await readFileToDataUrl(file);
+    if (!isLikelyRasterImageFile(file)) return;
+    let dataUrl;
+    try {
+      dataUrl = await fileToDisplayableDataUrl(file);
+    } catch {
+      setAiErrors((p) => ({ ...p, [globalIdx]: "Could not read this photo (try JPEG or HEIC)." }));
+      return;
+    }
     await runLabelySlotWithDataUrl(globalIdx, dataUrl);
   };
 
@@ -723,13 +726,13 @@ ${SHARED_RULES_OUTRO}`;
 
   /** User-uploaded photo for Thrifty / Valcoin (no AI image gen). globalIdx ≥ 6 = batch-only row. */
   const handleThriftyValcoinSlotFile = async (globalIdx, file) => {
-    if (!file?.type?.startsWith("image/")) return;
+    if (!isLikelyRasterImageFile(file)) return;
     setAiErrors((p) => ({ ...p, [globalIdx]: null }));
     setGeneratingSlot(globalIdx);
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     try {
-      const dataUrl = await readFileToDataUrl(file);
+      const dataUrl = await fileToDisplayableDataUrl(file);
       setBatchImageDataUrls((prev) => {
         const need = Math.max(prev.length, globalIdx + 1);
         const next = Array.from({ length: need }, (_, i) => (i < prev.length ? prev[i] : null));
@@ -1268,13 +1271,26 @@ ${SHARED_RULES_OUTRO}`;
   const handleBulkImageFiles = async (fileList, opts = { replace: true }) => {
     if (generatingSlot !== null) return;
     if (isLabely && config.labelyAiProducts) return;
-    const imageFiles = [...fileList].filter((f) => f?.type?.startsWith("image/"));
+    const imageFiles = [...fileList].filter((f) => isLikelyRasterImageFile(f));
     if (!imageFiles.length) return;
     const showsBefore = numSlideshows;
     const perShow = batchSlotCount;
     try {
-      const urls = await Promise.all(imageFiles.map((f) => readFileToDataUrl(f)));
-      const minShows = Math.max(1, Math.ceil(urls.length / perShow));
+      const results = await Promise.all(imageFiles.map((f) => tryFileToDisplayableDataUrl(f)));
+      const urls = results.map((r) => (r.ok ? r.dataUrl : null));
+      const failedNames = results
+        .map((r, i) => (!r.ok ? imageFiles[i]?.name || `#${i + 1}` : null))
+        .filter(Boolean);
+      if (!urls.some(Boolean)) {
+        alert(
+          `Could not read any images.${failedNames.length ? `\n\n(${failedNames.slice(0, 6).join(", ")})` : ""}`
+        );
+        return;
+      }
+      if (failedNames.length) {
+        console.warn("[bulk] skipped unreadable files:", failedNames);
+      }
+      const minShows = Math.max(1, Math.ceil(imageFiles.length / perShow));
       if (opts.replace) {
         const newShows = Math.max(showsBefore, minShows);
         const need = newShows * perShow;
@@ -2049,25 +2065,26 @@ ${SHARED_RULES_OUTRO}`;
           </p>
           <input
             type="file"
-            accept="image/*"
+            accept={IMAGE_FILE_ACCEPT}
             multiple
             className="text-white/50 text-[11px] w-full file:mr-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-white/10 file:text-white/80"
             onChange={(e) => {
               const files = [...e.target.files];
-              if (!files.length) return;
-              Promise.all(
-                files.map(
-                  (f) =>
-                    new Promise((res) => {
-                      const r = new FileReader();
-                      r.onload = () => res({ id: `${Date.now()}-${Math.random()}`, dataUrl: r.result });
-                      r.readAsDataURL(f);
-                    })
-                )
-              ).then((list) => {
-                updateConfig("poseReferenceImages", [...(config.poseReferenceImages || []), ...list]);
-              });
               e.target.value = "";
+              if (!files.length) return;
+              void (async () => {
+                const results = await Promise.all(files.map((f) => tryFileToDisplayableDataUrl(f)));
+                const list = results
+                  .filter((r) => r.ok)
+                  .map((r) => ({ id: `${Date.now()}-${Math.random()}`, dataUrl: r.dataUrl }));
+                const bad = results.length - list.length;
+                if (!list.length) {
+                  alert("Could not read any of those images (try JPEG, PNG, or HEIC).");
+                  return;
+                }
+                updateConfig("poseReferenceImages", [...(config.poseReferenceImages || []), ...list]);
+                if (bad) console.warn("[pose refs] skipped", bad, "file(s)");
+              })();
             }}
           />
           {(config.poseReferenceImages?.length ?? 0) > 0 && (
@@ -2349,7 +2366,7 @@ ${SHARED_RULES_OUTRO}`;
             <input
               ref={bulkFileInputRef}
               type="file"
-              accept="image/*"
+              accept={IMAGE_FILE_ACCEPT}
               multiple
               className="sr-only"
               tabIndex={-1}
@@ -2424,7 +2441,7 @@ ${SHARED_RULES_OUTRO}`;
                   onDrop={(e) => {
                     e.preventDefault();
                     const file = e.dataTransfer.files?.[0];
-                    if (file?.type?.startsWith("image/")) {
+                    if (isLikelyRasterImageFile(file)) {
                       if (labelyUploadsLocked) return;
                       if (isLabely) void handleLabelySlotUpload(rowIdx, file);
                       else void handleThriftyValcoinSlotFile(rowIdx, file);
@@ -2459,7 +2476,7 @@ ${SHARED_RULES_OUTRO}`;
                   </div>
                   <input
                     type="file"
-                    accept="image/*"
+                    accept={IMAGE_FILE_ACCEPT}
                     disabled={generatingSlot !== null || labelyUploadsLocked}
                     className="text-white/50 text-[11px] max-w-[200px] min-w-0 flex-1 file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:bg-white/10 file:text-white/80 disabled:opacity-40"
                     onChange={(e) => {
@@ -2570,7 +2587,7 @@ ${SHARED_RULES_OUTRO}`;
             <div className="flex flex-wrap items-center gap-2">
               <input
                 type="file"
-                accept="image/*"
+                accept={IMAGE_FILE_ACCEPT}
                 multiple
                 disabled={generatingSlot !== null || labelyUploadsLocked}
                 className="text-white/50 text-[11px] flex-1 min-w-0 file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:bg-white/10 file:text-white/80 disabled:opacity-40"

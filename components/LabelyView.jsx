@@ -2,6 +2,11 @@
 
 import { useCallback, useMemo, useState, Fragment } from "react";
 import { getLabelyLawsuitBadgeLabel } from "@/lib/labelyLawsuitBadge";
+import {
+  fileToDisplayableDataUrl,
+  isLikelyRasterImageFile,
+  IMAGE_FILE_ACCEPT,
+} from "@/lib/fileToDisplayableDataUrl";
 
 function clampScore(score) {
   const n = Number(score);
@@ -149,13 +154,16 @@ export default function LabelyView({ fillViewport = true }) {
     (e) => {
       const file = e.target.files?.[0];
       e.target.value = "";
-      if (!file?.type?.startsWith("image/")) return;
-      const r = new FileReader();
-      r.onload = () => {
-        const url = typeof r.result === "string" ? r.result : "";
-        if (url) analyzeDataUrl(url);
-      };
-      r.readAsDataURL(file);
+      if (!isLikelyRasterImageFile(file)) return;
+      void (async () => {
+        try {
+          const url = await fileToDisplayableDataUrl(file);
+          await analyzeDataUrl(url);
+        } catch (err) {
+          console.error("[labely] file read failed", err);
+          setError(err?.message || "Could not read this photo (try JPEG or HEIC).");
+        }
+      })();
     },
     [analyzeDataUrl]
   );
@@ -173,7 +181,7 @@ export default function LabelyView({ fillViewport = true }) {
           </label>
           <input
             type="file"
-            accept="image/*"
+            accept={IMAGE_FILE_ACCEPT}
             disabled={busy}
             onChange={onPickFile}
             className="w-full text-[11px] text-[#5C5C5C] file:mr-2 file:rounded-lg file:border-0 file:bg-[#EEF4F0] file:px-3 file:py-2 file:text-[12px] file:font-semibold file:text-[#3D5C4E]"

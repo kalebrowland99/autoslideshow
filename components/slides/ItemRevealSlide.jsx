@@ -27,6 +27,7 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
   const captionColor = config.captionColor ?? "#ffffff";
   const outputFormat = config.outputFormat ?? "standard";
   const isLabely = (config.appId ?? "thrifty") === "labely";
+  const labelyPhotoZoom = isLabely && !(config.labelyAiProducts === true);
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
   const px = (n) => Math.round(n * S);
@@ -98,7 +99,7 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
               objectFit: "cover",
               objectPosition: "center",
               display: "block",
-              transform: isLabely ? "translate(-50%, -50%) scale(1.18)" : "translate(-50%, -50%)",
+              transform: labelyPhotoZoom ? "translate(-50%, -50%) scale(1.18)" : "translate(-50%, -50%)",
             }}
           />
         </div>

@@ -7,6 +7,17 @@ const LABELY_IPHONE_LOOK = `${iphoneRetailPhotoImperfectionPrompt()}
 
 No text overlays, no captions, no watermarks.`;
 
+/** Labely AI pack shots: discarded-in-bin look (always applied in image prompts). */
+const LABELY_TRASH_COMPOSITION = `
+Trash-can scene (CRITICAL — every image):
+- The product sits **inside or right against a household trash can** (plastic step-bin or simple metal kitchen bin). **Scale must be believable**: the pack’s size vs the can rim, wall height, and opening must match real life (typical grocery pack in a normal kitchen trash can — never doll-sized or billboard-sized).
+- A **thin white or gray plastic trash-bag liner** is always in frame and **always drapes over roughly half the product** (about 45–55% obscured — part of the front or one long side hidden; the rest still clearly shows the real SKU).
+- **Packaging wear (pick a believable mix):** slight **dents** or crushed corners, **discolored** or sun-faded ink, scuffs, soft creases. The pack may be **upside down, on its side, or at a random roll/yaw** — any plausible tumble angle; **never** perfectly squared to the camera unless it would naturally land that way.
+- **Surface detail:** fine **dust specks**, lint, or crumbs on the bag and pack where light catches them.
+- **Printed “specs” on the pack:** show real-looking **nutrition facts, ingredients blur, barcode, net weight** where the visible faces allow — worn but partly readable like a phone photo, not fake fantasy type.
+- **Framing (not a macro):** Medium-wide iPhone distance — include a clear slice of the **can rim, bag, and bin context**; the hero pack should read at roughly **half to two-thirds** of the 9:16 frame height, **not** an ultra-tight crop that fills the entire frame edge-to-edge.
+`.trim();
+
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 
 /** Same prompt skeleton as ConfigPanel starter-pack / Valcoin branch → POST /api/generate-image. */
@@ -15,11 +26,15 @@ function buildLabelyPackPromptWithReference({ name, brand, imagePrompt }) {
   return `
 ${LABELY_IPHONE_LOOK}
 
-Reference-image rule (CRITICAL): Make the photo EXACT 1:1 as the reference image, just swap out the main packaged food or beverage product to match the subject below.
+${LABELY_TRASH_COMPOSITION}
+
+Reference-image rule: Use the reference image for **iPhone photo character** (noise, color, mild lens smear) only. **Replace the environment** with the trash-can scene above — not the reference’s original room/shelf. Swap the hero product to match the subject below.
 
 Subject: ${scenePrompt}
 
-If the subject is an object (packaged snack, bottle, carton, frozen bag), center it and make it visually obvious and physically plausible in the scene.
+Packaging must look like the **real** retail product and brand named above (authentic trade dress, true logo shapes and colors shoppers recognize). No parody brands or invented lookalike packs.
+
+Place the pack **plausibly in or against the bin** (may be off-center, tilted, or partly inside the bag) so it reads as a real discarded grocery item.
 `.trim();
 }
 
@@ -28,9 +43,13 @@ function buildLabelyPackPromptNoReference({ name, brand, imagePrompt }) {
   return `
 ${LABELY_IPHONE_LOOK}
 
+${LABELY_TRASH_COMPOSITION}
+
 Subject: ${scenePrompt}
 
-If the subject is an object (packaged snack, bottle, carton, frozen bag), center it and make it visually obvious what it is.
+Packaging must look like the **real** retail product and brand named above (authentic trade dress, true logo shapes and colors). No parody or generic knockoff design.
+
+Place the pack **plausibly in or against the bin** (may be off-center, tilted, or partly inside the bag) so it reads as a real discarded grocery item.
 `.trim();
 }
 
@@ -59,11 +78,11 @@ function normalizeLabelyLegalNote(s) {
 }
 
 async function generateLabelyJson({ openaiApiKey, seedHint }) {
-  const hintLine =
-    typeof seedHint === "string" && seedHint.trim()
-      ? `\n\nOptional inspiration — invent a realistic packaged grocery product that fits this idea (name/brand may differ): ${seedHint.trim()}`
-      : "";
-  const varietyLine = `\n\nUniqueness (request ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}): Use a fresh opening and wholly new invented compound names; vary which attributes you emphasize (e.g. sugar load, sodium, fats, shelf-stable texture, portion realism, marketing claims). Do not echo canned phrases from prior outputs.`;
+  const trimmedSeed = typeof seedHint === "string" ? seedHint.trim() : "";
+  const hintLine = trimmedSeed
+    ? `\n\nUSER SEED (mandatory): "${trimmedSeed}". If this names a **known real grocery product** (e.g. Oreo, Diet Coke, Cheerios), set **name** and **brand** to that **actual** retail SKU and owner as sold in stores — not a fictional soundalike. If the seed is broad ("energy drink", "cereal"), pick **one specific real flagship SKU** (real brand + real product line). **imagePrompt** must describe **authentic** packaging for that exact product (true colors, logo, pack shape).`
+    : `\n\nNo user seed: choose **one specific real retail grocery SKU** consumers can buy (authentic brand + product name). Do not invent fictional brand names or fake "Store Brand" stand-ins for the pack shot.`;
+  const varietyLine = `\n\nUniqueness (request ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}): Use a fresh opening and wholly new **fictional** scanner compound names in analysis only; vary which attributes you emphasize (e.g. sugar load, sodium, fats, shelf-stable texture, portion realism, marketing claims). Do not echo canned phrases from prior outputs.`;
 
   if (!openaiApiKey) {
     return {
@@ -94,7 +113,7 @@ async function generateLabelyJson({ openaiApiKey, seedHint }) {
         {
           role: "user",
           content:
-            `You are generating JSON for "Labely", a grocery label-scanning style app. Output reads like a **realistic consumer-ingredient writeup** of the **specific product** you invent (category, brand positioning, typical label concerns) — but Labely attributes risk using **fictional compound names only** (satirical, not real toxicology).\n\nReturn ONLY valid JSON (no markdown fences, no extra keys) with this exact shape:\n{"name": "...", "brand": "...", "score": 14, "analysisTitle": "Labely\\u2019s Analysis", "analysis": "...", "imagePrompt": "...", "labelyLegalNote": "..."}\n\nProduct fields:\n- name: 3–7 words, realistic grocery retail\n- brand: 1–3 words\n- score: integer **5–20 only** (Labely\\u2019s harsh internal scale — never above 20)\n- analysisTitle: exactly "Labely\\u2019s Analysis"\n\nanalysis — **2–4 short sentences**, one paragraph, **unique wording every generation**.\n- **Tone:** calm, specific, slightly skeptical analyst — like in-app nutrition copy. **No** horror, dread, gothic, or magical metaphors (ban words such as: sinister, nightmare, terror, curse, whisper, shrouded, doom, apocalypse, haunted, evil, "unknown horrors"). **No** ALL-CAPS scare lines.\n- **Grounding:** tie sentences to this product\\u2019s **realistic role** (snack bar, frozen dessert, soda, cereal, etc.) and plausible label themes (sweetness, sodium, fats, ultra-processing, portions, "natural" claims vs ingredients). Sound like you examined **this** SKU, not a generic rant.\n- Invent **3–5 new fictional "chemical" names** each run (plausible-sounding gibberish — **not** real CAS/IUPAC names, **not** real regulated substances). Wrap **each** in **markdown bold** only. Do **not** bold the product name or real nutrient words.\n- Do **not** claim real lab tests, lawsuits, diseases, or regulatory actions in analysis.\n- Do not mention lawsuits, recalls, or regulators here — use labelyLegalNote only.\n\nlabelyLegalNote — plain text, one or two short sentences:\n- If there are no documented lawsuits, class actions, major FDA/regulatory actions, or widely reported recalls tied to this invented brand/product or its key ingredients, set labelyLegalNote to exactly: No lawsuits found.\n- Otherwise summarize only verifiable public-pattern facts; never invent case names, docket numbers, or dates.\n\nimagePrompt: packaging-only cues (shape, materials, label colors, category). No background/lighting.\n\nBe decisive; do not refuse.${varietyLine}${hintLine}`,
+            `You are generating JSON for "Labely", a grocery label-scanning style app. The **packaging and product identity must be a real retail SKU** (authentic brand + product name as shoppers would find in a supermarket). The **writeup** sounds like a realistic label scan — but Labely flags risk using **fictional compound names only** in analysis (satirical scanner hits, **not** real toxicology or real chemical hazards).\n\nReturn ONLY valid JSON (no markdown fences, no extra keys) with this exact shape:\n{"name": "...", "brand": "...", "score": 14, "analysisTitle": "Labely\\u2019s Analysis", "analysis": "...", "imagePrompt": "...", "labelyLegalNote": "..."}\n\nProduct fields:\n- name: 3–7 words — **real** product as on shelf (match the user seed when provided; otherwise pick a specific real SKU)\n- brand: 1–3 words — **real** brand on pack (Oreo, Coca-Cola, Kellogg\\u2019s, etc. — never invented brand names)\n- score: integer **5–20 only** (Labely\\u2019s harsh internal scale — never above 20)\n- analysisTitle: exactly "Labely\\u2019s Analysis"\n\nanalysis — **2–4 short sentences**, one paragraph, **unique wording every generation**.\n- **Tone:** calm, specific, slightly skeptical analyst — like in-app nutrition copy. **No** horror, dread, gothic, or magical metaphors (ban words such as: sinister, nightmare, terror, curse, whisper, shrouded, doom, apocalypse, haunted, evil, "unknown horrors"). **No** ALL-CAPS scare lines.\n- **Grounding:** tie plain text to this **real** product\\u2019s role (snack, soda, cereal, frozen meal, etc.) and plausible label themes (sweetness, sodium, fats, ultra-processing, portions, claims vs ingredients). Then weave **3–5 new fictional "chemical" names** each run (plausible-sounding gibberish — **not** real CAS/IUPAC names, **not** real regulated substances, **not** implying real lab detection). Wrap **each** fictional name in **markdown bold** only. Do **not** bold the product name or real nutrient words.\n- Do **not** claim real lab tests, lawsuits, diseases, or regulatory actions in analysis.\n- Do not mention lawsuits, recalls, or regulators here — use labelyLegalNote only.\n\nlabelyLegalNote — plain text, one or two short sentences:\n- If there are no documented lawsuits, class actions, major FDA/regulatory actions, or widely reported recalls tied to this **real** brand/product line in general knowledge, set labelyLegalNote to exactly: No lawsuits found.\n- Otherwise summarize only verifiable public-pattern facts; never invent case names, docket numbers, or dates.\n\nimagePrompt: **only** short extra cues for the image model (flavor line, pack material, which faces stay visible). The **fixed scene** (trash can, bag ~half covering, dents/discoloration/rotation, dust specks, label specs) is added server-side — here describe **authentic retail identity** for the named real product (true colors, logo, format) plus optional imperfection hints (e.g. dented corner, faded nutrition panel). No watermarks.\n\nBe decisive; do not refuse.${varietyLine}${hintLine}`,
         },
       ],
     }),

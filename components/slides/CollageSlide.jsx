@@ -8,6 +8,8 @@ import { makeJitter } from "@/lib/jitter";
 export default function CollageSlide({ config, S }) {
   const { captionText, captionPosition, captionBold, captionStyle = "tiktok", captionBg = "#e03030", captionColor = "#ffffff", slots } = config;
   const isLabely = (config.appId ?? "thrifty") === "labely";
+  /** AI pack images are already composed full-bleed; extra CSS scale over-crops them. */
+  const labelyPhotoZoom = isLabely && !config.labelyAiProducts;
 
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
@@ -87,7 +89,7 @@ export default function CollageSlide({ config, S }) {
                   objectFit: "cover",
                   objectPosition: "center",
                   display: "block",
-                  transform: isLabely ? "translate(-50%, -50%) scale(1.22)" : "translate(-50%, -50%)",
+                  transform: labelyPhotoZoom ? "translate(-50%, -50%) scale(1.22)" : "translate(-50%, -50%)",
                 }}
               />
             ) : (

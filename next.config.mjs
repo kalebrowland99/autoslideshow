@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  /** Native sharp binary for `/api/convert-heic` on Vercel & local Node (HEIC via libvips). */
+  serverExternalPackages: ["sharp"],
+
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "oaidalleapiprodscus.blob.core.windows.net" },
