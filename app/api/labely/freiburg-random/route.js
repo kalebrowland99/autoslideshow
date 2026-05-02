@@ -30,13 +30,11 @@ export async function GET(request) {
   if (paths.length === 0) {
     if (allCached.length === 0) {
       const hint =
-        "No Freiburg images on this server. From the project root run: npm run cache:freiburg-junk " +
-        "(downloads the dataset into public/freiburg/). " +
-        "Note: those PNGs are gitignored — hosted deploys (e.g. Vercel) will not have them unless you add a deploy step or storage; use Freiburg on local dev after caching.";
+        "No Freiburg images found (expected public/freiburg-embed/ in production or public/freiburg/ after npm run cache:freiburg-junk).";
       return NextResponse.json({ error: hint }, { status: 404 });
     }
     const hint = category
-      ? `No images found for ${category} under public/freiburg/${category}/. Pick “Any class” in the header, choose another category, or re-run: npm run cache:freiburg-junk`
+      ? `No images for category ${category}. Pick another category or “Any class”, or add files under public/freiburg/${category}/ locally.`
       : "No Freiburg images matched this request.";
     return NextResponse.json({ error: hint }, { status: 404 });
   }
