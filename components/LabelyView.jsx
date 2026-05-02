@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState, Fragment } from "react";
 import { getLabelyLawsuitBadgeLabel } from "@/lib/labelyLawsuitBadge";
+import { FREIBURG_ALL_CLASSES, formatFreiburgCategoryLabel } from "@/lib/freiburgGroceriesClasses";
 
 function clampScore(score) {
   const n = Number(score);
@@ -112,6 +113,8 @@ export default function LabelyView({ fillViewport = true }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [useFreiburgRandom, setUseFreiburgRandom] = useState(false);
+  /** "" = any cached class; otherwise one of FREIBURG_ALL_CLASSES */
+  const [freiburgCategory, setFreiburgCategory] = useState("");
   const theme = useMemo(() => scoreTheme(data?.score ?? 0), [data?.score]);
 
   const lawsuitBadgeLabel = useMemo(
@@ -165,7 +168,10 @@ export default function LabelyView({ fillViewport = true }) {
     setBusy(true);
     setError("");
     try {
-      const res = await fetch("/api/labely/freiburg-random");
+      const qs = freiburgCategory
+        ? `?category=${encodeURIComponent(freiburgCategory)}`
+        : "";
+      const res = await fetch(`/api/labely/freiburg-random${qs}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Could not load a random dataset image.");
       const url = typeof json.imageDataUrl === "string" ? json.imageDataUrl : "";
@@ -177,7 +183,7 @@ export default function LabelyView({ fillViewport = true }) {
     } finally {
       setBusy(false);
     }
-  }, [analyzeDataUrl]);
+  }, [analyzeDataUrl, freiburgCategory]);
 
   const shell = fillViewport
     ? "min-h-screen flex items-center justify-center bg-[#F9F9F9] px-[22px] py-10 text-[#1A1A1A]"
@@ -202,7 +208,7 @@ export default function LabelyView({ fillViewport = true }) {
               }}
             />
             <span>
-              Use random junk-food shelf photo from the{" "}
+              Use a random shelf photo from the{" "}
               <a
                 href="https://github.com/PhilJd/freiburg_groceries_dataset"
                 target="_blank"
@@ -211,12 +217,30 @@ export default function LabelyView({ fillViewport = true }) {
               >
                 Freiburg Groceries
               </a>{" "}
-              dataset (candy, chips, soda, cake, …). Run{" "}
+              dataset (25 product classes). Run{" "}
               <code className="rounded bg-[#EEF4F0] px-1 py-0.5 text-[10px]">npm run cache:freiburg-junk</code> once
               to download crops into <code className="rounded bg-[#EEF4F0] px-1 py-0.5 text-[10px]">public/freiburg/</code>
               .
             </span>
           </label>
+          {useFreiburgRandom ? (
+            <label className="mb-3 block text-[11px] font-semibold text-[#3D5C4E]">
+              Category
+              <select
+                value={freiburgCategory}
+                disabled={busy}
+                onChange={(e) => setFreiburgCategory(e.target.value)}
+                className="mt-1.5 block w-full rounded-lg border border-[#C9E8DE] bg-white px-3 py-2 text-[13px] font-normal text-[#1A1A1A]"
+              >
+                <option value="">Any (random class)</option>
+                {FREIBURG_ALL_CLASSES.map((id) => (
+                  <option key={id} value={id}>
+                    {formatFreiburgCategoryLabel(id)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <input
             type="file"
             accept="image/*"

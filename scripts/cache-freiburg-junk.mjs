@@ -1,11 +1,12 @@
 /**
- * Downloads the Freiburg Groceries tarball and copies junk-class images into public/freiburg/.
+ * Downloads the Freiburg Groceries tarball and copies all 25 class folders into public/freiburg/.
  * @see https://github.com/PhilJd/freiburg_groceries_dataset
  */
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
 import { join } from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
+import { FREIBURG_ALL_CLASSES } from "../lib/freiburgGroceriesClasses.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -16,18 +17,6 @@ const PUB = join(ROOT, "public", "freiburg");
 
 const DATASET_URL =
   "http://aisdatasets.informatik.uni-freiburg.de/freiburg_groceries_dataset/freiburg_groceries_dataset.tar.gz";
-
-const JUNK = [
-  "CANDY",
-  "CHOCOLATE",
-  "CHIPS",
-  "SODA",
-  "CAKE",
-  "CEREAL",
-  "JUICE",
-  "JAM",
-  "SUGAR",
-];
 
 function sh(cmd) {
   execSync(cmd, { stdio: "inherit", cwd: ROOT });
@@ -43,8 +32,8 @@ if (!existsSync(TGZ) || statSync(TGZ).size < 1_000_000) {
 rmSync(UNPACK, { recursive: true, force: true });
 mkdirSync(UNPACK, { recursive: true });
 
-const members = JUNK.map((c) => `images/${c}`).join(" ");
-console.log("Extracting junk-class image folders from archive…");
+const members = FREIBURG_ALL_CLASSES.map((c) => `images/${c}`).join(" ");
+console.log("Extracting all class image folders from archive…");
 sh(`tar -xzf "${TGZ}" -C "${UNPACK}" ${members}`);
 
 let imagesRoot = join(UNPACK, "images");
@@ -61,7 +50,7 @@ if (!existsSync(imagesRoot)) {
 rmSync(PUB, { recursive: true, force: true });
 mkdirSync(PUB, { recursive: true });
 
-for (const cls of JUNK) {
+for (const cls of FREIBURG_ALL_CLASSES) {
   const src = join(imagesRoot, cls);
   const dest = join(PUB, cls);
   if (!existsSync(src)) {
@@ -76,10 +65,10 @@ for (const cls of JUNK) {
 }
 
 let n = 0;
-for (const cls of JUNK) {
+for (const cls of FREIBURG_ALL_CLASSES) {
   const d = join(PUB, cls);
   if (!existsSync(d)) continue;
   n += readdirSync(d).filter((f) => /\.(png|jpe?g)$/i.test(f)).length;
 }
 
-console.log(`Done. Copied ${n} images into public/freiburg/.`);
+console.log(`Done. Copied ${n} images into public/freiburg/ (${FREIBURG_ALL_CLASSES.length} classes).`);

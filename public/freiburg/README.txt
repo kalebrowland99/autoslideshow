@@ -1,14 +1,14 @@
-Freiburg Groceries Dataset (junk / indulgent classes)
-=====================================================
+Freiburg Groceries Dataset (all 25 product classes)
+===================================================
 
 Labely can load random 256×256 shelf crops from the Freiburg Groceries Dataset
-for quick demos (no camera).
+for quick demos (no camera). Pick a category in the UI or use “Any”.
 
 Source (paper + download):
   https://github.com/PhilJd/freiburg_groceries_dataset
   http://aisdatasets.informatik.uni-freiburg.de/freiburg_groceries_dataset/
 
-Populate this folder once (downloads ~dataset tarball, extracts junk classes only):
+Populate this folder once (downloads the tarball, extracts every class folder):
 
   npm run cache:freiburg-junk
 
