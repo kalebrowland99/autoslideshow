@@ -15,3 +15,7 @@ Populate this folder once (downloads the tarball, extracts every class folder):
 Requires: curl, tar (macOS / Linux). PNGs land under public/freiburg/<CLASS>/.
 
 Git: *.png under public/freiburg are gitignored so the repo stays small; keep this README.
+
+Hosted production: Freiburg buttons only work where this folder exists on disk (e.g. after
+running the cache script on your laptop for `npm run dev`). Default Vercel builds do not ship
+these PNGs unless you add a custom build/cache step or external storage.

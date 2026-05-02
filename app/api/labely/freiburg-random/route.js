@@ -23,11 +23,21 @@ export async function GET(request) {
     );
   }
 
-  const paths = listCachedFreiburgImageAbsPaths(process.cwd(), category || null);
+  const cwd = process.cwd();
+  const allCached = listCachedFreiburgImageAbsPaths(cwd, null);
+  const paths = listCachedFreiburgImageAbsPaths(cwd, category || null);
+
   if (paths.length === 0) {
+    if (allCached.length === 0) {
+      const hint =
+        "No Freiburg images on this server. From the project root run: npm run cache:freiburg-junk " +
+        "(downloads the dataset into public/freiburg/). " +
+        "Note: those PNGs are gitignored — hosted deploys (e.g. Vercel) will not have them unless you add a deploy step or storage; use Freiburg on local dev after caching.";
+      return NextResponse.json({ error: hint }, { status: 404 });
+    }
     const hint = category
-      ? `No images found for ${category} under public/freiburg/${category}/. Run: npm run cache:freiburg-junk`
-      : "No Freiburg images in public/freiburg/. Run: npm run cache:freiburg-junk (see public/freiburg/README.txt).";
+      ? `No images found for ${category} under public/freiburg/${category}/. Pick “Any class” in the header, choose another category, or re-run: npm run cache:freiburg-junk`
+      : "No Freiburg images matched this request.";
     return NextResponse.json({ error: hint }, { status: 404 });
   }
 
