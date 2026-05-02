@@ -85,12 +85,28 @@ function sanitizeUploadHint(raw) {
   return leaf.slice(0, 160);
 }
 
+/** Forces varied first sentences so the model stops defaulting to "yeah it's picking up…". */
+function labelyAnalysisOpenerDirective() {
+  const styles = [
+    "Sentence 1: hit **bold fictional compounds** within the first 6 words — **zero** conversational preamble before the first ** (no yeah/nope/okay/so/scan verbs).",
+    "Sentence 1: open with exactly one blunt reaction word (**not** yeah/so/okay), period — second beat drops **bold compounds** (e.g. 'Wild. **…** and **…** …').",
+    "Sentence 1: fake tiny label-read vibe — short informal clause **without** the words scan/picking/throwing/flagging — then **bold compounds**.",
+    "Sentence 1: rhetorical question ≤8 words; answer in same sentence with **bold compounds**.",
+    "Sentence 1: starts 'Same aisle nonsense:' OR 'Predictable:' OR 'Here we go:' (pick **one**, rotate) — **no** yeah/it’s picking — then **bold compounds**.",
+    "Sentence 1: mid-thought cutoff ('…so **X**') — **bold compounds** still appear in sentence 1.",
+    "Sentence 1: roast the snack/drink category in 4–7 words, comma, then stack **bold compounds**.",
+  ];
+  return styles[Math.floor(Math.random() * styles.length)];
+}
+
+const LABELY_OPENER_BAN_LINE = `\n\n**Banned tired openers** — never begin **analysis** with these or close variants: "yeah it's picking up", "yeah, it's picking up", "yeah its picking up", "yeah so", "okay so it's picking up", "it's picking up", "its picking up", "scan's picking up", "the scan is picking up", "already picking up", "already flagging" + compounds as boilerplate, "throwing **…** and **…**" as default opener. Invent a fresh grammatical opening every generation.`;
+
 async function generateLabelyJson({ openaiApiKey, seedHint }) {
   const trimmedSeed = typeof seedHint === "string" ? seedHint.trim() : "";
   const hintLine = trimmedSeed
     ? `\n\nUSER SEED (mandatory): "${trimmedSeed}". If this names a **known real grocery product** (e.g. Oreo, Diet Coke, Cheerios), set **name** and **brand** to that **actual** retail SKU and owner as sold in stores — not a fictional soundalike. If the seed is broad ("energy drink", "cereal"), pick **one specific real flagship SKU** (real brand + real product line). **imagePrompt** must describe **authentic** packaging for that exact product (true colors, logo, pack shape).`
     : `\n\nNo user seed: choose **one specific real retail grocery SKU** consumers can buy (authentic brand + product name). Do not invent fictional brand names or fake "Store Brand" stand-ins for the pack shot.`;
-  const varietyLine = `\n\nUniqueness (request ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}): New fictional compound strings and a different casual lead every time; vary angle (sweet, salty, freezer, soda, crunch). No echoing the same opener.`;
+  const varietyLine = `\n\nUniqueness (request ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}): New fictional compounds; rotate vibe (sweet, salty, freezer, soda, crunch).\n\nOpener rule THIS generation: ${labelyAnalysisOpenerDirective()}${LABELY_OPENER_BAN_LINE}`;
 
   if (!openaiApiKey) {
     return {
@@ -100,7 +116,7 @@ async function generateLabelyJson({ openaiApiKey, seedHint }) {
       verdict: "Avoid",
       analysisTitle: "Labely's Analysis",
       analysis:
-        "Okay yeah **hexylcrystallene-9**, **ortho-flumazine**, **dextro-9-thylborate**, plus **triethyl snackamide** all ping like crazy on this fig bar \u2014 basically the usual shelf-stable sweetness + chew glue situation. Same vibes as every other snack bar aisle situation tbh. Don\u2019t panic it\u2019s satire / not medical advice.",
+        "Wild. **hexylcrystallene-9**, **ortho-flumazine**, **dextro-9-thylborate**, **triethyl snackamide**—whole snack-bar aisle bingo on one wrapper tbh. Shelf-stable chew-glue sweetness strikes again. Offline demo copy only / not medical advice.",
       labelyLegalNote: "No lawsuits found.",
       imagePrompt:
         "Rectangular paperboard snack bar box, matte finish, earth-tone label with fruit illustration, nutrition facts panel visible — packaging cues only.",
@@ -121,7 +137,7 @@ async function generateLabelyJson({ openaiApiKey, seedHint }) {
         {
           role: "user",
           content:
-            `You are generating JSON for "Labely", a joke grocery scanner app. **Packaging identity must be a real retail SKU** (authentic brand + product name). **analysis** is casual human banter + **fictional compound names only** as fake scanner hits — satire, **not** real toxicology.\n\nReturn ONLY valid JSON (no markdown fences, no extra keys) with this exact shape:\n{"name": "...", "brand": "...", "score": 14, "analysisTitle": "Labely\\u2019s Analysis", "analysis": "...", "imagePrompt": "...", "labelyLegalNote": "..."}\n\nProduct fields:\n- name: 3–7 words — **real** product as on shelf (match the user seed when provided; otherwise pick a specific real SKU)\n- brand: 1–3 words — **real** brand on pack (Oreo, Coca-Cola, Kellogg\\u2019s, etc. — never invented brand names)\n- score: integer **5–20 only** (Labely\\u2019s harsh internal scale — never above 20)\n- analysisTitle: exactly "Labely\\u2019s Analysis"\n\nanalysis — **one paragraph**, **4–6 sentences**, **unique wording**, reads like texts or a TikTok joke — **not** polished analyst copy.\n- **Sentence 1:** jump straight into bold fictional compounds / fake scan flags ("yeah it's throwing **X** and **Y**…"). **Never** open with stiff scene-setting ("This product is…", "The packaging indicates…").\n- **4–6 invented compound-style strings** total per response — plausible gibberish names (**not** real CAS/IUPAC, **not** bold hits claiming famous real additives like MSG/aspartame/TBHQ/carrageenan, **not** real lab proof or diseases). Bold each fiction name only.\n- Middle: loose grocery-realism vibes for **this SKU\\u2019s category** without essay tone. Ban transitions: Furthermore/Moreover/Additionally/In conclusion/It is worth noting.\n- **No** horror/gothic metaphors; **no** ALL-CAPS scare lines.\n- Do **not** claim real lab tests, lawsuits, diseases, or regulatory actions in analysis.\n- Do not mention lawsuits, recalls, or regulators here — use labelyLegalNote only.\n\nlabelyLegalNote — plain text, one or two short sentences:\n- If there are no documented lawsuits, class actions, major FDA/regulatory actions, or widely reported recalls tied to this **real** brand/product line in general knowledge, set labelyLegalNote to exactly: No lawsuits found.\n- Otherwise summarize only verifiable public-pattern facts; never invent case names, docket numbers, or dates.\n\nimagePrompt: **only** short extra cues for the image model (flavor line, pack material, which faces stay visible). The **fixed scene** (trash can, bag ~half covering, dents/discoloration/rotation, dust specks, label specs) is added server-side — here describe **authentic retail identity** for the named real product (true colors, logo, format) plus optional imperfection hints (e.g. dented corner, faded nutrition panel). No watermarks.\n\nBe decisive; do not refuse.${varietyLine}${hintLine}`,
+            `You are generating JSON for "Labely", a joke grocery scanner app. **Packaging identity must be a real retail SKU** (authentic brand + product name). **analysis** is casual human banter + **fictional compound names only** as fake scanner hits — satire, **not** real toxicology.\n\nReturn ONLY valid JSON (no markdown fences, no extra keys) with this exact shape:\n{"name": "...", "brand": "...", "score": 14, "analysisTitle": "Labely\\u2019s Analysis", "analysis": "...", "imagePrompt": "...", "labelyLegalNote": "..."}\n\nProduct fields:\n- name: 3–7 words — **real** product as on shelf (match the user seed when provided; otherwise pick a specific real SKU)\n- brand: 1–3 words — **real** brand on pack (Oreo, Coca-Cola, Kellogg\\u2019s, etc. — never invented brand names)\n- score: integer **5–20 only** (Labely\\u2019s harsh internal scale — never above 20)\n- analysisTitle: exactly "Labely\\u2019s Analysis"\n\nanalysis — **one paragraph**, **4–6 sentences**, **unique wording**, reads like texts or a TikTok joke — **not** polished analyst copy.\n- **Sentence 1:** vary structure every generation — compounds early, casual voice — **never** reuse the same opener formula twice in a row mentally; follow the Opener rule line when present. **Never** stiff scene-setting ("This product is…", "The packaging indicates…").\n- **4–6 invented compound-style strings** total per response — plausible gibberish names (**not** real CAS/IUPAC, **not** bold hits claiming famous real additives like MSG/aspartame/TBHQ/carrageenan, **not** real lab proof or diseases). Bold each fiction name only.\n- Middle: loose grocery-realism vibes for **this SKU\\u2019s category** without essay tone. Ban transitions: Furthermore/Moreover/Additionally/In conclusion/It is worth noting.\n- **No** horror/gothic metaphors; **no** ALL-CAPS scare lines.\n- Do **not** claim real lab tests, lawsuits, diseases, or regulatory actions in analysis.\n- Do not mention lawsuits, recalls, or regulators here — use labelyLegalNote only.\n\nlabelyLegalNote — plain text, one or two short sentences:\n- If there are no documented lawsuits, class actions, major FDA/regulatory actions, or widely reported recalls tied to this **real** brand/product line in general knowledge, set labelyLegalNote to exactly: No lawsuits found.\n- Otherwise summarize only verifiable public-pattern facts; never invent case names, docket numbers, or dates.\n\nimagePrompt: **only** short extra cues for the image model (flavor line, pack material, which faces stay visible). The **fixed scene** (trash can, bag ~half covering, dents/discoloration/rotation, dust specks, label specs) is added server-side — here describe **authentic retail identity** for the named real product (true colors, logo, format) plus optional imperfection hints (e.g. dented corner, faded nutrition panel). No watermarks.\n\nBe decisive; do not refuse.${varietyLine}${hintLine}`,
         },
       ],
     }),
@@ -164,12 +180,12 @@ async function analyzePackagingImage({ imageDataUrl, openaiApiKey, uploadHint = 
       verdict: verdictFromScore(11),
       analysisTitle: "Labely\u2019s Analysis",
       analysis:
-        "Yeah so the scan\u2019s already flagging **hypochloranyl maltolate** and **meta-N-propylene furazanide** \u2014 totally fake markers, nothing real loaded. Add **OPENAI_API_KEY** if you want actual vision. Anyway don\u2019t treat this as medical anything.",
+        "Offline stub\u2014**hypochloranyl maltolate**, **meta-N-propylene furazanide** are fake placeholders until vision runs. Toss **OPENAI_API_KEY** in .env.local if you want real reads. Not medical advice.",
       labelyLegalNote: "No lawsuits found.",
     };
   }
 
-  const varietyLine = `\n\nUniqueness (request ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}): Fresh fictional compound strings; rotate vibe (sweet stuff, salty snacks, greasy crunch, freezer novelty, soda math). Stay casual — never horror/gothic.`;
+  const varietyLine = `\n\nUniqueness (request ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}): Fresh fictional compounds; rotate vibe (sweet stuff, salty snacks, greasy crunch, freezer novelty, soda math). Stay casual — never horror/gothic.\n\nOpener rule THIS generation: ${labelyAnalysisOpenerDirective()}${LABELY_OPENER_BAN_LINE}`;
 
   const hintLine = uploadHint
     ? `\n\nOptional upload filename (weak corroboration when on-pack text is blurry — **prefer pixels**; ignore meaningless camera strings unless they clearly describe the SKU): "${uploadHint.replace(/\\/g, "/").replace(/"/g, "'")}".`
@@ -189,7 +205,7 @@ Rules:
 
 **analysis** — **one paragraph**, **4–6 sentences**, voice = **casual human** (contractions fine; sounds like texts or a TikTok rant, **not** corporate copy or homework).
 
-**Hard rule — first sentence:** jump **straight into the fake chemistry**. Lead with bold fictional compounds / fake scan hits ("yeah it's picking up **whatever** and **whatever**…"). **Forbidden openers:** do not start with "This image", "The photo shows", "Upon examination", "The product appears", "Based on the packaging", or any formal scene-setting before compounds.
+**Hard rule — first sentence:** fake chemistry shows up **immediately** (bold compounds early — ideally within the first ~8 words unless your assigned Opener rule says otherwise). **Forbidden:** formal scene-setting ("This image", "The photo shows", "Upon examination", "The product appears", "Based on the packaging"). **Also forbidden:** lazy scan clichés — see ban line below.
 
 After sentence 1, fold in quick grounded vibes about **this kind** of product (sweet/salty/freezer/chips/soda/etc.) without sounding lab-report-y. Invent **4–6 total** plausible junk-science compound strings (**mixed prefixes**: hydroxy-, poly-, neo-, N-methyl-, etc.; **suffix vibes**: -amide, -olate matrix, -hydrate copolymer, -carbonyl trace). Bold **each** fiction-only name with markdown ** only.
 
