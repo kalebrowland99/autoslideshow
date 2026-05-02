@@ -137,14 +137,35 @@ function labelySlotAfterImageSwap(prevSlot, imageUrl, slotIndex) {
 const waitForPreviewPaint = () =>
   new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-/** ZIP / file explorers: ensure `01-…` … `12-…` order (numeric), not lexicographic on suffix. */
-function sortPngZipEntriesBySlideIndex(pngEntries) {
-  const keys = Object.keys(pngEntries).sort((a, b) => {
-    const na = parseInt(String(a).split("-")[0], 10);
-    const nb = parseInt(String(b).split("-")[0], 10);
-    return (Number.isFinite(na) ? na : 0) - (Number.isFinite(nb) ? nb : 0);
-  });
-  return Object.fromEntries(keys.map((k) => [k, pngEntries[k]]));
+/** Random hex id for scrambled export names and ZIP entry metadata. */
+function randomExportHex(byteLength = 8) {
+  const u = new Uint8Array(byteLength);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(u);
+  } else {
+    for (let i = 0; i < byteLength; i++) u[i] = Math.floor(Math.random() * 256);
+  }
+  return [...u].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Unique `.png` basename for ZIP (order inside archive = capture order). */
+function uniqueRandomZipPngName(usedNames) {
+  let name;
+  do {
+    name = `${randomExportHex(10)}.png`;
+  } while (usedNames.has(name));
+  usedNames.add(name);
+  return name;
+}
+
+/** Per-file ZIP metadata (fflate): variable mod time + short internal comment. */
+function randomZipEntryOptions() {
+  const skewMs = Math.floor(Math.random() * (4 * 365.25 * 24 * 3600 * 1000));
+  return {
+    level: 1,
+    mtime: Date.now() - skewMs,
+    comment: randomExportHex(6),
+  };
 }
 
 const waitForFonts = async () => {
@@ -1886,16 +1907,11 @@ ${SHARED_RULES_OUTRO}`;
 
     muxer.finalize();
 
-    // Randomised filename for uniqueness
-    const uid = Array.from({ length: 10 }, () =>
-      "abcdefghijklmnopqrstuvwxyz0123456789"[Math.floor(Math.random() * 36)]
-    ).join("");
-
     const mp4Blob = new Blob([target.buffer], { type: "video/mp4" });
     const url = URL.createObjectURL(mp4Blob);
     const a   = document.createElement("a");
     a.href     = url;
-    a.download = `${brand.appLower}_${uid}.mp4`;
+    a.download = `${randomExportHex(14)}.mp4`;
     a.click();
     URL.revokeObjectURL(url);
 
@@ -1968,6 +1984,7 @@ ${SHARED_RULES_OUTRO}`;
     const fontEmbedCSS = previewNode ? await getFontEmbedCSS(previewNode) : undefined;
 
     const pngEntries = {};
+    const usedZipEntryNames = new Set();
 
     for (let i = 0; i < totalSlides; i++) {
       flushSync(() => {
@@ -1990,8 +2007,8 @@ ${SHARED_RULES_OUTRO}`;
           const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
           if (!canvas) throw new Error("no canvas");
           const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
-          const arr  = new Uint8Array(await blob.arrayBuffer());
-          pngEntries[`${String(i + 1).padStart(2, "0")}-starter-pack.png`] = arr;
+          const arr = new Uint8Array(await blob.arrayBuffer());
+          pngEntries[uniqueRandomZipPngName(usedZipEntryNames)] = [arr, randomZipEntryOptions()];
         } catch (e) { console.warn("Skipping starterPack slide", e); }
         setConfig((prev) => ({ ...prev, _spPhase: -1 }));
       } else {
@@ -1999,13 +2016,8 @@ ${SHARED_RULES_OUTRO}`;
           const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
           if (!canvas) throw new Error("no canvas");
           const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
-          const arr  = new Uint8Array(await blob.arrayBuffer());
-          const label = info.type === "collage"      ? "collage"
-            : info.type === "imessage"     ? "imessage"
-            : info.type === "voicemail"    ? "voicemail"
-            : info.type === "imessageText" ? "imessage-texts"
-            : `slide-${i + 1}`;
-          pngEntries[`${String(i + 1).padStart(2, "0")}-${label}.png`] = arr;
+          const arr = new Uint8Array(await blob.arrayBuffer());
+          pngEntries[uniqueRandomZipPngName(usedZipEntryNames)] = [arr, randomZipEntryOptions()];
         } catch (e) {
           console.warn("Skipping slide", i, e);
         }
@@ -2025,12 +2037,12 @@ ${SHARED_RULES_OUTRO}`;
     setExportProgress(90);
 
     const { zipSync } = await import("fflate");
-    const zipData = zipSync(sortPngZipEntriesBySlideIndex(pngEntries), { level: 1 });
+    const zipData = zipSync(pngEntries, { level: 1 });
     const blob = new Blob([zipData], { type: "application/zip" });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
     a.href     = url;
-    a.download = `${brand.appLower}_slides_${Date.now()}.zip`;
+    a.download = `${randomExportHex(12)}.zip`;
     a.click();
     URL.revokeObjectURL(url);
 
