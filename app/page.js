@@ -307,7 +307,7 @@ export default function Home() {
                           <img
                             src={show.previewScreenshot}
                             alt={show.captionText ? `Preview of ${show.captionText}` : `Preview of slideshow ${idx + 1}`}
-                            className="w-full h-full object-cover block"
+                            className="w-full h-full object-contain object-center block"
                           />
                         </div>
                       </div>
@@ -316,7 +316,7 @@ export default function Home() {
                         {show.slots.map((slot, i) => (
                           <div key={i} className="relative overflow-hidden bg-zinc-900" style={{ aspectRatio: "3/4" }}>
                             {slot.imageUrl
-                              ? <img src={slot.imageUrl} alt="" className="w-full h-full object-cover" />
+                              ? <img src={slot.imageUrl} alt="" className="w-full h-full object-contain object-center" />
                               : <div className="w-full h-full flex items-center justify-center">
                                   <span className="text-white/15 text-[10px]">{i + 1}</span>
                                 </div>

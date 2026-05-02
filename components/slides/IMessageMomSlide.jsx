@@ -282,7 +282,7 @@ export default function IMessageMomSlide({ slot, S, config }) {
               boxShadow: "0 4px 24px rgba(0,0,0,0.45), inset 0 0 0 0.5px rgba(255,255,255,0.08)",
             }}>
               {slot?.imageUrl
-                ? <img src={slot.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                ? <img src={slot.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "center", display: "block" }} />
                 : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.2)", fontSize: px(14) }}>No photo</div>
               }
               {watermark && (

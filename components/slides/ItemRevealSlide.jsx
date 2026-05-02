@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { tiktokCaptionTextStyle, tickerBoxCaptionTextStyle, captionWrapperStyle } from "@/lib/captionStyles";
+import { tickerBoxCaptionTextStyle, captionWrapperStyle } from "@/lib/captionStyles";
 import { captionFontSize1080 } from "@/lib/captionFontSize";
 import { getBrand } from "@/lib/brand";
 
@@ -27,41 +27,28 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
   const captionColor = config.captionColor ?? "#ffffff";
   const outputFormat = config.outputFormat ?? "standard";
   const isLabely = (config.appId ?? "thrifty") === "labely";
-  const labelyPhotoZoom = isLabely && !(config.labelyAiProducts === true);
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
   const px = (n) => Math.round(n * S);
 
-  const spentLine = (slot.spentPrice ? `spent $${slot.spentPrice}` : "spent $?");
-  const itemLine  = slot.itemName ? `(${slot.itemName.toLowerCase()})` : null;
-  const showLetsCheckApp = outputFormat === "standard" || outputFormat === "appOnly";
-  /** Labely: no thrift-style spent/item lines — only the “lets check labely!” callout. */
-  const showMainSpentCaption = !isLabely;
+  const showLetsCheckApp =
+    !isLabely && (outputFormat === "standard" || outputFormat === "appOnly");
 
   // All random values derived from a stable seed — same layout every render/export
   const seed = useMemo(() => slotSeed(slot), [slot.itemName, slot.spentPrice, slot.soldPrice]);
 
   const captionSizePx = useMemo(
     () =>
-      captionFontSize1080(
-        isLabely
-          ? `${slot.itemName || "labely"}|reveal-labely`
-          : `${slot.itemName}|${slot.spentPrice}|${slot.soldPrice}|reveal`
-      ),
-    [slot.itemName, slot.spentPrice, slot.soldPrice, isLabely]
+      captionFontSize1080(`${slot.itemName}|${slot.spentPrice}|${slot.soldPrice}|reveal`),
+    [slot.itemName, slot.spentPrice, slot.soldPrice]
   );
 
   const REVEAL_SAFE_ZONES = [0.06, 0.14, 0.28, 0.42, 0.56, 0.68, 0.76];
   const captionLineH = Math.round(captionSizePx * S * 1.2);
   const captionPadY = Math.round(10 * S) * 2;
-  const captionInnerGap = Math.round(4 * S);
-  const mainLines = showMainSpentCaption ? 1 + (itemLine ? 1 : 0) : 0;
-  const mainBoxH = showMainSpentCaption
-    ? captionPadY + mainLines * captionLineH + Math.max(0, mainLines - 1) * captionInnerGap
-    : 0;
-  const blankLineGapH = showMainSpentCaption && showLetsCheckApp ? captionLineH * 2 : 0; // spacer only above “lets check” when main lines exist
-  const appBoxH = showLetsCheckApp ? (captionPadY + captionLineH) : 0;
-  const captionBoxH = mainBoxH + blankLineGapH + appBoxH;
+  const blankLineGapH = showLetsCheckApp ? captionLineH * 2 : 0;
+  const appBoxH = showLetsCheckApp ? captionPadY + captionLineH : 0;
+  const captionBoxH = showLetsCheckApp ? blankLineGapH + appBoxH : 0;
   const maxTop = H - captionBoxH - Math.round(H * 0.02);
 
   const zoneIdx = useMemo(() => Math.floor(seededRand(seed + 1) * REVEAL_SAFE_ZONES.length), [seed]);
@@ -77,29 +64,16 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
     <div style={{ width: W, height: H, position: "relative", background: "#000", overflow: "hidden" }}>
       {/* Full-screen image */}
       {slot.imageUrl ? (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            overflow: "hidden",
-          }}
-        >
+        <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
           <img
             src={slot.imageUrl}
             alt={slot.itemName || "Item"}
             style={{
-              position: "absolute",
-              left: "50%",
-              top: "50%",
-              minWidth: "100%",
-              minHeight: "100%",
-              width: "auto",
-              height: "auto",
-              maxWidth: "none",
-              objectFit: "cover",
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
               objectPosition: "center",
               display: "block",
-              transform: labelyPhotoZoom ? "translate(-50%, -50%) scale(1.18)" : "translate(-50%, -50%)",
             }}
           />
         </div>
@@ -122,75 +96,46 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
         }}
       />
 
-      {/* Thrifty/Valcoin: spent + item; Labely: “lets check labely!” only — flex-centered for html2canvas */}
-      <div
-        style={{
-          position: "absolute",
-          left: 0,
-          width: W,
-          top: captionTop,
-          display: "flex",
-          justifyContent: "center",
-          pointerEvents: "none",
-          zIndex: 10,
-        }}
-      >
+      {/* Optional “lets check {app}!” for non-Labely */}
+      {showLetsCheckApp ? (
         <div
           style={{
-            marginLeft: captionStyle === "tickerBox" ? 0 : jitterX,
-            transform: captionStyle === "tickerBox" ? "none" : `rotate(${tilt}deg)`,
-            maxWidth: Math.round(W * 0.85),
+            position: "absolute",
+            left: 0,
+            width: W,
+            top: captionTop,
             display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
+            justifyContent: "center",
+            pointerEvents: "none",
+            zIndex: 10,
           }}
         >
-          {showMainSpentCaption && (
-          <div style={{
-            ...captionWrapperStyle(S, { captionStyle, captionBg }),
-            padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
-            width: "fit-content",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: Math.round(4 * S),
-          }}>
-            <span style={captionStyle === "tickerBox"
-              ? tickerBoxCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800", color: captionColor })
-              : tiktokCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800" })
-            }>
-              {spentLine}
-            </span>
-            {itemLine && (
-              <span style={captionStyle === "tickerBox"
-                ? tickerBoxCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800", color: captionColor })
-                : tiktokCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800" })
-              }>
-                {itemLine}
+          <div
+            style={{
+              marginLeft: captionStyle === "tickerBox" ? 0 : jitterX,
+              transform: captionStyle === "tickerBox" ? "none" : `rotate(${tilt}deg)`,
+              maxWidth: Math.round(W * 0.85),
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+            }}
+          >
+            {blankLineGapH > 0 ? <div style={{ height: blankLineGapH }} /> : null}
+            <div style={{
+              ...captionWrapperStyle(S, { captionStyle: "tickerBox", captionBg }),
+              padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
+              width: "fit-content",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}>
+              <span style={tickerBoxCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800", color: captionColor })}>
+                {`lets check ${brand.appLower}!`}
               </span>
-            )}
+            </div>
           </div>
-          )}
-
-          {showLetsCheckApp && (
-            <>
-              {blankLineGapH > 0 ? <div style={{ height: blankLineGapH }} /> : null}
-              <div style={{
-                ...captionWrapperStyle(S, { captionStyle: "tickerBox", captionBg }),
-                padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
-                width: "fit-content",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}>
-                <span style={tickerBoxCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: "800", color: captionColor })}>
-                  {`lets check ${brand.appLower}!`}
-                </span>
-              </div>
-            </>
-          )}
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }

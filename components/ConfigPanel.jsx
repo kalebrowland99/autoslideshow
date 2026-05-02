@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useMemo, useCallback } from "react";
 import { flushSync } from "react-dom";
 import { getFontEmbedCSS, toCanvas, toJpeg } from "html-to-image";
 import { DISPLAY_SCALE } from "./VideoPreview";
@@ -19,6 +19,16 @@ function parseDataUrl(dataUrl) {
   const m = dataUrl.match(/^data:([^;,]+);base64,(.+)$/);
   if (!m) return null;
   return { mimeType: m[1].trim().split(";")[0], base64: m[2].trim() };
+}
+
+/** Fisher–Yates shuffle (returns a new array). */
+function shuffleArray(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }
 
 const PRESET_COLORS = [
@@ -1211,6 +1221,23 @@ ${SHARED_RULES_OUTRO}`;
     (config.outputFormat ?? "standard") === "imessageMom" ? 1 : 6;
   const batchImagesNeeded = numSlideshows * batchSlotCount;
 
+  const hasWorkspacePhotos = useMemo(
+    () =>
+      batchImageDataUrls.some(Boolean) ||
+      config.slots.some((s) => Boolean(s.imageUrl?.trim())),
+    [batchImageDataUrls, config.slots]
+  );
+
+  const clearAllWorkspacePhotos = useCallback(() => {
+    if (labelyUploadsLocked || generatingSlot !== null) return;
+    setBatchImageDataUrls(Array.from({ length: batchImagesNeeded }, () => null));
+    setConfig((prev) => ({
+      ...prev,
+      slots: prev.slots.map((s) => ({ ...s, imageUrl: null })),
+    }));
+    setAiErrors({});
+  }, [batchImagesNeeded, labelyUploadsLocked, generatingSlot, setConfig]);
+
   useEffect(() => {
     const need = numSlideshows * batchSlotCount;
     if (need <= 0) return;
@@ -1239,7 +1266,7 @@ ${SHARED_RULES_OUTRO}`;
 
   /**
    * @param {File[]} fileList
-   * @param {{ replace?: boolean }} opts replace: fill row 1… from first file (square drop); false = merge into existing rows (file picker).
+   * @param {{ replace?: boolean }} opts replace: fill batch slots from decoded images placed randomly across slideshows (square drop); false = merge into existing rows (file picker).
    */
   const handleBulkImageFiles = async (fileList, opts = { replace: true }) => {
     if (generatingSlot !== null) return;
@@ -1267,7 +1294,13 @@ ${SHARED_RULES_OUTRO}`;
       if (opts.replace) {
         const newShows = Math.max(showsBefore, minShows);
         const need = newShows * perShow;
-        const nextBatch = Array.from({ length: need }, (_, i) => urls[i] ?? null);
+        const goodUrls = urls.filter(Boolean);
+        const shuffledUrls = shuffleArray(goodUrls);
+        const slotOrder = shuffleArray(Array.from({ length: need }, (_, i) => i));
+        const nextBatch = Array.from({ length: need }, () => null);
+        for (let i = 0; i < shuffledUrls.length; i++) {
+          nextBatch[slotOrder[i]] = shuffledUrls[i];
+        }
         setNumSlideshows(newShows);
         setBatchImageDataUrls(nextBatch);
         setConfig((prev) => ({
@@ -2323,7 +2356,25 @@ ${SHARED_RULES_OUTRO}`;
         ) : null}
         {/* Image slots (all brands): qty × slots per show rows + brand list for Thrifty / Valcoin AI */}
         <div className="mt-3 bg-white/4 border border-white/10 rounded-xl p-3">
-          <Label>Image slots</Label>
+          {/* SSR + first paint: plain Label only (matches Hook Captions / reference-status hydration pattern). */}
+          {mounted ? (
+            <div className="flex items-start justify-between gap-2 mb-1">
+              <Label className="!mb-0">Image slots</Label>
+              {!labelyUploadsLocked && hasWorkspacePhotos ? (
+                <button
+                  type="button"
+                  disabled={generatingSlot !== null}
+                  onClick={clearAllWorkspacePhotos}
+                  title="Remove every uploaded photo from batch rows and live preview slots"
+                  className="shrink-0 rounded-md border border-red-500/35 bg-red-500/10 px-2 py-1 text-[10px] font-bold tracking-wide text-red-300 hover:bg-red-500/20 disabled:opacity-40"
+                >
+                  Clear all photos
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <Label>Image slots</Label>
+          )}
           <p className="text-white/35 text-[10px] mb-2 leading-relaxed">
             <span className="text-white/50">{batchImagesNeeded}</span> rows = <span className="text-white/50">{numSlideshows}</span> slideshow
             {numSlideshows !== 1 ? "s" : ""} × {batchSlotCount} photo{batchSlotCount !== 1 ? "s" : ""} each. Drag{" "}
@@ -2385,14 +2436,14 @@ ${SHARED_RULES_OUTRO}`;
                   ? "border-violet-400 bg-violet-500/15 text-violet-100"
                   : "border-white/22 bg-white/[0.04] text-white/50 hover:border-white/40 hover:bg-white/[0.07]"
               }`}
-              aria-label="Drop multiple images to fill slideshow rows, or click to choose files"
+              aria-label="Drop multiple images to randomly assign across slideshow rows, or click to choose files"
             >
               <span className="text-2xl leading-none" aria-hidden>
                 ⤓
               </span>
               <span className="text-[11px] font-semibold leading-tight">Bulk drop photos</span>
               <span className="text-[9px] leading-snug text-white/35">
-                Fills row order (#1·1 …). If you add more than fit, slideshow qty increases automatically.
+                Photos shuffle into random rows across slideshows (#1·1 …). Extra photos raise slideshow qty automatically.
               </span>
             </button>
           </div>
@@ -2445,7 +2496,7 @@ ${SHARED_RULES_OUTRO}`;
                     #{showNum}·{slotInShow}
                   </span>
                   <div className="h-9 w-9 shrink-0 rounded-md overflow-hidden bg-white/5 border border-white/10">
-                    {url ? <img src={url} alt="" className="h-full w-full object-cover" /> : null}
+                    {url ? <img src={url} alt="" className="h-full w-full object-contain object-center" /> : null}
                   </div>
                   <input
                     type="file"
@@ -2559,13 +2610,11 @@ ${SHARED_RULES_OUTRO}`;
                   if (files.length) void handleBulkImageFiles(files, { replace: false });
                 }}
               />
-              {batchImageDataUrls.some(Boolean) ? (
+              {hasWorkspacePhotos ? (
                 <button
                   type="button"
-                  disabled={generatingSlot !== null}
-                  onClick={() =>
-                    setBatchImageDataUrls(Array.from({ length: numSlideshows * batchSlotCount }, () => null))
-                  }
+                  disabled={generatingSlot !== null || labelyUploadsLocked}
+                  onClick={clearAllWorkspacePhotos}
                   className="shrink-0 text-[10px] font-semibold text-red-400/90 hover:text-red-300 disabled:opacity-40"
                 >
                   Clear all photos

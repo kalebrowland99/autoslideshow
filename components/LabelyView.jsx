@@ -200,19 +200,7 @@ export default function LabelyView({ fillViewport = true }) {
               <img
                 src={data.imageDataUrl}
                 alt=""
-                className="pointer-events-none block max-w-none"
-                style={{
-                  position: "absolute",
-                  left: "50%",
-                  top: "50%",
-                  minWidth: "100%",
-                  minHeight: "100%",
-                  width: "auto",
-                  height: "auto",
-                  objectFit: "cover",
-                  objectPosition: "center",
-                  transform: "translate(-50%, -50%) scale(1.2)",
-                }}
+                className="pointer-events-none block h-full w-full object-cover object-center"
               />
             ) : (
               <div className="h-full w-full bg-gradient-to-br from-zinc-800 to-black" />

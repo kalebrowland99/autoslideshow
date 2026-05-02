@@ -29,7 +29,7 @@ function BookmarkIcon({ size }) {
 /**
  * Single card in the grid.
  * visible=true → fully rendered, visible=false → transparent placeholder (keeps grid spacing).
- * imageFit "cover" for photos, "contain" for logos (Thrifty) so nothing is over-cropped.
+ * imageFit defaults to "contain" so uploads show fully (no crop / zoom).
  */
 function StarterCard({
   title,
@@ -40,7 +40,7 @@ function StarterCard({
   cardH,
   fontSize,
   visible,
-  imageFit = "cover",
+  imageFit = "contain",
   imagePadPct = 0,
 }) {
   const imageH = cardH - headerH;
@@ -266,7 +266,7 @@ export default function StarterPackSlide({ config, S, phase = -1 }) {
               cardH={cardH}
               fontSize={cardFontSize}
               visible={i < visibleCount}
-              imageFit={i === 3 ? "contain" : "cover"}
+              imageFit="contain"
               imagePadPct={i === 3 ? 0.14 : 0}
             />
           ))}

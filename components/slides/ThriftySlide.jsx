@@ -217,7 +217,7 @@ export default function ThriftySlide({ slot, S, config = {} }) {
             boxShadow: `0 ${px(2)}px ${px(4)}px rgba(0,0,0,0.1)` }}>
             {slot.imageUrl ? (
               <img src={slot.imageUrl} alt={itemName}
-                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "center", display: "block" }} />
             ) : (
               <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column",
                 alignItems: "center", justifyContent: "center", gap: px(4) }}>

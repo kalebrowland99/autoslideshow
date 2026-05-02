@@ -128,7 +128,7 @@ function SaveGlyph({ px: pxFn, stroke, icon = 20 }) {
   );
 }
 
-export default function LabelySlide({ slot, S, labelyAiProducts = false }) {
+export default function LabelySlide({ slot, S }) {
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
   const px = (n) => Math.round(n * IPHONE_SCALE * S);
@@ -184,18 +184,11 @@ export default function LabelySlide({ slot, S, labelyAiProducts = false }) {
                 src={slot.imageUrl}
                 alt=""
                 style={{
-                  position: "absolute",
-                  left: "50%",
-                  top: "50%",
-                  minWidth: "100%",
-                  minHeight: "100%",
-                  width: "auto",
-                  height: "auto",
-                  maxWidth: "none",
+                  width: "100%",
+                  height: "100%",
                   objectFit: "cover",
                   objectPosition: "center",
                   display: "block",
-                  transform: labelyAiProducts ? "translate(-50%, -50%)" : "translate(-50%, -50%) scale(1.2)",
                 }}
               />
             ) : (
