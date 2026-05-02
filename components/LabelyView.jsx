@@ -264,7 +264,7 @@ export default function LabelyView({ fillViewport = true }) {
           ) : (
             <p className="mt-4 text-[16px] leading-[1.5] text-[#3C3C43]">
               Upload a clear photo of the front label of a packaged food or drink. Labely reads the name and brand, then
-              writes a short satirical blurb with made-up bad chemical names in bold — not real toxicology.
+              writes a short, realistic-style label analysis of your product with made-up compound names in bold — not real lab results.
             </p>
           )}
         </div>

@@ -63,6 +63,7 @@ async function generateLabelyJson({ openaiApiKey, seedHint }) {
     typeof seedHint === "string" && seedHint.trim()
       ? `\n\nOptional inspiration — invent a realistic packaged grocery product that fits this idea (name/brand may differ): ${seedHint.trim()}`
       : "";
+  const varietyLine = `\n\nUniqueness (request ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}): Use a fresh opening and wholly new invented compound names; vary which attributes you emphasize (e.g. sugar load, sodium, fats, shelf-stable texture, portion realism, marketing claims). Do not echo canned phrases from prior outputs.`;
 
   if (!openaiApiKey) {
     return {
@@ -72,7 +73,7 @@ async function generateLabelyJson({ openaiApiKey, seedHint }) {
       verdict: "Avoid",
       analysisTitle: "Labely's Analysis",
       analysis:
-        "Something is wrong under the wrapper: **hexylcrystallene-9** is crawling up the readout, **ortho-flumazine** is spiking like a warning klaxon, and **dextro-9-thylborate** should not be this loud. **Triethyl snackamide** registered twice — that is not normal. Not medical advice.",
+        "For a whole-grain fig bar positioned as an everyday snack, the panel pattern matches other shelf-stable bars: added sweetness and texture aids are common. This scan calls out elevated markers for **hexylcrystallene-9**, **ortho-flumazine**, and **dextro-9-thylborate**, with **triethyl snackamide** showing repeat hits on the texture stack. Not medical advice.",
       labelyLegalNote: "No lawsuits found.",
       imagePrompt:
         "Rectangular paperboard snack bar box, matte finish, earth-tone label with fruit illustration, nutrition facts panel visible — packaging cues only.",
@@ -87,13 +88,13 @@ async function generateLabelyJson({ openaiApiKey, seedHint }) {
     },
     body: JSON.stringify({
       model: "gpt-4o",
-      temperature: 0.55,
+      temperature: 0.82,
       max_tokens: 600,
       messages: [
         {
           role: "user",
           content:
-            `You are generating content for "Labely", a satirical grocery label-scanning app — horror-adjacent parody, not real toxicology or real health claims.\n\nReturn ONLY valid JSON (no markdown fences, no extra keys) with this exact shape:\n{"name": "...", "brand": "...", "score": 14, "analysisTitle": "Labely\\u2019s Analysis", "analysis": "...", "imagePrompt": "...", "labelyLegalNote": "..."}\n\nProduct fields:\n- name: 3–7 words, realistic grocery retail\n- brand: 1–3 words\n- score: integer **5–20 only** (always catastrophic on Labely\\u2019s scale — never above 20, never reassuring)\n- analysisTitle: exactly "Labely\\u2019s Analysis"\n\nanalysis — **2–4 short sentences**, one paragraph. Tone: **maximally negative, dread-heavy, almost scary** — urgent, ominous, like a corrupted scanner that wants the user unsettled. Not medical advice; invented nonsense only.\n- Invent **3–6 random made-up "bad chemical" names** (absurd pseudo-scientific compounds — NOT real chemicals, NOT real CAS names, do not copy real regulated substances).\n- Wrap **each** invented chemical name in **markdown bold** using **double asterisks** (e.g. **flumazine-7**).\n- Plain text between bold bits should sound **bleak, hostile, or panicked** — never cheerful, never "fine in moderation". Do not bold anything except those invented names.\n- Do not mention lawsuits, recalls, or regulators here — that belongs only in labelyLegalNote.\n\nlabelyLegalNote — plain text, one or two short sentences:\n- If there are no documented lawsuits, class actions, major FDA/regulatory actions, or widely reported recalls tied to this invented brand/product or its key ingredients, set labelyLegalNote to exactly: No lawsuits found.\n- Otherwise summarize only verifiable public-pattern facts; never invent case names, docket numbers, or dates.\n\nimagePrompt: packaging-only cues (shape, materials, label colors, category). No background/lighting.\n\nBe decisive; do not refuse.${hintLine}`,
+            `You are generating JSON for "Labely", a grocery label-scanning style app. Output reads like a **realistic consumer-ingredient writeup** of the **specific product** you invent (category, brand positioning, typical label concerns) — but Labely attributes risk using **fictional compound names only** (satirical, not real toxicology).\n\nReturn ONLY valid JSON (no markdown fences, no extra keys) with this exact shape:\n{"name": "...", "brand": "...", "score": 14, "analysisTitle": "Labely\\u2019s Analysis", "analysis": "...", "imagePrompt": "...", "labelyLegalNote": "..."}\n\nProduct fields:\n- name: 3–7 words, realistic grocery retail\n- brand: 1–3 words\n- score: integer **5–20 only** (Labely\\u2019s harsh internal scale — never above 20)\n- analysisTitle: exactly "Labely\\u2019s Analysis"\n\nanalysis — **2–4 short sentences**, one paragraph, **unique wording every generation**.\n- **Tone:** calm, specific, slightly skeptical analyst — like in-app nutrition copy. **No** horror, dread, gothic, or magical metaphors (ban words such as: sinister, nightmare, terror, curse, whisper, shrouded, doom, apocalypse, haunted, evil, "unknown horrors"). **No** ALL-CAPS scare lines.\n- **Grounding:** tie sentences to this product\\u2019s **realistic role** (snack bar, frozen dessert, soda, cereal, etc.) and plausible label themes (sweetness, sodium, fats, ultra-processing, portions, "natural" claims vs ingredients). Sound like you examined **this** SKU, not a generic rant.\n- Invent **3–5 new fictional "chemical" names** each run (plausible-sounding gibberish — **not** real CAS/IUPAC names, **not** real regulated substances). Wrap **each** in **markdown bold** only. Do **not** bold the product name or real nutrient words.\n- Do **not** claim real lab tests, lawsuits, diseases, or regulatory actions in analysis.\n- Do not mention lawsuits, recalls, or regulators here — use labelyLegalNote only.\n\nlabelyLegalNote — plain text, one or two short sentences:\n- If there are no documented lawsuits, class actions, major FDA/regulatory actions, or widely reported recalls tied to this invented brand/product or its key ingredients, set labelyLegalNote to exactly: No lawsuits found.\n- Otherwise summarize only verifiable public-pattern facts; never invent case names, docket numbers, or dates.\n\nimagePrompt: packaging-only cues (shape, materials, label colors, category). No background/lighting.\n\nBe decisive; do not refuse.${varietyLine}${hintLine}`,
         },
       ],
     }),
@@ -136,10 +137,34 @@ async function analyzePackagingImage({ imageDataUrl, openaiApiKey }) {
       verdict: verdictFromScore(11),
       analysisTitle: "Labely\u2019s Analysis",
       analysis:
-        "Labely cannot see the pack yet — imagine **null-phase crylamide** and **void-9-thylate** stacking in the dark. Add **OPENAI_API_KEY** before this gets worse. Not medical advice.",
+        "Vision is offline. Configure **OPENAI_API_KEY** to run label OCR; until then placeholder markers **null-phase crylamide** and **void-9-thylate** stand in for uncaptured spectra. Not medical advice.",
       labelyLegalNote: "No lawsuits found.",
     };
   }
+
+  const varietyLine = `\n\nUniqueness (request ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}): New fake compound names and a different analytical lead every time; do not reuse horror-style or gothic phrasing.`;
+
+  const visionUserText = `You are "Labely", a grocery label-scanning style app. Write like a **realistic in-app ingredient analysis** of the **actual packaged product in the photo** — grounded in what is visible (name, brand, category, claims, Nutrition Facts if readable) — while flagging concerns using **fictional compound names only** (satirical markers, not real lab results or real toxicology).
+
+Read the photo carefully: product name, brand, food category, and any legible nutrition or ingredient cues. If text is unreadable, infer only obvious grocery-category defaults; do not invent specific real ingredients you cannot see.
+
+Return ONLY valid JSON (no markdown fences) with this exact shape:
+{"name":"...","brand":"...","score":12,"analysis":"...","labelyLegalNote":"..."}
+
+Rules:
+- name: concise retail product name (3–10 words), Title Case — from the pack when possible, else best guess
+- brand: brand on pack (1–4 words), or "" if unknown
+- score: integer **5–20 only** (Labely\\u2019s harsh internal scale — never above 20)
+
+analysis — **2–4 short sentences**, one paragraph, **unique wording each run**.
+- **Tone:** measured, analyst-like, specific to **this** SKU and what the label suggests. **No** horror, dread, gothic, or magical metaphors (ban: sinister, nightmare, terror, curse, whisper, shrouded, doom, apocalypse, haunted, evil, "unknown horrors"). **No** ALL-CAPS scare lines.
+- Tie plain text to **visible** or clearly inferable facts (e.g. "frozen novelty bar", "flavored sparkling water", sodium/sugar per serving if shown). Then weave **3–5 invented compound names** (not real chemicals, not real CAS names) as fictional scanner hits; wrap **each** in **markdown bold** only.
+- Do **not** claim a real toxin was detected, a real disease risk, or a real lawsuit in analysis.
+- Do not mention lawsuits, recalls, or regulators in analysis — use labelyLegalNote only.
+
+labelyLegalNote — plain text:
+- If no applicable lawsuits, class actions, FDA/regulatory actions, or major recalls for this exact product/brand (from what you can verify from the package or widely known public facts), set to exactly: No lawsuits found.
+- Otherwise one short factual sentence; never invent case names or dates.${varietyLine}`;
 
   const res = await fetch(OPENAI_CHAT, {
     method: "POST",
@@ -149,7 +174,7 @@ async function analyzePackagingImage({ imageDataUrl, openaiApiKey }) {
     },
     body: JSON.stringify({
       model: "gpt-4o",
-      temperature: 0.35,
+      temperature: 0.72,
       max_tokens: 600,
       messages: [
         {
@@ -158,26 +183,7 @@ async function analyzePackagingImage({ imageDataUrl, openaiApiKey }) {
             { type: "image_url", image_url: { url: imageDataUrl, detail: "high" } },
             {
               type: "text",
-              text: `You are "Labely", a satirical grocery label-scanning app — horror-adjacent parody, not real toxicology or real health claims. Read the photo for product name and brand when visible.
-
-From the photo: read product name and brand when legible. Ingredient lines optional for context only.
-
-Return ONLY valid JSON (no markdown fences) with this exact shape:
-{"name":"...","brand":"...","score":12,"analysis":"...","labelyLegalNote":"..."}
-
-Rules:
-- name: concise retail product name (3–10 words), Title Case — from the pack when possible, else best guess
-- brand: brand on pack (1–4 words), or "" if unknown
-- score: integer **5–20 only** — always catastrophic on Labely\\u2019s scale (never above 20, never reassuring)
-
-analysis — **2–4 short sentences**, one paragraph. Tone: **maximally negative, dread-heavy, almost scary** — urgent, ominous, like a corrupted scanner. Not medical advice; invented nonsense only.
-- Invent **3–6 random made-up "bad chemical" names** (absurd pseudo-scientific compounds — NOT real chemicals, NOT real CAS names, do not copy real regulated substances).
-- Wrap **each** invented chemical name in **markdown bold** (**...**). Do not bold anything except those invented names.
-- Plain text between bold bits must sound **bleak, hostile, or panicked** — never cheerful. Tie the dread to what kind of product it looks like. Do not claim real toxins were detected.
-
-labelyLegalNote — plain text:
-- If no applicable lawsuits, class actions, FDA/regulatory actions, or major recalls for this exact product/brand (from what you can verify from the package or widely known public facts), set to exactly: No lawsuits found.
-- Otherwise one short factual sentence; never invent case names or dates.`,
+              text: visionUserText,
             },
           ],
         },
