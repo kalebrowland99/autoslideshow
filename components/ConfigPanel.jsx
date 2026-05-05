@@ -6,6 +6,7 @@ import { getFontEmbedCSS, toCanvas, toJpeg } from "html-to-image";
 import { DISPLAY_SCALE } from "./VideoPreview";
 import {
   getSlideInfo,
+  getTotalSlides,
   slideIndexToSlotIndex,
   isLabelySingleSlideFormat,
   isLabelyScanTourFormat,
@@ -153,6 +154,41 @@ function randomExportHex(byteLength = 8) {
     for (let i = 0; i < byteLength; i++) u[i] = Math.floor(Math.random() * 256);
   }
   return [...u].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** 1-based order prefix + long random hex tail (sortable, tail looks unstructured). */
+function sequentialRandomMp4Name(orderIndexZeroBased) {
+  return `${orderIndexZeroBased + 1}${randomExportHex(14)}.mp4`;
+}
+
+function triggerMp4Download(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Merge a saved gallery show into the workspace snapshot for export (keeps duration, transitions, audio). */
+function galleryShowToExportConfig(workspace, show) {
+  const appId = show.appId != null ? show.appId : workspace.appId;
+  const isLabely = appId === "labely";
+  const outputFormat =
+    show.outputFormat != null
+      ? show.outputFormat
+      : isLabely
+        ? "labelyScan"
+        : workspace.outputFormat;
+  const rawSlots =
+    Array.isArray(show.slots) && show.slots.length > 0 ? show.slots : workspace.slots;
+  return {
+    ...workspace,
+    slots: rawSlots.map((s) => ({ ...s })),
+    appId,
+    outputFormat,
+    captionText: isLabely ? "" : (show.captionText ?? workspace.captionText),
+  };
 }
 
 /** Unique `.png` basename for ZIP (order inside archive = capture order). */
@@ -1016,15 +1052,17 @@ ${SHARED_RULES_OUTRO}`;
   };
 
   // Accepts explicit prompts array to avoid reading stale React state.
-  // Falls back to reading config.slots if prompts not provided.
-  const ensureStarterPackImages = async (prompts) => {
+  // Falls back to cfgForSlots.slots (defaults to live config) when prompts are incomplete.
+  const ensureStarterPackImages = async (prompts, cfgForSlots = null) => {
+    const slotCfg = cfgForSlots ?? config;
+    const valcoinSlots = getBrand(slotCfg).appId === "valcoin";
     for (let i = 0; i < 3; i++) {
       const p = (prompts?.[i] ?? "").trim()
-        || (config.slots?.[i]?.prompt ?? "").trim()
-        || (config.slots?.[i]?.itemName ?? "").trim();
+        || (slotCfg.slots?.[i]?.prompt ?? "").trim()
+        || (slotCfg.slots?.[i]?.itemName ?? "").trim();
       if (!p) continue;
       setExportStatus(`Generating starter pack image ${i + 1}/3…`);
-      const hint = isValcoin ? pickValuableUSCoin() : null;
+      const hint = valcoinSlots ? pickValuableUSCoin() : null;
       const prompt = hint ? `${p}\n\nSpecific item to depict: ${hint}.` : p;
       const url = await generateImage(i, prompt, hint);
       if (url) updateSlot(i, { imageUrl: url });
@@ -1697,31 +1735,30 @@ ${SHARED_RULES_OUTRO}`;
   };
 
   // ── Video export: capture each slide, then animate ──
-  const handleExportVideo = async () => {
-    setIsExporting(true);
+  const encodeWorkspaceVideoToBlob = async (exportCfg) => {
     setExportProgress(0);
-    setExportStatus("Capturing slides…");
 
-    if ((config.outputFormat ?? "standard") === "starterPack") {
+    if ((exportCfg.outputFormat ?? "standard") === "starterPack") {
       setExportStatus("Generating starter pack text…");
       const sp = await ensureStarterPackAutofill();
       setExportStatus("Generating starter pack images…");
-      await ensureStarterPackImages(sp?.imagePrompts ?? sp?.items);
+      await ensureStarterPackImages(sp?.imagePrompts ?? sp?.items, exportCfg);
       setExportStatus("Capturing slides…");
     }
 
+    const slidesCount = getTotalSlides(exportCfg);
     const allSlideFrames = [];
     const previewNode = getCaptureNode();
     const fontEmbedCSS = previewNode ? await getFontEmbedCSS(previewNode) : undefined;
     const fps = 30;
 
-    for (let i = 0; i < totalSlides; i++) {
+    for (let i = 0; i < slidesCount; i++) {
       flushSync(() => {
         setCurrentSlide(i);
       });
       await waitForPreviewPaint();
 
-      const info = getSlideInfo(config, i);
+      const info = getSlideInfo(exportCfg, i);
       const bg =
         info.type === "collage"
           ? "#111111"
@@ -1748,15 +1785,15 @@ ${SHARED_RULES_OUTRO}`;
         // Reset phase
         setConfig((prev) => ({ ...prev, _spPhase: -1 }));
       } else if (
-        (config.outputFormat ?? "standard") === "labelyScan" &&
-        (config.appId ?? "thrifty") === "labely" &&
+        (exportCfg.outputFormat ?? "standard") === "labelyScan" &&
+        (exportCfg.appId ?? "thrifty") === "labely" &&
         info.type === "labely"
       ) {
         await new Promise((r) => setTimeout(r, 80));
         try {
           const labelyCanvas = await captureSlideCanvas(bg, fontEmbedCSS);
           if (!labelyCanvas) throw new Error("Preview node not found");
-          const slotNow = info.slot ?? config.slots?.[i];
+          const slotNow = info.slot ?? exportCfg.slots?.[i];
           const productDataUrl =
             typeof slotNow?.imageUrl === "string" ? slotNow.imageUrl.trim() : "";
           const seq = await buildLabelyScanFrameSequence({
@@ -1764,7 +1801,7 @@ ${SHARED_RULES_OUTRO}`;
             labelyCanvas,
             scanSec: 1.35,
             revealSec: 0.52,
-            holdSec: config.slideDuration,
+            holdSec: exportCfg.slideDuration,
             fps,
           });
           allSlideFrames.push([labelyCanvas, seq]);
@@ -1784,8 +1821,8 @@ ${SHARED_RULES_OUTRO}`;
         }
       }
 
-      setExportProgress(Math.round((i + 1) / totalSlides * 40));
-      setExportStatus(`Captured slide ${i + 1} of ${totalSlides}…`);
+      setExportProgress(Math.round((i + 1) / slidesCount * 40));
+      setExportStatus(`Captured slide ${i + 1} of ${slidesCount}…`);
     }
 
     // Filter to slides that have at least one captured frame
@@ -1794,9 +1831,8 @@ ${SHARED_RULES_OUTRO}`;
       .filter(({ snapshots }) => snapshots.length > 0);
 
     if (validSlides.length === 0) {
-      setIsExporting(false);
       setExportStatus("Export failed — no frames captured.");
-      return;
+      return null;
     }
 
     // ── PHASE 2: Encode with native WebCodecs + mp4-muxer (no WASM, no CDN) ──────
@@ -1805,14 +1841,13 @@ ${SHARED_RULES_OUTRO}`;
 
     // WebCodecs availability check
     if (typeof VideoEncoder === "undefined") {
-      setIsExporting(false);
       setExportStatus("WebCodecs not available — please use Chrome or Safari 16+.");
-      return;
+      return null;
     }
 
     const OUT_W = 1080;
     const OUT_H = 1920;
-    const transitionFrames = Math.round((config.transitionMs / 1000) * fps);
+    const transitionFrames = Math.round((exportCfg.transitionMs / 1000) * fps);
     const frameDurationUs  = Math.round(1_000_000 / fps); // microseconds per frame
 
     // Per-slide hold duration in frames.
@@ -1823,7 +1858,7 @@ ${SHARED_RULES_OUTRO}`;
         return snapshots[1].length;
       }
       const overrideSec = snapshots[1];
-      const baseSec = typeof overrideSec === "number" ? overrideSec : config.slideDuration;
+      const baseSec = typeof overrideSec === "number" ? overrideSec : exportCfg.slideDuration;
       const jitterMs = typeof overrideSec === "number" ? 0 : Math.floor(Math.random() * 500);
       return Math.round((baseSec + jitterMs / 1000) * fps);
     });
@@ -1846,7 +1881,7 @@ ${SHARED_RULES_OUTRO}`;
     let audioSampleRate = 44100;
     let audioChannels = 2;
 
-    if (config.useRandomAudio && typeof AudioEncoder !== "undefined") {
+    if (exportCfg.useRandomAudio && typeof AudioEncoder !== "undefined") {
       try {
         setExportStatus("Loading audio…");
         const { files: audioFiles } = await fetch("/api/audio").then((r) => r.json());
@@ -1960,9 +1995,8 @@ ${SHARED_RULES_OUTRO}`;
     }
 
     if (encoderError) {
-      setIsExporting(false);
       setExportStatus(`Encoding failed: ${encoderError.message}`);
-      return;
+      return null;
     }
 
     setExportStatus("Finalizing MP4…");
@@ -2025,18 +2059,66 @@ ${SHARED_RULES_OUTRO}`;
 
     muxer.finalize();
 
-    const mp4Blob = new Blob([target.buffer], { type: "video/mp4" });
-    const url = URL.createObjectURL(mp4Blob);
-    const a   = document.createElement("a");
-    a.href     = url;
-    a.download = `${randomExportHex(14)}.mp4`;
-    a.click();
-    URL.revokeObjectURL(url);
+    return new Blob([target.buffer], { type: "video/mp4" });
+  };
 
-    setIsExporting(false);
-    setExportProgress(100);
-    setExportStatus("Done! Video downloaded.");
-    setTimeout(() => { setExportStatus(""); setExportProgress(0); }, 3000);
+  const handleExportVideo = async () => {
+    setIsExporting(true);
+    setExportProgress(0);
+    setExportStatus("Capturing slides…");
+    try {
+      const blob = await encodeWorkspaceVideoToBlob(config);
+      if (blob) {
+        triggerMp4Download(blob, `${randomExportHex(14)}.mp4`);
+        setExportProgress(100);
+        setExportStatus("Done! Video downloaded.");
+      }
+    } finally {
+      setIsExporting(false);
+      setTimeout(() => {
+        setExportStatus("");
+        setExportProgress(0);
+      }, 3000);
+    }
+  };
+
+  const handleExportAllVideos = async () => {
+    if (savedSlideshows.length < 2) return;
+    const restoreConfig = {
+      ...config,
+      slots: (config.slots ?? []).map((s) => ({ ...s })),
+    };
+    setIsExporting(true);
+    setExportProgress(0);
+    setExportStatus("Preparing batch export…");
+    try {
+      for (let i = 0; i < savedSlideshows.length; i++) {
+        const show = savedSlideshows[i];
+        setExportStatus(`Exporting video ${i + 1} of ${savedSlideshows.length}…`);
+        const exportCfg = galleryShowToExportConfig(restoreConfig, show);
+        flushSync(() => setConfig(exportCfg));
+        flushSync(() => setCurrentSlide(0));
+        await waitForPreviewPaint();
+        const blob = await encodeWorkspaceVideoToBlob(exportCfg);
+        if (blob) {
+          triggerMp4Download(blob, sequentialRandomMp4Name(i));
+          await new Promise((r) => setTimeout(r, 400));
+        }
+      }
+      setExportProgress(100);
+      setExportStatus(`Done! ${savedSlideshows.length} videos downloaded.`);
+    } catch (e) {
+      console.error(e);
+      setExportStatus("Batch video export failed — see console.");
+    } finally {
+      flushSync(() => setConfig(restoreConfig));
+      flushSync(() => setCurrentSlide(0));
+      setIsExporting(false);
+      setTimeout(() => {
+        setExportStatus("");
+        setExportProgress(0);
+      }, 4000);
+    }
   };
 
   const handleExportPNG = async () => {
@@ -2975,10 +3057,34 @@ ${SHARED_RULES_OUTRO}`;
           className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 disabled:opacity-40 text-white text-sm font-semibold border border-white/10 transition-colors">
           🗂️ Export All Slides as PNG (ZIP)
         </button>
-        <button onClick={handleExportVideo} disabled={isExporting}
-          className="w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-semibold transition-colors">
-          🎬 Export Full Video (.mp4)
-        </button>
+        {savedSlideshows.length >= 2 ? (
+          <>
+            <button
+              type="button"
+              onClick={handleExportAllVideos}
+              disabled={isExporting}
+              className="w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-semibold transition-colors"
+            >
+              🎬 Export all videos (.mp4)
+            </button>
+            <button
+              type="button"
+              onClick={handleExportVideo}
+              disabled={isExporting}
+              className="w-full py-2 rounded-xl bg-white/6 hover:bg-white/10 disabled:opacity-40 text-white/70 text-xs font-medium border border-white/10 transition-colors"
+            >
+              Export current workspace only
+            </button>
+            <p className="text-white/25 text-[10px] text-center leading-relaxed">
+              Filenames start with 1…N (export order), then random hex so the tail does not read as a simple sequence.
+            </p>
+          </>
+        ) : (
+          <button onClick={handleExportVideo} disabled={isExporting}
+            className="w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-semibold transition-colors">
+            🎬 Export full video (.mp4)
+          </button>
+        )}
         <p className="text-white/25 text-xs text-center">
           {totalSlides} slides · {(config.slideDuration * totalSlides).toFixed(0)}s+ · 1080×1920 full res
         </p>

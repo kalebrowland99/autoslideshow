@@ -105,6 +105,30 @@ function AnalysisBody({ text, px }) {
   );
 }
 
+function seedOilsBadge(analysis) {
+  const t = String(analysis || "").toLowerCase();
+  if (!t.trim()) return "Unknown";
+  if (/seed oil|canola|soybean|sunflower|safflower|corn oil|cottonseed|grapeseed/.test(t)) return "Present";
+  if (/no seed oils|seed oils: none|avocado oil|olive oil|coconut oil/.test(t)) return "None";
+  return "Unknown";
+}
+
+function additivesBadge(analysis) {
+  const t = String(analysis || "").toLowerCase();
+  if (!t.trim()) return "Unknown";
+  if (/no additives|no gums|no preservatives/.test(t)) return "No additives";
+  if (/additive|preservative|emulsifier|gum|stabilizer|artificial flavor/.test(t)) return "Multiple";
+  return "Some";
+}
+
+function processingBadge(score) {
+  const s = clampLabelyScore(score);
+  if (s >= 81) return "Low";
+  if (s >= 61) return "Moderate";
+  if (s >= 46) return "Moderate";
+  return "High";
+}
+
 export default function LabelySlide({ slot, S }) {
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
@@ -119,12 +143,9 @@ export default function LabelySlide({ slot, S }) {
     (slot.labelyAnalysis || "").trim()
     || "Generate this slide from the sidebar to add a clean-ingredient analysis.";
   const colors = scoreColors(score);
-  /** Product attribute rows — fixed copy for slideshow / demo consistency */
-  const severeAttributeLabel = "dangerously high";
-  const severityPillBg = "#FFE9E2";
-  const severityPillColor = "#B23A2D";
-  const severityDot = "#FF6B35";
-  const severityIconBg = "#FFE9E2";
+  const seedOils = seedOilsBadge(analysis);
+  const processing = processingBadge(score);
+  const additives = additivesBadge(analysis);
 
   return (
     <div
@@ -263,42 +284,42 @@ export default function LabelySlide({ slot, S }) {
           {/* Seed oils */}
           <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
-              <div style={{ width: px(22), height: px(22), borderRadius: px(10), background: severityIconBg, flexShrink: 0 }} />
+              <div style={{ width: px(22), height: px(22), borderRadius: px(10), background: "#EEF4F0", flexShrink: 0 }} />
               <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>Seed Oils</div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
-              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: severityPillBg, color: severityPillColor, fontSize: px(12), fontWeight: 700 }}>
-                {severeAttributeLabel}
+              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#EEF4F0", color: "#2F5A41", fontSize: px(12), fontWeight: 700 }}>
+                {seedOils}
               </div>
-              <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: severityDot }} />
+              <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: seedOils === "None" ? "#34C759" : seedOils === "Present" ? "#FF6B35" : "#FFB01A" }} />
             </div>
           </div>
 
           {/* Processing Profile */}
           <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
-              <div style={{ width: px(22), height: px(22), borderRadius: px(10), background: severityIconBg, flexShrink: 0 }} />
+              <div style={{ width: px(22), height: px(22), borderRadius: px(10), background: "#FFF2E6", flexShrink: 0 }} />
               <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>Processing Profile</div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
-              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: severityPillBg, color: severityPillColor, fontSize: px(12), fontWeight: 700 }}>
-                {severeAttributeLabel}
+              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: processing === "Low" ? "#EEF4F0" : processing === "Moderate" ? "#FFF2E6" : "#FFE9E2", color: processing === "High" ? "#B23A2D" : "#2F5A41", fontSize: px(12), fontWeight: 700 }}>
+                {processing}
               </div>
-              <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: severityDot }} />
+              <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: processing === "Low" ? "#34C759" : processing === "Moderate" ? "#FFB01A" : "#FF6B35" }} />
             </div>
           </div>
 
           {/* Additives */}
           <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
-              <div style={{ width: px(22), height: px(22), borderRadius: px(10), background: severityIconBg, flexShrink: 0 }} />
+              <div style={{ width: px(22), height: px(22), borderRadius: px(10), background: "#EEF4F0", flexShrink: 0 }} />
               <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>Additives</div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
-              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: severityPillBg, color: severityPillColor, fontSize: px(12), fontWeight: 700 }}>
-                {severeAttributeLabel}
+              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: additives === "No additives" ? "#EEF4F0" : additives === "Multiple" ? "#FFE9E2" : "#FFF2E6", color: additives === "Multiple" ? "#B23A2D" : "#2F5A41", fontSize: px(12), fontWeight: 700 }}>
+                {additives}
               </div>
-              <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: severityDot }} />
+              <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: additives === "No additives" ? "#34C759" : additives === "Multiple" ? "#FF6B35" : "#FFB01A" }} />
             </div>
           </div>
         </div>
