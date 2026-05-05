@@ -150,7 +150,11 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
       {/* Slide dots */}
       <div className="flex gap-1 flex-wrap justify-center max-w-[340px]">
         {Array.from({ length: totalSlides }).map((_, i) => {
-          const isCollage = fmt !== "posePerson" && fmt !== "imessageMom" && i === 0;
+          const isCollage =
+            fmt !== "posePerson" &&
+            fmt !== "imessageMom" &&
+            fmt !== "labelyOnly" &&
+            i === 0;
           const isReveal =
             fmt === "standard" && i > 0 && (i - 1) % 2 === 0;
           const momPhoto = false;
@@ -202,6 +206,8 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-pink-400 inline-block"/>Text reply</span>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>{brand.appId === "labely" ? "Labely" : brand.appName}</span>
             </>
+          ) : fmt === "labelyOnly" ? (
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>Labely</span>
           ) : (
             <>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-violet-500 inline-block"/>Collage</span>

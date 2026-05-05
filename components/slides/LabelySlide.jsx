@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-import { getLabelyLawsuitBadgeLabel } from "@/lib/labelyLawsuitBadge";
 import { clampLabelyScore, ratingLabelFromScore } from "@/lib/labelyRating";
 
 const IPHONE_SCALE = 1080 / 390;
@@ -11,7 +10,7 @@ const IPHONE_SCALE = 1080 / 390;
  * Page bg / neutrals / pantry / share / mint card edge taken from pixel averages.
  */
 const C = {
-  pageBg: "#F9F9F9",
+  pageBg: "#F4F0E6",
   cardBg: "#FFFFFF",
   title: "#1A1A1A",
   textMuted: "#8E8E93",
@@ -34,6 +33,9 @@ const C = {
   /** Thrifty / Valcoin app wordmark — ThriftySlide `brand.appLower` */
   wordmarkFont: `Georgia, "Times New Roman", serif`,
   wordmarkColor: "#7B4F2E",
+  /** Onboarding-ish green button */
+  ctaBg: "#2F5A41",
+  ctaText: "#F6F2E9",
 };
 
 function scoreColors(score) {
@@ -103,31 +105,28 @@ function AnalysisBody({ text, px }) {
   );
 }
 
-function ShareGlyph({ px: pxFn, stroke }) {
-  const s = stroke || C.shareIcon;
-  return (
-    <svg width={pxFn(20)} height={pxFn(20)} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M12 3v10" stroke={s} strokeWidth="2" strokeLinecap="round" />
-      <path d="M8.5 6.5 12 3l3.5 3.5" stroke={s} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" stroke={s} strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
+function seedOilsBadge(analysis) {
+  const t = String(analysis || "").toLowerCase();
+  if (!t.trim()) return "Unknown";
+  if (/seed oil|canola|soybean|sunflower|safflower|corn oil|cottonseed|grapeseed/.test(t)) return "Present";
+  if (/no seed oils|seed oils: none|avocado oil|olive oil|coconut oil/.test(t)) return "None";
+  return "Unknown";
 }
 
-/** Bookmark / save icon for Add to Pantry */
-function SaveGlyph({ px: pxFn, stroke, icon = 20 }) {
-  const s = stroke || C.title;
-  return (
-    <svg width={pxFn(icon)} height={pxFn(icon)} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M7 3h10a2 2 0 012 2v16l-7-4-7 4V5a2 2 0 012-2z"
-        stroke={s}
-        strokeWidth="2"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
+function additivesBadge(analysis) {
+  const t = String(analysis || "").toLowerCase();
+  if (!t.trim()) return "Unknown";
+  if (/no additives|no gums|no preservatives/.test(t)) return "No additives";
+  if (/additive|preservative|emulsifier|gum|stabilizer|artificial flavor/.test(t)) return "Multiple";
+  return "Some";
+}
+
+function processingBadge(score) {
+  const s = clampLabelyScore(score);
+  if (s >= 81) return "Low";
+  if (s >= 61) return "Moderate";
+  if (s >= 46) return "Moderate";
+  return "High";
 }
 
 export default function LabelySlide({ slot, S }) {
@@ -135,7 +134,6 @@ export default function LabelySlide({ slot, S }) {
   const H = Math.round(1920 * S);
   const px = (n) => Math.round(n * IPHONE_SCALE * S);
   const gutter = px(22);
-  const bw = Math.max(2, Math.round(2 * IPHONE_SCALE * S));
 
   const name = (slot.itemName || "").trim() || "Product";
   const brand = (slot.labelyBrand || "").trim();
@@ -144,14 +142,10 @@ export default function LabelySlide({ slot, S }) {
   const analysis =
     (slot.labelyAnalysis || "").trim()
     || "Generate this slide from the sidebar to add a clean-ingredient analysis.";
-  const lawsuitBadgeLabel = useMemo(
-    () =>
-      getLabelyLawsuitBadgeLabel(
-        `${slot.itemName || ""}|${slot.labelyBrand || ""}|${slot.labelyScore ?? 0}`
-      ),
-    [slot.itemName, slot.labelyBrand, slot.labelyScore]
-  );
   const colors = scoreColors(score);
+  const seedOils = seedOilsBadge(analysis);
+  const processing = processingBadge(score);
+  const additives = additivesBadge(analysis);
 
   return (
     <div
@@ -167,205 +161,64 @@ export default function LabelySlide({ slot, S }) {
         color: C.title,
       }}
     >
-      <div style={{ flexShrink: 0, paddingLeft: gutter, paddingRight: gutter, paddingTop: px(88) }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: px(16) }}>
-          <div
+      <div style={{ flexShrink: 0, paddingLeft: gutter, paddingRight: gutter, paddingTop: px(18) }}>
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <img
+            src="/labely/labely-logo2.png"
+            alt="Labely"
             style={{
-              position: "relative",
-              width: px(118),
-              height: px(118),
-              borderRadius: px(16),
-              overflow: "hidden",
-              flexShrink: 0,
-              background: "#0a0a0a",
-              boxShadow: `0 ${px(6)}px ${px(16)}px rgba(0,0,0,0.12)`,
+              height: px(136),
+              width: "auto",
+              display: "block",
+              objectFit: "contain",
             }}
-          >
-            {slot.imageUrl ? (
-              <img
-                src={slot.imageUrl}
-                alt=""
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                  objectPosition: "center",
-                  display: "block",
-                }}
-              />
-            ) : (
-              <div style={{ width: "100%", height: "100%", background: "linear-gradient(145deg,#2a2a2a,#0a0a0a)" }} />
-            )}
-          </div>
+          />
+        </div>
 
-          <div
-            style={{
-              flex: 1,
-              minWidth: 0,
-              paddingTop: px(2),
-              position: "relative",
-            }}
-          >
+        <div style={{ marginTop: px(10), paddingLeft: px(10), paddingRight: px(10) }}>
+          <div style={{ display: "flex", alignItems: "center", gap: px(16) }}>
             <div
               style={{
-                position: "absolute",
-                top: "auto",
-                bottom: 0,
-                right: 0,
-                display: "flex",
-                alignItems: "center",
-                gap: px(6),
-                height: px(36),
-                paddingLeft: px(14),
-                paddingRight: px(14),
-                borderRadius: px(999),
-                border: `1px solid ${C.shareBorder}`,
-                background: C.shareBg,
+                width: px(70),
+                height: px(70),
+                borderRadius: px(18),
+                overflow: "hidden",
+                background: "#ffffff",
+                boxShadow: `0 ${px(6)}px ${px(16)}px rgba(0,0,0,0.10)`,
+                flexShrink: 0,
               }}
             >
-              <span style={{ fontSize: px(12), fontWeight: 600, letterSpacing: "0.08em", color: C.shareIcon, whiteSpace: "nowrap" }}>SHARE</span>
-              <ShareGlyph px={px} stroke={C.shareIcon} />
+              {slot.imageUrl ? (
+                <img
+                  src={slot.imageUrl}
+                  alt=""
+                  style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center", display: "block" }}
+                />
+              ) : (
+                <div style={{ width: "100%", height: "100%", background: "linear-gradient(145deg,#e8e3d8,#f8f5ee)" }} />
+              )}
             </div>
 
-            <h1
-              style={{
-                margin: 0,
-                fontSize: px(22),
-                lineHeight: 1.2,
-                fontWeight: 700,
-                letterSpacing: "-0.02em",
-                color: C.title,
-                overflow: "hidden",
-                display: "-webkit-box",
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: "vertical",
-                wordBreak: "break-word",
-              }}
-            >
-              {name}
-            </h1>
-            {brand ? (
-              <p
-                style={{
-                  margin: `${px(6)}px 0 0 0`,
-                  fontSize: px(16),
-                  fontWeight: 400,
-                  letterSpacing: "0.01em",
-                  color: C.textMuted,
-                  overflow: "hidden",
-                  display: "-webkit-box",
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: "vertical",
-                  wordBreak: "break-word",
-                }}
-              >
-                {brand}
-              </p>
-            ) : null}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: px(20), fontWeight: 700, color: C.title, lineHeight: 1.15, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                {name}
+              </div>
+              {brand ? (
+                <div style={{ marginTop: px(4), fontSize: px(14), color: C.textMuted, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {brand}
+                </div>
+              ) : null}
 
-            <div
-              style={{
-                marginTop: px(16),
-                display: "flex",
-                alignItems: "flex-start",
-                gap: px(4),
-                maxWidth: "100%",
-                paddingRight: px(102),
-              }}
-            >
-              <span
-                style={{
-                  marginTop: px(6),
-                  width: px(12),
-                  height: px(12),
-                  borderRadius: "50%",
-                  background: colors.dot,
-                  flexShrink: 0,
-                }}
-                aria-hidden
-              />
-              <div style={{ display: "flex", flexDirection: "column", gap: px(1), minWidth: 0, lineHeight: 1 }}>
-                <span
-                  style={{
-                    fontSize: px(20),
-                    fontWeight: 600,
-                    color: colors.scoreColor,
-                    letterSpacing: "-0.02em",
-                    fontVariantNumeric: "tabular-nums",
-                    lineHeight: 1,
-                  }}
-                >
+              <div style={{ marginTop: px(10), display: "flex", alignItems: "center", gap: px(8) }}>
+                <div style={{ fontSize: px(16), fontWeight: 800, color: "#2F5A41", fontVariantNumeric: "tabular-nums" }}>
                   {score}/100
-                </span>
-                <span
-                  style={{
-                    fontSize: px(11),
-                    color: colors.verdictColor,
-                    fontWeight: 400,
-                    lineHeight: 1.15,
-                    wordBreak: "break-word",
-                  }}
-                >
-                  {verdict}
-                </span>
+                </div>
+                <div style={{ fontSize: px(14), color: "#2F5A41", fontWeight: 600 }}>
+                  {verdict === "Great" ? "Excellent" : verdict}
+                </div>
+                <span style={{ width: px(10), height: px(10), borderRadius: "50%", background: colors.dot, display: "inline-block" }} />
               </div>
             </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            marginTop: px(22),
-            width: "100%",
-            display: "flex",
-            alignItems: "center",
-            gap: px(10),
-          }}
-        >
-          <div
-            style={{
-              flexShrink: 0,
-              height: px(44),
-              paddingLeft: px(20),
-              paddingRight: px(20),
-              borderRadius: px(999),
-              border: `${bw}px solid ${C.pantryBorderSage}`,
-              background: C.pantryBgSage,
-              color: C.pantryTextSage,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: px(7),
-              fontSize: px(15),
-              fontWeight: 700,
-              letterSpacing: "0.01em",
-            }}
-          >
-          <span>Add to Pantry</span>
-          <SaveGlyph px={px} stroke={C.pantryTextSage} icon={17} />
-        </div>
-          <div
-            style={{
-              flex: 1,
-              minWidth: 0,
-              height: px(44),
-              paddingLeft: px(16),
-              paddingRight: px(16),
-              borderRadius: px(999),
-              border: `${bw}px solid ${C.lawsuitBorder}`,
-              background: C.lawsuitBg,
-              color: C.lawsuitText,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: px(13),
-              fontWeight: 700,
-              letterSpacing: "0.01em",
-            }}
-          >
-            <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {lawsuitBadgeLabel}
-            </span>
           </div>
         </div>
       </div>
@@ -374,39 +227,104 @@ export default function LabelySlide({ slot, S }) {
         style={{
           flex: 1,
           minHeight: 0,
-          marginLeft: gutter,
-          marginRight: gutter,
-          marginTop: px(24),
-          marginBottom: px(40),
-          borderRadius: px(20),
-          background: C.cardBg,
-          border: `1px solid ${C.cardBorderMint}`,
-          boxShadow: C.cardShadowMint,
-          padding: px(22),
           display: "flex",
           flexDirection: "column",
-          overflow: "hidden",
+          paddingLeft: gutter,
+          paddingRight: gutter,
+          paddingBottom: px(28),
         }}
       >
-        <div style={{ display: "flex", justifyContent: "center", flexShrink: 0, minWidth: 0 }}>
+        <div style={{ flex: 1, minHeight: 0, marginTop: px(16), paddingLeft: px(10), paddingRight: px(10), display: "flex", flexDirection: "column" }}>
           <div
             style={{
-              fontFamily: C.wordmarkFont,
-              fontSize: px(36),
-              fontWeight: 900,
-              color: C.wordmarkColor,
-              letterSpacing: px(-0.5),
-              lineHeight: 0.95,
-              textAlign: "center",
+              flex: 1,
+              minHeight: 0,
+              background: "#ffffff",
+              borderRadius: px(18),
+              padding: px(16),
+              boxShadow: "0 8px 22px rgba(0,0,0,0.06)",
+              border: "1px solid rgba(0,0,0,0.04)",
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
             }}
           >
-            labely
+            <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
+              <img
+                src="/labely/labely-says.png"
+                alt=""
+                style={{
+                  width: px(52),
+                  height: px(52),
+                  borderRadius: px(10),
+                  display: "block",
+                  objectFit: "contain",
+                  flexShrink: 0,
+                }}
+              />
+              <div style={{ fontSize: px(16), fontWeight: 800, color: "#2F5A41" }}>
+                Labely says
+              </div>
+            </div>
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                marginTop: px(10),
+                overflowY: "auto",
+                WebkitOverflowScrolling: "touch",
+              }}
+            >
+              <AnalysisBody text={analysis} px={px} />
+            </div>
           </div>
         </div>
-        <div style={{ marginTop: px(18), overflowY: "auto", flex: 1, minHeight: 0 }}>
-          <AnalysisBody text={analysis} px={px} />
+
+        <div style={{ flexShrink: 0, marginTop: px(18), paddingLeft: px(10), paddingRight: px(10), display: "flex", flexDirection: "column", gap: px(12) }}>
+          {/* Seed oils */}
+          <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
+              <div style={{ width: px(22), height: px(22), borderRadius: px(10), background: "#EEF4F0", flexShrink: 0 }} />
+              <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>Seed Oils</div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
+              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#EEF4F0", color: "#2F5A41", fontSize: px(12), fontWeight: 700 }}>
+                {seedOils}
+              </div>
+              <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: seedOils === "None" ? "#34C759" : seedOils === "Present" ? "#FF6B35" : "#FFB01A" }} />
+            </div>
+          </div>
+
+          {/* Processing Profile */}
+          <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
+              <div style={{ width: px(22), height: px(22), borderRadius: px(10), background: "#FFF2E6", flexShrink: 0 }} />
+              <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>Processing Profile</div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
+              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: processing === "Low" ? "#EEF4F0" : processing === "Moderate" ? "#FFF2E6" : "#FFE9E2", color: processing === "High" ? "#B23A2D" : "#2F5A41", fontSize: px(12), fontWeight: 700 }}>
+                {processing}
+              </div>
+              <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: processing === "Low" ? "#34C759" : processing === "Moderate" ? "#FFB01A" : "#FF6B35" }} />
+            </div>
+          </div>
+
+          {/* Additives */}
+          <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
+              <div style={{ width: px(22), height: px(22), borderRadius: px(10), background: "#EEF4F0", flexShrink: 0 }} />
+              <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>Additives</div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
+              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: additives === "No additives" ? "#EEF4F0" : additives === "Multiple" ? "#FFE9E2" : "#FFF2E6", color: additives === "Multiple" ? "#B23A2D" : "#2F5A41", fontSize: px(12), fontWeight: 700 }}>
+                {additives}
+              </div>
+              <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: additives === "No additives" ? "#34C759" : additives === "Multiple" ? "#FF6B35" : "#FFB01A" }} />
+            </div>
+          </div>
         </div>
       </div>
+
     </div>
   );
 }

@@ -1133,9 +1133,11 @@ ${SHARED_RULES_OUTRO}`;
         updateConfig("captionText", pick);
       }
 
-      // iMessage mom only uses slot 0
+      // iMessage mom / Labely single-slide only use slot 0
       const isMomFmt = (config.outputFormat ?? "standard") === "imessageMom";
-      const allSlots = isMomFmt ? [config.slots[0]] : config.slots;
+      const isLabelyOnlyFmt = (config.outputFormat ?? "standard") === "labelyOnly";
+      const allSlots =
+        isMomFmt || (isLabely && isLabelyOnlyFmt) ? [config.slots[0]] : config.slots;
 
       // All slots are active if brand items list has items; otherwise filter by slot prompt
       const activeSlots = allSlots
@@ -1294,7 +1296,10 @@ ${SHARED_RULES_OUTRO}`;
   const bulkFileInputRef = useRef(null);
 
   const batchSlotCount =
-    (config.outputFormat ?? "standard") === "imessageMom" ? 1 : 6;
+    (config.outputFormat ?? "standard") === "imessageMom" ||
+    (isLabely && (config.outputFormat ?? "standard") === "labelyOnly")
+      ? 1
+      : 6;
   const batchImagesNeeded = numSlideshows * batchSlotCount;
 
   const hasWorkspacePhotos = useMemo(
@@ -1417,7 +1422,9 @@ ${SHARED_RULES_OUTRO}`;
   // Generate one complete slideshow into a local slots array, save via callback.
   const generateOneSlideshow = async (showIndex, totalShows) => {
     const isMomFmt = (config.outputFormat ?? "standard") === "imessageMom";
-    const slotCount = isMomFmt ? 1 : 6;
+    const isLabelyOnlyFmt = (config.outputFormat ?? "standard") === "labelyOnly";
+    const slotCount =
+      isMomFmt || (isLabely && isLabelyOnlyFmt) ? 1 : 6;
     const base = showIndex * slotCount;
     const slice =
       batchImageDataUrls.length > base
@@ -2057,6 +2064,10 @@ ${SHARED_RULES_OUTRO}`;
   useEffect(() => {
     registerRefreshSlide?.((slideIdx) => {
       const fmt = config.outputFormat ?? "standard";
+      if (fmt === "labelyOnly" && brand.appId === "labely") {
+        handleGenerateOne(0);
+        return;
+      }
       if (slideIdx === 0 && fmt !== "posePerson" && fmt !== "imessageMom") {
         handleGenerateAll();
       } else {
@@ -2074,6 +2085,15 @@ ${SHARED_RULES_OUTRO}`;
         <span className="text-white/45 text-xs font-semibold uppercase tracking-wider">Output format</span>
         <div className="flex flex-col gap-2">
           {[
+            ...(isLabely
+              ? [
+                  {
+                    id: "labelyOnly",
+                    label: "Labely (single slide)",
+                    sub: "One Labely slide only — upload a packaging photo below (slot 1), then Generate.",
+                  },
+                ]
+              : []),
             { id: "standard", label: "Standard", sub: "Collage, then reveal + app per item" },
             { id: "appOnly", label: "App only", sub: "Collage, then app screenshots only (no reveal)" },
             ...(!isValcoin ? [{ id: "imessageMom", label: "iMessage mom", sub: `iMessage → Voicemail → ${brand.appName} (3 slides, slot 1 only)` }] : []),
@@ -2467,7 +2487,9 @@ ${SHARED_RULES_OUTRO}`;
             {labelyUploadsLocked
               ? " AI mode is on — uploads are disabled; run Generate to fill slots."
               : isLabely
-              ? " Labely analyzes rows 1–6 (live preview); rows 7+ are analyzed when you run batch. Upload photos per row or use AI-generated products."
+              ? (config.outputFormat ?? "standard") === "labelyOnly"
+                ? " One row = one photo for your single Labely slide (preview analyzes slot 1). Toggle AI-generated products off if you want uploads only."
+                : " Labely analyzes rows 1–6 (live preview); rows 7+ are analyzed when you run batch. Upload photos per row or use AI-generated products."
               : " Rows 1–6 match the live preview. AI uses the brand list for any row left empty when generating."}
           </p>
 

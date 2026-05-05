@@ -104,9 +104,10 @@ Score the product based on this priority:
 5. Nutrition facts like protein, fiber, sodium, and calories
 
 Writing style for "analysis":
-- 90 to 140 words.
+- **Exactly two sentences total** (no more, no fewer). Aim for about 25–45 words in all.
 - First sentence must start with: "The [PRODUCT NAME] scored low/moderate/high because…" (pick exactly one of low / moderate / high to match your judgment).
-- Bold important ingredient names using markdown **double asterisks** where helpful.
+- Second sentence briefly adds the main concern or upside (e.g. additives, seed oils, sugar, or a positive note) — still tight.
+- Bold important ingredient names using markdown **double asterisks** where helpful (sparingly; one or two terms is enough).
 - Use phrases like:
   "relies on"
   "several artificial sweeteners"
@@ -120,6 +121,39 @@ Writing style for "analysis":
 - Keep the language easy for normal shoppers.
 `;
 
+/** First two sentences only (., !, or ? followed by space/end). Trims runaway model output. */
+function clampAnalysisToTwoSentences(text) {
+  const t = String(text || "").trim();
+  if (!t) return t;
+  const sentences = [];
+  let start = 0;
+  let i = 0;
+  while (i < t.length && sentences.length < 2) {
+    const ch = t[i];
+    const isEnd = ch === "." || ch === "!" || ch === "?";
+    const next = t[i + 1];
+    const endsHere = isEnd && (next === undefined || /\s/.test(next));
+    if (isEnd && i + 1 < t.length && /\d/.test(next)) {
+      i++;
+      continue;
+    }
+    if (endsHere) {
+      const seg = t.slice(start, i + 1).trim();
+      if (seg) sentences.push(seg);
+      start = i + 1;
+      while (start < t.length && /\s/.test(t[start])) start++;
+      i = start;
+      continue;
+    }
+    i++;
+  }
+  if (sentences.length < 2 && start < t.length) {
+    const rest = t.slice(start).trim();
+    if (rest) sentences.push(rest);
+  }
+  return sentences.slice(0, 2).join(" ").trim();
+}
+
 function parseLabelyChatJson(raw, { requireImagePrompt } = {}) {
   let parsed;
   try {
@@ -131,7 +165,7 @@ function parseLabelyChatJson(raw, { requireImagePrompt } = {}) {
   const verdict = ratingLabelFromScore(score);
   const name = String(parsed.name ?? "").trim() || "Product";
   const brand = String(parsed.brand ?? "").trim();
-  const analysis = String(parsed.analysis ?? "").trim();
+  const analysis = clampAnalysisToTwoSentences(String(parsed.analysis ?? "").trim());
   const analysisTitle =
     String(parsed.analysis_title ?? parsed.analysisTitle ?? "").trim() || "Labely\u2019s Analysis";
   const imagePrompt = requireImagePrompt
@@ -178,6 +212,8 @@ Output ONLY valid JSON (no markdown fences). Exact keys:
 Integer **score** must be 0–100.
 
 analysis_title must be exactly "Labely's Analysis".
+
+The **analysis** field must be exactly **two sentences** as specified in the Writing style rules above.
 `;
 
   if (!openaiApiKey) {
@@ -188,7 +224,7 @@ analysis_title must be exactly "Labely's Analysis".
       verdict: "Limit",
       analysisTitle: "Labely\u2019s Analysis",
       analysis:
-        "The Nature's Bakery Whole Wheat Fig Apple Cinnamon Bar scored moderate because it relies on shelf-stable binders and sweeteners typical of packaged snack bars, with multiple additives that push it into the highly processed category compared with simpler fruit-and-oat options. It lists various forms of sweetness and texture gums common on similar bars, which set it apart from cleaner options built from shorter ingredient decks. While whole wheat and fruit filling add some positives, the overall formulation reads less ideal for everyday use if your priority is minimally processed snacks\u2014having this occasionally is reasonable.",
+        "The Nature's Bakery Whole Wheat Fig Apple Cinnamon Bar scored moderate because it relies on **gums** and shelf-stable sweeteners typical of packaged snack bars. Whole wheat and fruit add some upside, but the ingredient list still reads more processed than simpler fruit-and-oat bars for everyday snacking.",
       labelyLegalNote: "No lawsuits found.",
       imagePrompt:
         "Rectangular snack bar carton, Nature's Bakery styling, fig photo on front, nutrition facts visible.",
@@ -232,7 +268,7 @@ async function analyzePackagingImage({ imageDataUrl, openaiApiKey, uploadHint = 
       verdict: ratingLabelFromScore(0),
       analysisTitle: "Labely\u2019s Analysis",
       analysis:
-        "Add OPENAI_API_KEY to enable Labely vision. Connect to .env.local and restart the dev server.",
+        "Vision is offline until you add OPENAI_API_KEY on the server and restart. After that, regenerate to get a two-sentence Labely readout from your photo.",
       labelyLegalNote: "No lawsuits found.",
     };
   }
@@ -261,6 +297,8 @@ Output ONLY valid JSON (no markdown fences). Exact keys:
 Integer **score** must be 0–100.
 
 analysis_title must be exactly "Labely's Analysis".
+
+The **analysis** field must be exactly **two sentences** (see Writing style rules above).
 ${hintLine}`;
 
   const visionUserText = `${LABELY_ANALYST_INSTRUCTIONS}\n${visionTail}`;

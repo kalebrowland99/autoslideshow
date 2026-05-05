@@ -68,7 +68,7 @@ export const defaultConfig = {
   voicemailDisplayNumber: "",
   /** Add a random track from public/audio/ to the exported video. */
   useRandomAudio: false,
-  outputFormat: "standard", // "standard" | "appOnly" | "posePerson" | "imessageMom" | "starterPack"
+  outputFormat: "standard", // "standard" | "appOnly" | "posePerson" | "imessageMom" | "starterPack" | "labelyOnly" (Labely app)
   appId: "thrifty", // "thrifty" | "valcoin" | "labely"
   /** Headline text shown at the top of the Starter Pack slide */
   starterPackHeadline: "",
@@ -164,6 +164,11 @@ export default function Home() {
       if (key === "appId" && value === "valcoin") {
         // Valcoin supports only standard + app-only.
         if (!["standard", "appOnly"].includes(next.outputFormat ?? "standard")) {
+          next.outputFormat = "standard";
+        }
+      }
+      if (key === "appId" && value !== "labely" && prev.appId === "labely") {
+        if ((prev.outputFormat ?? "standard") === "labelyOnly") {
           next.outputFormat = "standard";
         }
       }
