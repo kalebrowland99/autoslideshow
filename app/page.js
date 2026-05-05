@@ -149,7 +149,11 @@ export default function Home() {
       ...prev,
       slots: showData.slots,
       captionText: isLabelyShow ? "" : showData.captionText,
-      ...(showData.outputFormat != null ? { outputFormat: showData.outputFormat } : {}),
+      ...(showData.outputFormat != null
+        ? { outputFormat: showData.outputFormat }
+        : isLabelyShow
+          ? { outputFormat: "labelyScan" }
+          : {}),
       ...(showData.appId != null ? { appId: showData.appId } : {}),
     }));
     setActiveShowIdx(idx);
@@ -174,6 +178,10 @@ export default function Home() {
       }
       if (key === "appId" && value === "labely") {
         next.captionText = "";
+        const fmt = next.outputFormat ?? "standard";
+        if (!["labelyOnly", "labelyScan"].includes(fmt)) {
+          next.outputFormat = "labelyScan";
+        }
       }
       if (key === "outputFormat") {
         const maxSlide = Math.max(0, getTotalSlides(next) - 1);
