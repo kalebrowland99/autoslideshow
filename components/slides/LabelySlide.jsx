@@ -93,7 +93,7 @@ function AnalysisBody({ text, px }) {
   }, [text]);
 
   return (
-    <span style={{ fontSize: px(16), lineHeight: 1.5, color: C.textBody }}>
+    <span style={{ fontSize: px(13), lineHeight: 1.42, color: C.textBody }}>
       {parts.map((p, i) =>
         p.bold ? (
           <strong key={i} style={{ color: C.title, fontWeight: 700 }}>{p.s}</strong>
@@ -262,7 +262,7 @@ export default function LabelySlide({ slot, S }) {
                   flexShrink: 0,
                 }}
               />
-              <div style={{ fontSize: px(16), fontWeight: 800, color: "#2F5A41" }}>
+              <div style={{ fontSize: px(14), fontWeight: 800, color: "#2F5A41" }}>
                 Dr. Labely says
               </div>
             </div>
