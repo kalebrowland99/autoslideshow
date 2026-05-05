@@ -4,7 +4,14 @@ import { useRef, useState, useEffect, useMemo, useCallback } from "react";
 import { flushSync } from "react-dom";
 import { getFontEmbedCSS, toCanvas, toJpeg } from "html-to-image";
 import { DISPLAY_SCALE } from "./VideoPreview";
-import { getSlideInfo, slideIndexToSlotIndex } from "@/lib/slideLayout";
+import {
+  getSlideInfo,
+  slideIndexToSlotIndex,
+  isLabelySingleSlideFormat,
+  isLabelyScanTourFormat,
+  LABELY_SCAN_TOUR_SLOTS,
+} from "@/lib/slideLayout";
+import { buildLabelyScanFrameSequence } from "@/lib/labelyScanExport";
 import { getBrand } from "@/lib/brand";
 import {
   fileToDisplayableDataUrl,
@@ -714,7 +721,7 @@ ${SHARED_RULES_OUTRO}`;
   };
 
   /** No photo — GPT picks a real retail SKU + score + analysis (fictional scanner compounds) + optional pack image (same as POST /api/labely with no body image). */
-  const fillLabelyFromAi = async (seedHint) => {
+  const fillLabelyFromAi = async (seedHint, errorSlotIdx = null) => {
     try {
       const res = await fetch("/api/labely", {
         method: "POST",
@@ -722,9 +729,19 @@ ${SHARED_RULES_OUTRO}`;
         signal: abortRef.current?.signal,
         body: JSON.stringify(seedHint?.trim() ? { seedHint: seedHint.trim() } : {}),
       });
-      if (!res.ok) return null;
-      return await res.json();
-    } catch {
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = typeof body?.error === "string" ? body.error : `Labely request failed (${res.status})`;
+        if (typeof errorSlotIdx === "number") {
+          setAiErrors((p) => ({ ...p, [errorSlotIdx]: msg }));
+        }
+        return null;
+      }
+      return body;
+    } catch (e) {
+      if (typeof errorSlotIdx === "number") {
+        setAiErrors((p) => ({ ...p, [errorSlotIdx]: e?.message || "Network error" }));
+      }
       return null;
     }
   };
@@ -857,7 +874,7 @@ ${SHARED_RULES_OUTRO}`;
             weightedPool.length > 0
               ? weightedPool[Math.floor(Math.random() * weightedPool.length)]
               : null;
-          const ly = await fillLabelyFromAi(hint);
+          const ly = await fillLabelyFromAi(hint, index);
           if (ly?.name) {
             const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
             updateSlot(index, {
@@ -1135,9 +1152,13 @@ ${SHARED_RULES_OUTRO}`;
 
       // iMessage mom / Labely single-slide only use slot 0
       const isMomFmt = (config.outputFormat ?? "standard") === "imessageMom";
-      const isLabelyOnlyFmt = (config.outputFormat ?? "standard") === "labelyOnly";
-      const allSlots =
-        isMomFmt || (isLabely && isLabelyOnlyFmt) ? [config.slots[0]] : config.slots;
+      const allSlots = isMomFmt
+        ? [config.slots[0]]
+        : isLabelyScanTourFormat(config)
+          ? config.slots.slice(0, LABELY_SCAN_TOUR_SLOTS)
+          : isLabelySingleSlideFormat(config)
+            ? [config.slots[0]]
+            : config.slots;
 
       // All slots are active if brand items list has items; otherwise filter by slot prompt
       const activeSlots = allSlots
@@ -1177,11 +1198,25 @@ ${SHARED_RULES_OUTRO}`;
       }
 
       let failedCount = 0;
+      /** Labely ×3 AI + scan tour: merge all slot patches in one commit (avoids lost updates mid-loop). */
+      const tourAiDeferredWrites = [];
       setGenAllProgress({ total, done: 0, current: activeSlots[0].i, phase: `Starting ${total} image${total > 1 ? "s" : ""}…`, slotsDone });
 
       for (let idx = 0; idx < activeSlots.length; idx++) {
         if (cancelGenRef.current) {
-          setGenAllProgress((p) => p ? { ...p, phase: "Stopped." } : null);
+          if (tourAiDeferredWrites.length > 0) {
+            flushSync(() => {
+              setConfig((prev) => ({
+                ...prev,
+                slots: prev.slots.map((slot, idx) => {
+                  const hit = tourAiDeferredWrites.find((x) => x.i === idx);
+                  return hit ? { ...slot, ...hit.patch } : slot;
+                }),
+              }));
+            });
+            flushSync(() => setCurrentSlide(0));
+          }
+          setGenAllProgress((p) => (p ? { ...p, phase: "Stopped." } : null));
           setTimeout(() => setGenAllProgress(null), 2000);
           return;
         }
@@ -1208,7 +1243,7 @@ ${SHARED_RULES_OUTRO}`;
           });
           let ly;
           if (config.labelyAiProducts) {
-            ly = await fillLabelyFromAi(brandItem);
+            ly = await fillLabelyFromAi(brandItem, i);
           } else {
             const slot = config.slots[i];
             const url = (batchImageDataUrls[i] ?? slot.imageUrl)?.trim();
@@ -1216,7 +1251,7 @@ ${SHARED_RULES_OUTRO}`;
           }
           if (ly?.name) {
             const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
-            updateSlot(i, {
+            const patch = {
               itemName: ly.name,
               labelyBrand: ly.brand ?? "",
               labelyScore: sc,
@@ -1225,7 +1260,15 @@ ${SHARED_RULES_OUTRO}`;
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
               labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
               ...(config.labelyAiProducts && ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
-            });
+            };
+            const batchTourAi = config.labelyAiProducts && isLabelyScanTourFormat(config);
+            if (batchTourAi) {
+              tourAiDeferredWrites.push({ i, patch });
+            } else {
+              flushSync(() => {
+                updateSlot(i, patch);
+              });
+            }
             slotsDone.add(i);
             setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Slot ${stepLabel} complete`, slotsDone: new Set(slotsDone) });
           } else {
@@ -1272,12 +1315,31 @@ ${SHARED_RULES_OUTRO}`;
         }
       }
 
+      if (tourAiDeferredWrites.length > 0) {
+        flushSync(() => {
+          setConfig((prev) => ({
+            ...prev,
+            slots: prev.slots.map((slot, idx) => {
+              const hit = tourAiDeferredWrites.find((x) => x.i === idx);
+              return hit ? { ...slot, ...hit.patch } : slot;
+            }),
+          }));
+        });
+        flushSync(() => setCurrentSlide(0));
+      }
+
       const doneCount = slotsDone.size;
+      const missingPackShots =
+        config.labelyAiProducts &&
+        tourAiDeferredWrites.length > 0 &&
+        tourAiDeferredWrites.some(({ patch }) => !String(patch.imageUrl || "").trim());
       const summary = failedCount > 0
         ? `Done — ${doneCount} succeeded, ${failedCount} failed`
-        : "All done! ✓";
+        : missingPackShots
+          ? "All done — text & scores saved, but no pack images. Check the terminal running next dev for [labely] logs; set OPENAI_API_KEY in .env.local. (Localhost is fine — images are created on the server.)"
+          : "All done! ✓";
       setGenAllProgress((p) => p ? { ...p, phase: summary, done: doneCount } : null);
-      setTimeout(() => setGenAllProgress(null), 4000);
+      setTimeout(() => setGenAllProgress(null), missingPackShots ? 12000 : 4000);
     } catch (err) {
       console.error("Generate 1 slideshow failed:", err);
       setGenAllProgress((p) => p ? { ...p, phase: "Generation failed — check console for details." } : null);
@@ -1296,10 +1358,13 @@ ${SHARED_RULES_OUTRO}`;
   const bulkFileInputRef = useRef(null);
 
   const batchSlotCount =
-    (config.outputFormat ?? "standard") === "imessageMom" ||
-    (isLabely && (config.outputFormat ?? "standard") === "labelyOnly")
+    (config.outputFormat ?? "standard") === "imessageMom"
       ? 1
-      : 6;
+      : isLabelyScanTourFormat(config)
+        ? LABELY_SCAN_TOUR_SLOTS
+        : isLabelySingleSlideFormat(config)
+          ? 1
+          : 6;
   const batchImagesNeeded = numSlideshows * batchSlotCount;
 
   const hasWorkspacePhotos = useMemo(
@@ -1422,9 +1487,13 @@ ${SHARED_RULES_OUTRO}`;
   // Generate one complete slideshow into a local slots array, save via callback.
   const generateOneSlideshow = async (showIndex, totalShows) => {
     const isMomFmt = (config.outputFormat ?? "standard") === "imessageMom";
-    const isLabelyOnlyFmt = (config.outputFormat ?? "standard") === "labelyOnly";
-    const slotCount =
-      isMomFmt || (isLabely && isLabelyOnlyFmt) ? 1 : 6;
+    const slotCount = isMomFmt
+      ? 1
+      : isLabelyScanTourFormat(config)
+        ? LABELY_SCAN_TOUR_SLOTS
+        : isLabelySingleSlideFormat(config)
+          ? 1
+          : 6;
     const base = showIndex * slotCount;
     const slice =
       batchImageDataUrls.length > base
@@ -1461,7 +1530,7 @@ ${SHARED_RULES_OUTRO}`;
             phase: `Show ${showIndex + 1}/${totalShows} · AI product ${si + 1}/${slotCount}${brandItem ? ` — "${brandItem}"` : ""}…`,
             slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
           });
-          const ly = await fillLabelyFromAi(brandItem);
+          const ly = await fillLabelyFromAi(brandItem, si);
           if (ly?.name) {
             const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
             localSlots[si] = {
@@ -1644,6 +1713,7 @@ ${SHARED_RULES_OUTRO}`;
     const allSlideFrames = [];
     const previewNode = getCaptureNode();
     const fontEmbedCSS = previewNode ? await getFontEmbedCSS(previewNode) : undefined;
+    const fps = 30;
 
     for (let i = 0; i < totalSlides; i++) {
       flushSync(() => {
@@ -1677,6 +1747,31 @@ ${SHARED_RULES_OUTRO}`;
         }
         // Reset phase
         setConfig((prev) => ({ ...prev, _spPhase: -1 }));
+      } else if (
+        (config.outputFormat ?? "standard") === "labelyScan" &&
+        (config.appId ?? "thrifty") === "labely" &&
+        info.type === "labely"
+      ) {
+        await new Promise((r) => setTimeout(r, 80));
+        try {
+          const labelyCanvas = await captureSlideCanvas(bg, fontEmbedCSS);
+          if (!labelyCanvas) throw new Error("Preview node not found");
+          const slotNow = info.slot ?? config.slots?.[i];
+          const productDataUrl =
+            typeof slotNow?.imageUrl === "string" ? slotNow.imageUrl.trim() : "";
+          const seq = await buildLabelyScanFrameSequence({
+            productDataUrl,
+            labelyCanvas,
+            scanSec: 1.35,
+            revealSec: 0.52,
+            holdSec: config.slideDuration,
+            fps,
+          });
+          allSlideFrames.push([labelyCanvas, seq]);
+        } catch (err) {
+          console.error("Capture error Labely scan intro", err);
+          allSlideFrames.push([]);
+        }
       } else {
         await new Promise((r) => setTimeout(r, 80));
         try {
@@ -1717,14 +1812,17 @@ ${SHARED_RULES_OUTRO}`;
 
     const OUT_W = 1080;
     const OUT_H = 1920;
-    const fps = 30;
     const transitionFrames = Math.round((config.transitionMs / 1000) * fps);
     const frameDurationUs  = Math.round(1_000_000 / fps); // microseconds per frame
 
     // Per-slide hold duration in frames.
-    // StarterPack phases store their own duration in snapshots[1]; others use global slideDuration.
+    // Labely scan intro: snapshots[1] is HTMLCanvasElement[] (one frame per entry).
+    // StarterPack phases: snapshots[1] is duration in seconds (number).
     const perSlideHoldFrames = validSlides.map(({ snapshots }) => {
-      const overrideSec = snapshots[1]; // set for starterPack phases
+      if (Array.isArray(snapshots) && snapshots.length >= 2 && Array.isArray(snapshots[1])) {
+        return snapshots[1].length;
+      }
+      const overrideSec = snapshots[1];
       const baseSec = typeof overrideSec === "number" ? overrideSec : config.slideDuration;
       const jitterMs = typeof overrideSec === "number" ? 0 : Math.floor(Math.random() * 500);
       return Math.round((baseSec + jitterMs / 1000) * fps);
@@ -1800,14 +1898,25 @@ ${SHARED_RULES_OUTRO}`;
     let pts = 0;           // presentation timestamp in microseconds
     let encoded = 0;
 
+    const slideRepresentativeCanvas = (snaps) => {
+      if (Array.isArray(snaps?.[1]) && snaps[1].length > 0) return snaps[1][snaps[1].length - 1];
+      return snaps[0];
+    };
+    const slideFirstCanvas = (snaps) => {
+      if (Array.isArray(snaps?.[1]) && snaps[1].length > 0) return snaps[1][0];
+      return snaps[0];
+    };
+
     for (let si = 0; si < validSlides.length; si++) {
-      const curSnaps   = validSlides[si].snapshots;
+      const curSnaps = validSlides[si].snapshots;
+      const frameSeq = Array.isArray(curSnaps?.[1]) ? curSnaps[1] : null;
       const holdFrames = perSlideHoldFrames[si];
 
       for (let f = 0; f < holdFrames; f++) {
         if (encoderError) break;
         sctx.clearRect(0, 0, OUT_W, OUT_H);
-        sctx.drawImage(curSnaps[0], 0, 0, OUT_W, OUT_H);
+        const src = frameSeq ? frameSeq[f] : curSnaps[0];
+        sctx.drawImage(src, 0, 0, OUT_W, OUT_H);
 
         const vf = new VideoFrame(scaleCanvas, { timestamp: pts, duration: frameDurationUs });
         encoder.encode(vf, { keyFrame: encoded % fps === 0 });
@@ -1830,14 +1939,16 @@ ${SHARED_RULES_OUTRO}`;
       // Transition phase — iPhone cubic ease-out swipe
       if (si < validSlides.length - 1) {
         const nxtSnaps = validSlides[si + 1].snapshots;
+        const curCv = slideRepresentativeCanvas(curSnaps);
+        const nxtCv = slideFirstCanvas(nxtSnaps);
         for (let f = 0; f < transitionFrames; f++) {
           if (encoderError) break;
           const t      = f / transitionFrames;
           const eased  = 1 - Math.pow(1 - t, 3);
           const offset = Math.round(eased * OUT_W);
           sctx.clearRect(0, 0, OUT_W, OUT_H);
-          sctx.drawImage(curSnaps[0], -offset,        0, OUT_W, OUT_H);
-          sctx.drawImage(nxtSnaps[0],                   OUT_W - offset, 0, OUT_W, OUT_H);
+          sctx.drawImage(curCv, -offset,        0, OUT_W, OUT_H);
+          sctx.drawImage(nxtCv,                   OUT_W - offset, 0, OUT_W, OUT_H);
 
           const vf = new VideoFrame(scaleCanvas, { timestamp: pts, duration: frameDurationUs });
           encoder.encode(vf, { keyFrame: false });
@@ -2064,11 +2175,16 @@ ${SHARED_RULES_OUTRO}`;
   useEffect(() => {
     registerRefreshSlide?.((slideIdx) => {
       const fmt = config.outputFormat ?? "standard";
-      if (fmt === "labelyOnly" && brand.appId === "labely") {
+      if (isLabelySingleSlideFormat(config)) {
         handleGenerateOne(0);
         return;
       }
-      if (slideIdx === 0 && fmt !== "posePerson" && fmt !== "imessageMom") {
+      if (
+        slideIdx === 0 &&
+        fmt !== "posePerson" &&
+        fmt !== "imessageMom" &&
+        !isLabelyScanTourFormat(config)
+      ) {
         handleGenerateAll();
       } else {
         const itemIdx = slideIndexToSlotIndex(slideIdx, config);
@@ -2087,6 +2203,11 @@ ${SHARED_RULES_OUTRO}`;
           {[
             ...(isLabely
               ? [
+                  {
+                    id: "labelyScan",
+                    label: "Labely + scan intro (×3)",
+                    sub: `Three Labely slides (slots 1–${LABELY_SCAN_TOUR_SLOTS}): use AI-generated products or upload three pack photos. Export = scan over each image, Labely slides up, then transitions to the next.`,
+                  },
                   {
                     id: "labelyOnly",
                     label: "Labely (single slide)",
@@ -2487,7 +2608,9 @@ ${SHARED_RULES_OUTRO}`;
             {labelyUploadsLocked
               ? " AI mode is on — uploads are disabled; run Generate to fill slots."
               : isLabely
-              ? (config.outputFormat ?? "standard") === "labelyOnly"
+              ? isLabelyScanTourFormat(config)
+                ? ` Scan tour uses the first ${LABELY_SCAN_TOUR_SLOTS} rows as slides 1–${LABELY_SCAN_TOUR_SLOTS} (export: scan → Labely per slide). Enable AI-generated products for auto packshots, or upload three photos.`
+                : isLabelySingleSlideFormat(config)
                 ? " One row = one photo for your single Labely slide (preview analyzes slot 1). Toggle AI-generated products off if you want uploads only."
                 : " Labely analyzes rows 1–6 (live preview); rows 7+ are analyzed when you run batch. Upload photos per row or use AI-generated products."
               : " Rows 1–6 match the live preview. AI uses the brand list for any row left empty when generating."}

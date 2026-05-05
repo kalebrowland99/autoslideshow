@@ -9,7 +9,13 @@ import IMessageMomSlide from "./slides/IMessageMomSlide";
 import VoicemailMomSlide from "./slides/VoicemailMomSlide";
 import IMessageTextSlide from "./slides/IMessageTextSlide";
 import StarterPackSlide from "./slides/StarterPackSlide";
-import { getSlideInfo } from "@/lib/slideLayout";
+import {
+  getSlideInfo,
+  isLabelySingleSlideFormat,
+  isLabelyScanTourFormat,
+  skipsCollageOpening,
+  LABELY_SCAN_TOUR_SLOTS,
+} from "@/lib/slideLayout";
 import { getBrand } from "@/lib/brand";
 
 // At 0.28 scale → 1080×1920 renders as ~302×538px in browser
@@ -42,8 +48,15 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
 
   const fmt = config.outputFormat ?? "standard";
   const brand = getBrand(config);
+  const labelySingleSlide = isLabelySingleSlideFormat(config);
 
   const slideLabel = () => {
+    if (isLabelyScanTourFormat(config)) {
+      return `Labely ${currentSlide + 1} of ${LABELY_SCAN_TOUR_SLOTS} · scan → slide (export)`;
+    }
+    if (labelySingleSlide) {
+      return "Labely";
+    }
     if (fmt === "posePerson") {
       return `Pose ${currentSlide + 1}`;
     }
@@ -151,9 +164,9 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
       <div className="flex gap-1 flex-wrap justify-center max-w-[340px]">
         {Array.from({ length: totalSlides }).map((_, i) => {
           const isCollage =
+            !skipsCollageOpening(config) &&
             fmt !== "posePerson" &&
             fmt !== "imessageMom" &&
-            fmt !== "labelyOnly" &&
             i === 0;
           const isReveal =
             fmt === "standard" && i > 0 && (i - 1) % 2 === 0;
@@ -206,8 +219,16 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-pink-400 inline-block"/>Text reply</span>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>{brand.appId === "labely" ? "Labely" : brand.appName}</span>
             </>
-          ) : fmt === "labelyOnly" ? (
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>Labely</span>
+          ) : skipsCollageOpening(config) ? (
+            <>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>Labely</span>
+              {fmt === "labelyScan" && (
+                <>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-400/90 inline-block"/>Scan × {LABELY_SCAN_TOUR_SLOTS} → slide</span>
+                  <span className="text-white/25">· dots = products</span>
+                </>
+              )}
+            </>
           ) : (
             <>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-violet-500 inline-block"/>Collage</span>

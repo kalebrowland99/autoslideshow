@@ -263,7 +263,7 @@ export default function LabelySlide({ slot, S }) {
                 }}
               />
               <div style={{ fontSize: px(16), fontWeight: 800, color: "#2F5A41" }}>
-                Labely says
+                Dr. Labely says
               </div>
             </div>
             <div
