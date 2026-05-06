@@ -114,10 +114,10 @@ function AnalysisBody({ text, px }) {
 
 function seedOilsBadge(analysis) {
   const t = String(analysis || "").toLowerCase();
-  if (!t.trim()) return "Unknown";
+  if (!t.trim()) return "Present";
   if (/seed oil|canola|soybean|sunflower|safflower|corn oil|cottonseed|grapeseed/.test(t)) return "Present";
   if (/no seed oils|seed oils: none|avocado oil|olive oil|coconut oil/.test(t)) return "None";
-  return "Unknown";
+  return "Present";
 }
 
 function additivesBadge(analysis) {
