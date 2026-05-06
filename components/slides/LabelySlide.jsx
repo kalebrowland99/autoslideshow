@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { BAD_LABELY_SCORE, BAD_LABELY_VERDICT, clampLabelyScore } from "@/lib/labelyRating";
+import { BAD_LABELY_SCORE, BAD_LABELY_VERDICT, MAX_BAD_LABELY_SCORE, MIN_BAD_LABELY_SCORE, clampLabelyScore } from "@/lib/labelyRating";
 
 const IPHONE_SCALE = 1080 / 390;
 
@@ -140,7 +140,8 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
 
   const name = (slot.itemName || "").trim() || "Product";
   const brand = (slot.labelyBrand || "").trim();
-  const score = clampLabelyScore(BAD_LABELY_SCORE);
+  const storedScore = clampLabelyScore(slot.labelyScore);
+  const score = storedScore >= MIN_BAD_LABELY_SCORE && storedScore <= MAX_BAD_LABELY_SCORE ? storedScore : BAD_LABELY_SCORE;
   const verdict = BAD_LABELY_VERDICT;
   const analysis =
     (slot.labelyAnalysis || "").trim()

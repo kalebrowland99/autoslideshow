@@ -21,7 +21,7 @@ import {
   IMAGE_FILE_ACCEPT,
 } from "@/lib/fileToDisplayableDataUrl";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
-import { BAD_LABELY_SCORE, BAD_LABELY_VERDICT } from "@/lib/labelyRating";
+import { BAD_LABELY_VERDICT, normalizeBadLabelyScore } from "@/lib/labelyRating";
 
 function parseDataUrl(dataUrl) {
   if (!dataUrl || typeof dataUrl !== "string") return null;
@@ -193,8 +193,8 @@ function galleryShowToExportConfig(workspace, show) {
   };
 }
 
-function badLabelyPatch() {
-  return { labelyScore: BAD_LABELY_SCORE, labelyVerdict: BAD_LABELY_VERDICT };
+function badLabelyPatch(score) {
+  return { labelyScore: normalizeBadLabelyScore(score), labelyVerdict: BAD_LABELY_VERDICT };
 }
 
 function labelyShelfScenePrompt(itemName, brandName = "") {
@@ -949,7 +949,7 @@ ${SHARED_RULES_OUTRO}`;
           updateSlot(i, {
             itemName: ly.name,
             labelyBrand: ly.brand ?? "",
-            ...badLabelyPatch(),
+            ...badLabelyPatch(ly.score),
             labelyAnalysis: ly.analysis ?? "",
             labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
             labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
@@ -1020,7 +1020,7 @@ ${SHARED_RULES_OUTRO}`;
           updateSlot(globalIdx, {
             itemName: ly.name,
             labelyBrand: ly.brand ?? "",
-            ...badLabelyPatch(),
+            ...badLabelyPatch(ly.score),
             labelyAnalysis: ly.analysis ?? "",
             labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
             labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
@@ -1134,7 +1134,7 @@ ${SHARED_RULES_OUTRO}`;
             updateSlot(index, {
               itemName: ly.name,
               labelyBrand: ly.brand ?? "",
-              ...badLabelyPatch(),
+              ...badLabelyPatch(ly.score),
               labelyAnalysis: ly.analysis ?? "",
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
               labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
@@ -1159,7 +1159,7 @@ ${SHARED_RULES_OUTRO}`;
               updateSlot(index, {
                 itemName: ly.name,
                 labelyBrand: ly.brand ?? "",
-                ...badLabelyPatch(),
+                ...badLabelyPatch(ly.score),
                 labelyAnalysis: ly.analysis ?? "",
                 labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
                 labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
@@ -1369,7 +1369,7 @@ ${SHARED_RULES_OUTRO}`;
         updateSlot(index, {
           itemName: ly.name,
           labelyBrand: ly.brand ?? "",
-          ...badLabelyPatch(),
+          ...badLabelyPatch(ly.score),
           labelyAnalysis: ly.analysis ?? "",
           labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
           labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
@@ -1517,7 +1517,7 @@ ${SHARED_RULES_OUTRO}`;
             const patch = {
               itemName: ly.name,
               labelyBrand: ly.brand ?? "",
-              ...badLabelyPatch(),
+              ...badLabelyPatch(ly.score),
               labelyAnalysis: ly.analysis ?? "",
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
               labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
@@ -1806,7 +1806,7 @@ ${SHARED_RULES_OUTRO}`;
               ...localSlots[si],
               itemName: ly.name,
               labelyBrand: ly.brand ?? "",
-              ...badLabelyPatch(),
+              ...badLabelyPatch(ly.score),
               labelyAnalysis: ly.analysis ?? "",
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
               labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
@@ -1839,7 +1839,7 @@ ${SHARED_RULES_OUTRO}`;
             ...localSlots[si],
             itemName: ly.name,
             labelyBrand: ly.brand ?? "",
-            ...badLabelyPatch(),
+            ...badLabelyPatch(ly.score),
             labelyAnalysis: ly.analysis ?? "",
             labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
             labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",

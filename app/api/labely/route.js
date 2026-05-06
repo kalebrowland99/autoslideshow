@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { runImageGenerationPipeline } from "@/lib/imageGenerationBackend";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
 import { listPublicReferenceImageRelPaths } from "@/lib/referenceImages";
-import { BAD_LABELY_SCORE, BAD_LABELY_VERDICT } from "@/lib/labelyRating";
+import { BAD_LABELY_VERDICT, normalizeBadLabelyScore, randomBadLabelyScore } from "@/lib/labelyRating";
 
 export const maxDuration = 300;
 
@@ -221,7 +221,7 @@ function parseLabelyChatJson(raw, { requireImagePrompt } = {}) {
   return {
     name,
     brand,
-    score: BAD_LABELY_SCORE,
+    score: normalizeBadLabelyScore(parsed.score),
     verdict: BAD_LABELY_VERDICT,
     analysisTitle,
     analysis,
@@ -267,7 +267,7 @@ The **analysis** field must be exactly **three sentences** as specified in the W
     return {
       name: "Whole Wheat Fig Apple Cinnamon",
       brand: "Nature's Bakery",
-      score: BAD_LABELY_SCORE,
+      score: randomBadLabelyScore(),
       verdict: BAD_LABELY_VERDICT,
       analysisTitle: "Labely\u2019s Analysis",
       analysis:
@@ -311,7 +311,7 @@ async function analyzePackagingImage({ imageDataUrl, openaiApiKey, uploadHint = 
     return {
       name: "Packaged product",
       brand: "",
-      score: BAD_LABELY_SCORE,
+      score: randomBadLabelyScore(),
       verdict: BAD_LABELY_VERDICT,
       analysisTitle: "Labely\u2019s Analysis",
       analysis:
