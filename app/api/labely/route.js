@@ -4,6 +4,8 @@ import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImpe
 import { listPublicReferenceImageRelPaths } from "@/lib/referenceImages";
 import { clampLabelyScore, ratingLabelFromScore } from "@/lib/labelyRating";
 
+export const maxDuration = 300;
+
 const LABELY_IPHONE_LOOK = `${iphoneRetailPhotoImperfectionPrompt()}
 
 No text overlays, no captions, no watermarks.`;
@@ -443,6 +445,34 @@ function scoreOpenFoodFactsProduct(product, terms) {
   return score;
 }
 
+function openFoodFactsQueryVariants(query) {
+  const q = String(query || "").trim();
+  const variants = [q];
+  const corrected = q.replace(/\bcelcius\b/gi, "celsius");
+  if (corrected !== q) variants.push(corrected);
+  const firstWord = normalizeFoodText(corrected).split(/\s+/).find((t) => t.length >= 3);
+  if (firstWord && !variants.some((x) => normalizeFoodText(x) === firstWord)) variants.push(firstWord);
+  return variants.filter(Boolean);
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function fetchOpenFoodFactsPage(params) {
+  const url = `${OPEN_FOOD_FACTS_SEARCH}?${params.toString()}`;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const res = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "AutoSlideshow Labely/1.0 (food-photo lookup)",
+      },
+    });
+    if (res.ok) return res.json().catch(() => null);
+    if (![429, 500, 502, 503, 504].includes(res.status)) return null;
+    await sleep(500 * (attempt + 1));
+  }
+  return null;
+}
+
 async function findOpenFoodFactsImage({ name, brand, seedHint }) {
   const queries = [
     [brand, name].filter(Boolean).join(" "),
@@ -454,48 +484,43 @@ async function findOpenFoodFactsImage({ name, brand, seedHint }) {
     .filter(Boolean);
 
   const seen = new Set();
-  for (const query of queries) {
-    const key = normalizeFoodText(query);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
+  for (const rawQuery of queries) {
+    for (const query of openFoodFactsQueryVariants(rawQuery)) {
+      const key = normalizeFoodText(query);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
 
-    const pageSize = 100;
-    const products = [];
-    for (let page = 1; ; page++) {
-      const params = new URLSearchParams({
-        search_terms: query,
-        search_simple: "1",
-        action: "process",
-        json: "1",
-        page: String(page),
-        page_size: String(pageSize),
-        fields: "product_name,generic_name,brands,image_front_url,image_url,selected_images",
-      });
+      const pageSize = 100;
+      const products = [];
+      for (let page = 1; ; page++) {
+        const params = new URLSearchParams({
+          search_terms: query,
+          search_simple: "1",
+          action: "process",
+          json: "1",
+          page: String(page),
+          page_size: String(pageSize),
+          fields: "product_name,generic_name,brands,image_front_url,image_url,selected_images",
+        });
 
-      const res = await fetch(`${OPEN_FOOD_FACTS_SEARCH}?${params.toString()}`, {
-        headers: {
-          Accept: "application/json",
-          "User-Agent": "AutoSlideshow Labely/1.0 (food-photo lookup)",
-        },
-      });
-      if (!res.ok) break;
+        const data = await fetchOpenFoodFactsPage(params);
+        if (!data) break;
+        const pageProducts = Array.isArray(data?.products) ? data.products : [];
+        products.push(...pageProducts);
 
-      const data = await res.json().catch(() => null);
-      const pageProducts = Array.isArray(data?.products) ? data.products : [];
-      products.push(...pageProducts);
+        const total = Number(data?.count) || 0;
+        if (pageProducts.length < pageSize || (total > 0 && products.length >= total)) break;
+      }
 
-      const total = Number(data?.count) || 0;
-      if (pageProducts.length < pageSize || (total > 0 && products.length >= total)) break;
+      const best = products
+        .filter((p) => extractOpenFoodFactsImage(p))
+        .map((p) => ({ product: p, score: scoreOpenFoodFactsProduct(p, query) }))
+        .sort((a, b) => b.score - a.score)[0]?.product;
+
+      const imageUrl = extractOpenFoodFactsImage(best);
+      const dataUrl = await imageUrlToDataUrl(imageUrl);
+      if (dataUrl) return dataUrl;
     }
-
-    const best = products
-      .filter((p) => extractOpenFoodFactsImage(p))
-      .map((p) => ({ product: p, score: scoreOpenFoodFactsProduct(p, query) }))
-      .sort((a, b) => b.score - a.score)[0]?.product;
-
-    const imageUrl = extractOpenFoodFactsImage(best);
-    const dataUrl = await imageUrlToDataUrl(imageUrl);
-    if (dataUrl) return dataUrl;
   }
 
   return null;

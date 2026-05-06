@@ -396,6 +396,7 @@ export default function ConfigPanel({
   const brandItems = (() => {
     const parsed = brandItemsRaw.split("\n").map((l) => l.trim()).filter(Boolean);
     if (parsed.length > 0) return parsed;
+    if (isLabely && config.labelyAiProducts && config.labelyUseFoodDatabasePhotos) return [];
     if (isLabely && config.labelyAiProducts) {
       return DEFAULT_LABELY_ITEMS.split("\n").map((l) => l.trim()).filter(Boolean);
     }
@@ -404,6 +405,11 @@ export default function ConfigPanel({
   })();
   const [foodDbSuggestions, setFoodDbSuggestions] = useState([]);
   const [foodDbSuggestionStatus, setFoodDbSuggestionStatus] = useState("idle");
+  const [foodDbSearch, setFoodDbSearch] = useState("");
+  const [foodDbSearchStatus, setFoodDbSearchStatus] = useState("idle");
+  const [foodDbSearchOptions, setFoodDbSearchOptions] = useState([]);
+  const foodDbSuggestionCacheRef = useRef(new Map());
+  const foodDbKeyFor = (value) => String(value || "").trim().toLowerCase();
   const foodDbSuggestionKey = useMemo(() => (
     isLabely && config.labelyAiProducts && config.labelyUseFoodDatabasePhotos
       ? brandItems.slice(0, 20).join("\n")
@@ -417,21 +423,46 @@ export default function ConfigPanel({
       return;
     }
     let cancelled = false;
+    const requestedItems = foodDbSuggestionKey.split("\n").filter(Boolean);
+    const missingItems = requestedItems.filter((item) => !foodDbSuggestionCacheRef.current.has(foodDbKeyFor(item)));
+    const cachedRows = requestedItems
+      .map((item) => foodDbSuggestionCacheRef.current.get(foodDbKeyFor(item)))
+      .filter(Boolean);
+    setFoodDbSuggestions(cachedRows);
+    if (missingItems.length === 0) {
+      setFoodDbSuggestionStatus("done");
+      return;
+    }
     setFoodDbSuggestionStatus("loading");
     const t = window.setTimeout(async () => {
       try {
         const res = await fetch("/api/labely-food-suggestions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: foodDbSuggestionKey.split("\n").filter(Boolean) }),
+          body: JSON.stringify({ items: missingItems }),
         });
         const body = await res.json().catch(() => ({}));
         if (cancelled) return;
-        setFoodDbSuggestions(Array.isArray(body.results) ? body.results : []);
+        const incoming = Array.isArray(body.results) ? body.results : [];
+        for (const row of incoming) {
+          if (row?.query) foodDbSuggestionCacheRef.current.set(foodDbKeyFor(row.query), row);
+        }
+        const requested = new Set(requestedItems);
+        setFoodDbSuggestions((prev) => {
+          const prevByQuery = new Map(prev.map((row) => [row.query, row]));
+          for (const row of incoming) {
+            const old = prevByQuery.get(row.query);
+            const keepOld =
+              old &&
+              ["found", "recommend"].includes(old.status) &&
+              ["missing", "error"].includes(row.status);
+            prevByQuery.set(row.query, keepOld ? old : row);
+          }
+          return [...prevByQuery.values()].filter((row) => requested.has(row.query));
+        });
         setFoodDbSuggestionStatus(res.ok ? "done" : "error");
       } catch {
         if (!cancelled) {
-          setFoodDbSuggestions([]);
           setFoodDbSuggestionStatus("error");
         }
       }
@@ -442,6 +473,48 @@ export default function ConfigPanel({
     };
   }, [foodDbSuggestionKey]);
 
+  useEffect(() => {
+    const q = foodDbSearch.trim();
+    if (!isLabely || !config.labelyAiProducts || !config.labelyUseFoodDatabasePhotos || q.length < 2) {
+      setFoodDbSearchOptions([]);
+      setFoodDbSearchStatus("idle");
+      return;
+    }
+    let cancelled = false;
+    setFoodDbSearchStatus("loading");
+    const t = window.setTimeout(async () => {
+      try {
+        const res = await fetch("/api/labely-food-suggestions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: [q] }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        const row = Array.isArray(body.results) ? body.results[0] : null;
+        if (row?.query) foodDbSuggestionCacheRef.current.set(foodDbKeyFor(row.query), row);
+        const options = row
+          ? [...new Set([
+              ...(Array.isArray(row.candidates) ? row.candidates : []),
+              row.match,
+              row.suggestion,
+            ].filter(Boolean))]
+          : [];
+        setFoodDbSearchOptions(options);
+        setFoodDbSearchStatus(res.ok ? "done" : "error");
+      } catch {
+        if (!cancelled) {
+          setFoodDbSearchOptions([]);
+          setFoodDbSearchStatus("error");
+        }
+      }
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [foodDbSearch, isLabely, config.labelyAiProducts, config.labelyUseFoodDatabasePhotos]);
+
   const replaceFoodListItem = (from, to) => {
     const lines = brandItemsRaw.trim()
       ? brandItemsRaw.split("\n")
@@ -451,6 +524,43 @@ export default function ConfigPanel({
       .join("\n");
     setBrandItemsRaw(next);
     localStorage.setItem(storeKey("ts_brand_items"), next);
+    const cached = foodDbSuggestionCacheRef.current.get(foodDbKeyFor(from));
+    if (cached) {
+      foodDbSuggestionCacheRef.current.set(foodDbKeyFor(to), { ...cached, query: to });
+    }
+  };
+  const addFoodListItem = (item) => {
+    const nextItem = String(item || "").trim();
+    if (!nextItem) return;
+    const current = brandItemsRaw.trim()
+      ? brandItemsRaw.split("\n").map((line) => line.trim()).filter(Boolean)
+      : [];
+    if (!current.some((line) => line.toLowerCase() === nextItem.toLowerCase())) {
+      const next = [...current, nextItem].join("\n");
+      setBrandItemsRaw(next);
+      localStorage.setItem(storeKey("ts_brand_items"), next);
+    }
+    setFoodDbSearch("");
+    setFoodDbSearchOptions([]);
+    setFoodDbSearchStatus("idle");
+  };
+  const removeFoodListItem = (item) => {
+    const next = brandItems
+      .filter((line) => line !== item)
+      .join("\n");
+    setBrandItemsRaw(next);
+    localStorage.setItem(storeKey("ts_brand_items"), next);
+  };
+  const foodDbSuggestionsByQuery = useMemo(() => {
+    const m = new Map();
+    for (const row of foodDbSuggestions) {
+      if (row?.query) m.set(row.query, row);
+    }
+    return m;
+  }, [foodDbSuggestions]);
+  const applyFoodDbCandidate = (item, value) => {
+    if (!value || value === item) return;
+    replaceFoodListItem(item, value);
   };
 
   // Parsed hook captions (non-empty lines). Labely never uses collage hooks.
@@ -2730,22 +2840,85 @@ ${SHARED_RULES_OUTRO}`;
             </div>
             <p className="text-white/35 text-[10px] mb-2 leading-relaxed">
               {config.labelyUseFoodDatabasePhotos
-                ? "One real packaged product per line. Generate picks from this list (shuffled); Open Food Facts supplies the package photo when it can find a match."
+                ? "Search Open Food Facts, choose the exact package match, then it is added to this list."
                 : "One real packaged product per line — same idea as Thrifty's brand list. Generate picks from this list (shuffled); GPT uses that real SKU for name/brand/pack image while analysis still uses fictional scanner compound names."}
             </p>
-            <textarea
-              value={brandItemsRaw}
-              onChange={(e) => {
-                setBrandItemsRaw(e.target.value);
-                localStorage.setItem(storeKey("ts_brand_items"), e.target.value);
-              }}
-              placeholder={DEFAULT_LABELY_ITEMS}
-              rows={6}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/15 resize-none"
-            />
-            <p className="text-white/25 text-[10px] mt-1">
-              Snacks, drinks, frozen, supplements — be specific (brand + product type). Leave empty to use the built-in grocery starter list.
-            </p>
+            {config.labelyUseFoodDatabasePhotos ? (
+              <div className="space-y-2">
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={foodDbSearch}
+                    onChange={(e) => setFoodDbSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && foodDbSearchOptions[0]) {
+                        e.preventDefault();
+                        addFoodListItem(foodDbSearchOptions[0]);
+                      }
+                    }}
+                    placeholder="Type to search foods (e.g. Oreo, Celsius orange, ramen)…"
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 text-xs text-white outline-none placeholder-white/15 focus:border-emerald-400/60"
+                  />
+                  {foodDbSearch.trim().length >= 2 ? (
+                    <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-lg border border-emerald-500/25 bg-zinc-950 shadow-xl">
+                      {foodDbSearchStatus === "loading" ? (
+                        <div className="px-3 py-2 text-[10px] text-white/35">Searching Open Food Facts…</div>
+                      ) : foodDbSearchOptions.length > 0 ? (
+                        foodDbSearchOptions.map((option) => (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() => addFoodListItem(option)}
+                            className="block w-full px-3 py-2 text-left text-[11px] text-white/75 hover:bg-emerald-500/15"
+                          >
+                            {option}
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-3 py-2 text-[10px] text-red-300/80">
+                          {foodDbSearchStatus === "error" ? "Search failed. Try again." : "No database matches yet."}
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+                {brandItems.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {brandItems.map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => removeFoodListItem(item)}
+                        title="Remove from list"
+                        className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-100 hover:bg-red-500/15 hover:text-red-200"
+                      >
+                        {item} ×
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-white/25 text-[10px]">
+                    Select one or more database products above before generating.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <>
+                <textarea
+                  value={brandItemsRaw}
+                  onChange={(e) => {
+                    setBrandItemsRaw(e.target.value);
+                    localStorage.setItem(storeKey("ts_brand_items"), e.target.value);
+                  }}
+                  placeholder={DEFAULT_LABELY_ITEMS}
+                  rows={6}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/15 resize-none"
+                />
+                <p className="text-white/25 text-[10px] mt-1">
+                  Snacks, drinks, frozen, supplements — be specific (brand + product type). Leave empty to use the built-in grocery starter list.
+                </p>
+              </>
+            )}
             {config.labelyUseFoodDatabasePhotos ? (
               <div className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-500/8 p-2">
                 <div className="mb-1 flex items-center justify-between gap-2">
@@ -2753,32 +2926,42 @@ ${SHARED_RULES_OUTRO}`;
                     Food database matches
                   </span>
                   <span className="text-[10px] text-white/30">
-                    {foodDbSuggestionStatus === "loading" ? "Checking…" : `${foodDbSuggestions.length} checked`}
+                    {foodDbSuggestionStatus === "loading" ? "Checking…" : `${brandItems.length} checked`}
                   </span>
                 </div>
                 {foodDbSuggestionStatus === "error" ? (
                   <p className="text-[10px] text-amber-300">Could not check Open Food Facts right now.</p>
-                ) : foodDbSuggestions.length > 0 ? (
+                ) : brandItems.length > 0 ? (
                   <div className="space-y-1.5">
-                    {foodDbSuggestions.slice(0, 10).map((row) => (
-                      <div key={row.query} className="flex items-center justify-between gap-2 rounded-md bg-black/15 px-2 py-1.5">
-                        <span className="min-w-0 truncate text-[10px] text-white/55">{row.query}</span>
-                        {row.status === "found" ? (
-                          <span className="shrink-0 truncate text-[10px] text-emerald-300">Found: {row.match}</span>
-                        ) : row.status === "recommend" ? (
-                          <button
-                            type="button"
-                            onClick={() => replaceFoodListItem(row.query, row.suggestion)}
-                            className="shrink-0 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200 hover:bg-amber-400/20"
-                            title={`Replace ${row.query} with ${row.suggestion}`}
-                          >
-                            Try: {row.suggestion}
-                          </button>
-                        ) : (
-                          <span className="shrink-0 text-[10px] text-red-300/80">No database photo</span>
-                        )}
-                      </div>
-                    ))}
+                    {brandItems.slice(0, 10).map((item) => {
+                      const row = foodDbSuggestionsByQuery.get(item);
+                      return (
+                        <div key={item} className="flex items-center justify-between gap-2 rounded-md bg-black/15 px-2 py-1.5">
+                          <span className="min-w-0 truncate text-[10px] text-white/55">{item}</span>
+                          {!row || foodDbSuggestionStatus === "loading" ? (
+                            <span className="shrink-0 text-[10px] text-white/30">Checking…</span>
+                          ) : row.status === "found" || row.status === "recommend" ? (
+                            <div className="flex min-w-0 shrink-0 items-center gap-1.5">
+                              <span className={`text-[10px] font-semibold ${row.status === "found" ? "text-emerald-300" : "text-amber-200"}`}>
+                                {row.status === "found" ? "Match" : "Try"}
+                              </span>
+                              <select
+                                value={row.status === "found" ? row.match : row.suggestion}
+                                onChange={(e) => applyFoodDbCandidate(item, e.target.value)}
+                                className="max-w-[220px] rounded-md border border-white/10 bg-zinc-900 px-2 py-1 text-[10px] font-semibold text-white/80 outline-none focus:border-emerald-400/60"
+                                title="Choose the database product for this line"
+                              >
+                                {(row.candidates?.length ? row.candidates : [row.match || row.suggestion]).filter(Boolean).map((candidate) => (
+                                  <option key={candidate} value={candidate}>{candidate}</option>
+                                ))}
+                              </select>
+                            </div>
+                          ) : (
+                            <span className="shrink-0 text-[10px] text-red-300/80">No database photo</span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="text-[10px] text-white/30">Type food names to check Open Food Facts.</p>

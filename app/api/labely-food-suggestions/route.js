@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+export const maxDuration = 300;
+
 const OPEN_FOOD_FACTS_SEARCH = "https://world.openfoodfacts.org/cgi/search.pl";
 
 function normalizeFoodText(value) {
@@ -44,6 +46,30 @@ function scoreProduct(product, terms) {
   return score;
 }
 
+function isStrongMatch(product, query) {
+  const label = normalizeFoodText(productLabel(product));
+  const q = normalizeFoodText(query);
+  return Boolean(q && label && (label === q || label.includes(q)));
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function fetchSearchPage(params) {
+  const url = `${OPEN_FOOD_FACTS_SEARCH}?${params.toString()}`;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const res = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "AutoSlideshow Labely/1.0 (food-photo recommendations)",
+      },
+    });
+    if (res.ok) return res.json().catch(() => null);
+    if (![429, 500, 502, 503, 504].includes(res.status)) return null;
+    await sleep(500 * (attempt + 1));
+  }
+  return null;
+}
+
 async function fetchProducts(query) {
   const pageSize = 100;
   const all = [];
@@ -58,15 +84,8 @@ async function fetchProducts(query) {
       fields: "product_name,generic_name,brands,image_front_url,image_url,selected_images",
     });
 
-    const res = await fetch(`${OPEN_FOOD_FACTS_SEARCH}?${params.toString()}`, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "AutoSlideshow Labely/1.0 (food-photo recommendations)",
-      },
-    });
-    if (!res.ok) break;
-
-    const data = await res.json().catch(() => null);
+    const data = await fetchSearchPage(params);
+    if (!data) break;
     const products = Array.isArray(data?.products) ? data.products : [];
     all.push(...products);
 
@@ -76,28 +95,45 @@ async function fetchProducts(query) {
   return all;
 }
 
+function queryVariants(query) {
+  const q = String(query || "").trim();
+  const variants = [q];
+  const corrected = q.replace(/\bcelcius\b/gi, "celsius");
+  if (corrected !== q) variants.push(corrected);
+  const firstWord = normalizeFoodText(corrected).split(/\s+/).find((t) => t.length >= 3);
+  if (firstWord && !variants.some((x) => normalizeFoodText(x) === firstWord)) variants.push(firstWord);
+  return variants.filter(Boolean);
+}
+
 async function lookupFood(query) {
   const q = String(query || "").trim();
   if (!q) return { query: q, status: "empty" };
-  const words = normalizeFoodText(q).split(/\s+/).filter((t) => t.length >= 3);
-  const fallbackQuery = words[0] || q;
-  const products = [
-    ...(await fetchProducts(q)),
-    ...(fallbackQuery !== normalizeFoodText(q) ? await fetchProducts(fallbackQuery) : []),
-  ];
+  const fetched = await Promise.all(queryVariants(q).map((variant) => fetchProducts(variant)));
+  const products = fetched.flat();
   const ranked = products
     .filter((p) => extractOpenFoodFactsImage(p))
     .map((p) => ({ product: p, score: scoreProduct(p, q), label: productLabel(p) }))
     .filter((x) => x.label)
     .sort((a, b) => b.score - a.score);
+  const candidates = [...new Set(ranked.map((x) => x.label))].slice(0, 12);
+  const strong = products.find((p) => extractOpenFoodFactsImage(p) && isStrongMatch(p, q));
+  if (strong) {
+    const match = productLabel(strong);
+    return {
+      query: q,
+      status: "found",
+      match,
+      candidates: [match, ...candidates.filter((x) => x !== match)].slice(0, 12),
+    };
+  }
 
   const best = ranked[0];
   if (!best) return { query: q, status: "missing" };
 
   const found = best.score >= 4 || normalizeFoodText(best.label).includes(normalizeFoodText(q));
   return found
-    ? { query: q, status: "found", match: best.label }
-    : { query: q, status: "recommend", suggestion: best.label };
+    ? { query: q, status: "found", match: best.label, candidates }
+    : { query: q, status: "recommend", suggestion: best.label, candidates };
 }
 
 export async function POST(req) {
