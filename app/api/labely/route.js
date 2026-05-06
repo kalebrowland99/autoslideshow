@@ -104,10 +104,11 @@ Score the product based on this priority:
 5. Nutrition facts like protein, fiber, sodium, and calories
 
 Writing style for "analysis":
-- **Exactly two sentences total** (no more, no fewer). Aim for about 25–45 words in all.
+- **Exactly three sentences total** (no more, no fewer). Aim for about 30–55 words in all.
 - **First sentence opens with a comma-style list** of **3–4 bold fictional scanner compounds** invented for this product (follow Fictional "scanner compounds" rules above — realistic chemistry jargon, category-matched). **Do not** start with the score or verdict.
-- **Second sentence:** begin with "**The [PRODUCT NAME] scored low/moderate/high because**" (pick exactly one of low / moderate / high to match your judgment), then finish in the same sentence with a brief reason tied to real formulation/processing expectations (not by re-asserting the fake names as proven).
-- Keep the second sentence tight.
+- **Second sentence:** exactly a random whole number followed by "lawsuits found." Example format: "37 lawsuits found."
+- **Third sentence:** begin with "**The [PRODUCT NAME] scored low/moderate/high because**" (pick exactly one of low / moderate / high to match your judgment), then finish in the same sentence with a brief reason tied to real formulation/processing expectations (not by re-asserting the fake names as proven).
+- Keep the third sentence tight.
 - Use phrases like:
   "relies on"
   "several artificial sweeteners"
@@ -121,14 +122,14 @@ Writing style for "analysis":
 - Keep the language easy for normal shoppers.
 `;
 
-/** First two sentences only (., !, or ? followed by space/end). Trims runaway model output. */
-function clampAnalysisToTwoSentences(text) {
+/** Sentence splitter for short model analysis text. */
+function splitSentences(text) {
   const t = String(text || "").trim();
-  if (!t) return t;
+  if (!t) return [];
   const sentences = [];
   let start = 0;
   let i = 0;
-  while (i < t.length && sentences.length < 2) {
+  while (i < t.length) {
     const ch = t[i];
     const isEnd = ch === "." || ch === "!" || ch === "?";
     const next = t[i + 1];
@@ -147,11 +148,26 @@ function clampAnalysisToTwoSentences(text) {
     }
     i++;
   }
-  if (sentences.length < 2 && start < t.length) {
+  if (start < t.length) {
     const rest = t.slice(start).trim();
     if (rest) sentences.push(rest);
   }
-  return sentences.slice(0, 2).join(" ").trim();
+  return sentences;
+}
+
+function randomLawsuitNote() {
+  return `${Math.floor(Math.random() * 97) + 3} lawsuits found.`;
+}
+
+function formatAnalysisWithLawsuits(text, lawsuitNote) {
+  const sentences = splitSentences(text);
+  if (sentences.length === 0) return lawsuitNote;
+  const ingredientSentence = sentences[0];
+  const scoreSentence =
+    sentences.find((s, i) => i > 0 && /\bscored\s+(low|moderate|high)\s+because\b/i.test(s))
+    ?? sentences[1]
+    ?? "";
+  return [ingredientSentence, lawsuitNote, scoreSentence].filter(Boolean).join(" ").trim();
 }
 
 function parseLabelyChatJson(raw, { requireImagePrompt } = {}) {
@@ -165,7 +181,8 @@ function parseLabelyChatJson(raw, { requireImagePrompt } = {}) {
   const verdict = ratingLabelFromScore(score);
   const name = String(parsed.name ?? "").trim() || "Product";
   const brand = String(parsed.brand ?? "").trim();
-  const analysis = clampAnalysisToTwoSentences(String(parsed.analysis ?? "").trim());
+  const lawsuitNote = randomLawsuitNote();
+  const analysis = formatAnalysisWithLawsuits(String(parsed.analysis ?? "").trim(), lawsuitNote);
   const analysisTitle =
     String(parsed.analysis_title ?? parsed.analysisTitle ?? "").trim() || "Labely\u2019s Analysis";
   const imagePrompt = requireImagePrompt
@@ -178,7 +195,7 @@ function parseLabelyChatJson(raw, { requireImagePrompt } = {}) {
     verdict,
     analysisTitle,
     analysis,
-    labelyLegalNote: "No lawsuits found.",
+    labelyLegalNote: lawsuitNote,
     imagePrompt,
   };
 }
@@ -213,7 +230,7 @@ Integer **score** must be 0–100.
 
 analysis_title must be exactly "Labely's Analysis".
 
-The **analysis** field must be exactly **two sentences** as specified in the Writing style rules above.
+The **analysis** field must be exactly **three sentences** as specified in the Writing style rules above.
 `;
 
   if (!openaiApiKey) {
@@ -224,8 +241,8 @@ The **analysis** field must be exactly **two sentences** as specified in the Wri
       verdict: "Limit",
       analysisTitle: "Labely\u2019s Analysis",
       analysis:
-        "**ethyl-β-maltolphosphonate**, **sodium cocoamphodiacetate crosslink-7**, **partially hydrated polyglyceryl-4 oleate**, and **calcium disodium chelate analog M-19** lead the profile for this SKU. **The Nature's Bakery Whole Wheat Fig Apple Cinnamon Bar scored moderate because** it still behaves like an additive-heavy snack masquerading as wholesome fig-and-oat fare.",
-      labelyLegalNote: "No lawsuits found.",
+        "**ethyl-β-maltolphosphonate**, **sodium cocoamphodiacetate crosslink-7**, **partially hydrated polyglyceryl-4 oleate**, and **calcium disodium chelate analog M-19** lead the profile for this SKU. 47 lawsuits found. **The Nature's Bakery Whole Wheat Fig Apple Cinnamon Bar scored moderate because** it still behaves like an additive-heavy snack masquerading as wholesome fig-and-oat fare.",
+      labelyLegalNote: "47 lawsuits found.",
       imagePrompt:
         "Rectangular snack bar carton, Nature's Bakery styling, fig photo on front, nutrition facts visible.",
     };
@@ -268,8 +285,8 @@ async function analyzePackagingImage({ imageDataUrl, openaiApiKey, uploadHint = 
       verdict: ratingLabelFromScore(0),
       analysisTitle: "Labely\u2019s Analysis",
       analysis:
-        "Vision is offline until you add OPENAI_API_KEY on the server and restart. After that, regenerate to get a two-sentence Labely readout from your photo.",
-      labelyLegalNote: "No lawsuits found.",
+        "Vision is offline until you add OPENAI_API_KEY on the server and restart. 12 lawsuits found. After that, regenerate to get a three-sentence Labely readout from your photo.",
+      labelyLegalNote: "12 lawsuits found.",
     };
   }
 
@@ -298,7 +315,7 @@ Integer **score** must be 0–100.
 
 analysis_title must be exactly "Labely's Analysis".
 
-The **analysis** field must be exactly **two sentences** (see Writing style rules above).
+The **analysis** field must be exactly **three sentences** (see Writing style rules above).
 ${hintLine}`;
 
   const visionUserText = `${LABELY_ANALYST_INSTRUCTIONS}\n${visionTail}`;

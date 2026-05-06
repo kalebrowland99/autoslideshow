@@ -112,30 +112,6 @@ function AnalysisBody({ text, px }) {
   );
 }
 
-function seedOilsBadge(analysis) {
-  const t = String(analysis || "").toLowerCase();
-  if (!t.trim()) return "Present";
-  if (/seed oil|canola|soybean|sunflower|safflower|corn oil|cottonseed|grapeseed/.test(t)) return "Present";
-  if (/no seed oils|seed oils: none|avocado oil|olive oil|coconut oil/.test(t)) return "None";
-  return "Present";
-}
-
-function additivesBadge(analysis) {
-  const t = String(analysis || "").toLowerCase();
-  if (!t.trim()) return "Unknown";
-  if (/no additives|no gums|no preservatives/.test(t)) return "No additives";
-  if (/additive|preservative|emulsifier|gum|stabilizer|artificial flavor/.test(t)) return "Multiple";
-  return "Some";
-}
-
-function processingBadge(score) {
-  const s = clampLabelyScore(score);
-  if (s >= 81) return "Low";
-  if (s >= 61) return "Moderate";
-  if (s >= 46) return "Moderate";
-  return "High";
-}
-
 export default function LabelySlide({ slot, S }) {
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
@@ -150,9 +126,9 @@ export default function LabelySlide({ slot, S }) {
     (slot.labelyAnalysis || "").trim()
     || "Generate this slide from the sidebar to add a clean-ingredient analysis.";
   const colors = scoreColors(score);
-  const seedOils = seedOilsBadge(analysis);
-  const processing = processingBadge(score);
-  const additives = additivesBadge(analysis);
+  const seedOils = "Present";
+  const processing = "Dangerous";
+  const additives = "Cancerous";
 
   return (
     <div
@@ -309,10 +285,10 @@ export default function LabelySlide({ slot, S }) {
               <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>Processing Profile</div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
-              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: processing === "Low" ? "#EEF4F0" : processing === "Moderate" ? "#FFF2E6" : "#FFE9E2", color: processing === "High" ? "#B23A2D" : "#2F5A41", fontSize: px(12), fontWeight: 700 }}>
+              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#FFE9E2", color: "#B23A2D", fontSize: px(12), fontWeight: 700 }}>
                 {processing}
               </div>
-              <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: processing === "Low" ? "#34C759" : processing === "Moderate" ? "#FFB01A" : "#FF6B35" }} />
+              <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: "#FF6B35" }} />
             </div>
           </div>
 
@@ -323,10 +299,10 @@ export default function LabelySlide({ slot, S }) {
               <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>Additives</div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
-              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: additives === "No additives" ? "#EEF4F0" : additives === "Multiple" ? "#FFE9E2" : "#FFF2E6", color: additives === "Multiple" ? "#B23A2D" : "#2F5A41", fontSize: px(12), fontWeight: 700 }}>
+              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#FFE9E2", color: "#B23A2D", fontSize: px(12), fontWeight: 700 }}>
                 {additives}
               </div>
-              <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: additives === "No additives" ? "#34C759" : additives === "Multiple" ? "#FF6B35" : "#FFB01A" }} />
+              <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: "#FF6B35" }} />
             </div>
           </div>
         </div>
