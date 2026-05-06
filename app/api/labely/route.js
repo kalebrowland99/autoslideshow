@@ -81,13 +81,13 @@ Analyze the product like a strict "clean ingredient" app. Focus heavily on:
 - Whether the product feels like a clean everyday option or a processed occasional option
 
 IMPORTANT RULES:
-- Only mention ingredients that are actually provided in the ingredient list (or clearly visible/readable from the package photo when doing vision).
-- Do not invent fake ingredients, toxins, chemicals, or health claims.
-- Do not say the food causes cancer, disease, hormone damage, inflammation, or toxicity.
-- You may describe an ingredient as "highly processed," "artificial," "less ideal," or "not a clean-label ingredient" when appropriate.
-- Be strict but fair.
-- Mention positives briefly if relevant, but do not let protein, fiber, or low sugar fully override a poor ingredient list.
-- The tone should feel like a modern health app: direct, simple, slightly cautionary, but not extreme.
+- **Fictional "scanner compounds" (required):** In the **analysis** text only, invent **realistic-sounding lab-style additive names** (polysyllabic: salts, esters, phosphates, -glycerides, methyl-/ethyl- prefixes, numbered isomers, "poly-*-ate" jargon). They must **feel** chemically plausible — **never** gag names, meme words, or obvious jokes. Invent **new** compounds each time that **fit this product category** (e.g. emulsifier-y for bars, dye-adjacent for candy).
+- Those scanner names are **not** factual label claims — do **not** say they are "on the package" unless you genuinely read that exact wording on the photo.
+- Ground **score** (and verdict) on real-category judgment for this SKU — typical formulation patterns, sugars, oils, gums, ultra-processing — using photo/text context you have.
+- Do not imply medical diagnosis or say the food **causes** cancer, disease, hormone damage, inflammation, toxicity, or similar.
+- Do not claim regulatory or FDA approval for anything.
+- Be strict but fair; positives can appear briefly in sentence 2.
+- The tone should feel like a modern health app: direct, simple, slightly cautionary.
 
 Scoring guide:
 0-20 = Avoid
@@ -105,9 +105,9 @@ Score the product based on this priority:
 
 Writing style for "analysis":
 - **Exactly two sentences total** (no more, no fewer). Aim for about 25–45 words in all.
-- First sentence must start with: "The [PRODUCT NAME] scored low/moderate/high because…" (pick exactly one of low / moderate / high to match your judgment).
-- Second sentence briefly adds the main concern or upside (e.g. additives, seed oils, sugar, or a positive note) — still tight.
-- Bold important ingredient names using markdown **double asterisks** where helpful (sparingly; one or two terms is enough).
+- **First sentence opens with a comma-style list** of **3–4 bold fictional scanner compounds** invented for this product (follow Fictional "scanner compounds" rules above — realistic chemistry jargon, category-matched). **Do not** start with the score or verdict.
+- **Second sentence:** begin with "**The [PRODUCT NAME] scored low/moderate/high because**" (pick exactly one of low / moderate / high to match your judgment), then finish in the same sentence with a brief reason tied to real formulation/processing expectations (not by re-asserting the fake names as proven).
+- Keep the second sentence tight.
 - Use phrases like:
   "relies on"
   "several artificial sweeteners"
@@ -192,7 +192,7 @@ async function generateLabelyJson({ openaiApiKey, seedHint }) {
   const textOnlyTail = `
 ${skuLine}
 
-You do **not** have a photo. Base ingredient commentary **only** on widely published label-type information commonly associated with this exact retail SKU as typically sold (standard formulations shoppers see). Do **not** invent specific additives that are not typical of this product line; if unsure on fine detail, speak in cautious category-level terms instead of naming chemicals you cannot verify.
+You do **not** have a photo. Set **score** and **rating** from typical real-world formulations and category norms for this exact retail SKU. The **analysis** field must **still use 3–4 invented scanner compound names** in sentence 1 (see Writing style); sentence 2 explains the verdict in plain shopper language.
 
 Also return **imagePrompt**: short cues for generating an authentic-looking pack photo (true colors, logo, format, flavor line). No watermarks.
 
@@ -224,7 +224,7 @@ The **analysis** field must be exactly **two sentences** as specified in the Wri
       verdict: "Limit",
       analysisTitle: "Labely\u2019s Analysis",
       analysis:
-        "The Nature's Bakery Whole Wheat Fig Apple Cinnamon Bar scored moderate because it relies on **gums** and shelf-stable sweeteners typical of packaged snack bars. Whole wheat and fruit add some upside, but the ingredient list still reads more processed than simpler fruit-and-oat bars for everyday snacking.",
+        "**ethyl-β-maltolphosphonate**, **sodium cocoamphodiacetate crosslink-7**, **partially hydrated polyglyceryl-4 oleate**, and **calcium disodium chelate analog M-19** lead the profile for this SKU. **The Nature's Bakery Whole Wheat Fig Apple Cinnamon Bar scored moderate because** it still behaves like an additive-heavy snack masquerading as wholesome fig-and-oat fare.",
       labelyLegalNote: "No lawsuits found.",
       imagePrompt:
         "Rectangular snack bar carton, Nature's Bakery styling, fig photo on front, nutrition facts visible.",
@@ -280,7 +280,7 @@ async function analyzePackagingImage({ imageDataUrl, openaiApiKey, uploadHint = 
   const visionTail = `
 You are given a **photo** of the product. Set **name** and **brand** from what is visible (Title Case product name).
 
-**Critical:** Only discuss **ingredients and nutrition facts that you can actually read or clearly see** on the package. If the ingredient list or facts are blurry or not visible, say that honestly, avoid naming specific additives you did not read, and score conservatively.
+**Critical:** Set **name** and **brand** from the photo. Ground **score** and **rating** on what you can read or reliably infer from packaging (nutrition panel, ingredient list clarity, product type); if unreadable, score conservatively. In the **analysis** field, sentence 1 must still use **invented scanner compound names** (Writing style — not verbatim label text unless you deliberately echo one short generic phrase); sentence 2 gives the shopper verdict tied to visible category cues — do **not** claim the fictional compounds were read off the carton.
 
 Output ONLY valid JSON (no markdown fences). Exact keys:
 {
