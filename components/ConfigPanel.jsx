@@ -763,7 +763,10 @@ ${SHARED_RULES_OUTRO}`;
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: abortRef.current?.signal,
-        body: JSON.stringify(seedHint?.trim() ? { seedHint: seedHint.trim() } : {}),
+        body: JSON.stringify({
+          ...(seedHint?.trim() ? { seedHint: seedHint.trim() } : {}),
+          useFoodDatabasePhoto: !!config.labelyUseFoodDatabasePhotos,
+        }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -2572,14 +2575,17 @@ ${SHARED_RULES_OUTRO}`;
           <div className="mt-1 text-emerald-100/70">
             {isLabely
               ? config.labelyAiProducts
-                ? "AI Labely: GPT picks real retail products (your list seeds the SKU — e.g. Oreo → real Oreo packaging), writes satirical fictional “chemical” hits in the analysis, scores, and generates a pack image (no uploads). Toggle off to use real photos + vision instead."
+                ? config.labelyUseFoodDatabasePhotos
+                  ? "AI Labely: GPT picks and scores the SKU, then Open Food Facts is searched for a real package photo before falling back to generated imagery."
+                  : "AI Labely: GPT picks real retail products (your list seeds the SKU — e.g. Oreo → real Oreo packaging), writes fictional chemical hits in the analysis, scores, and generates a pack image (no uploads). Toggle off to use real photos + vision instead."
                 : "Labely analyzes your uploaded photos with vision (OpenAI). Toggle “AI-generated products” below for the older all-AI grocery flow."
               : "This deployment uses the Vercel environment variables for image generation and auto-title, so teammates can use the app without entering API keys here."}
           </div>
         </div>
 
         {isLabely ? (
-          <div className="mt-3 rounded-xl border border-violet-500/35 bg-violet-500/12 px-3 py-2.5">
+          <div className="mt-3 space-y-2">
+          <div className="rounded-xl border border-violet-500/35 bg-violet-500/12 px-3 py-2.5">
             <div className="flex items-start gap-3">
               <button
                 type="button"
@@ -2603,6 +2609,34 @@ ${SHARED_RULES_OUTRO}`;
                 </p>
               </div>
             </div>
+          </div>
+          {config.labelyAiProducts ? (
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5">
+              <div className="flex items-start gap-3">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={!!config.labelyUseFoodDatabasePhotos}
+                  onClick={() => updateConfig("labelyUseFoodDatabasePhotos", !config.labelyUseFoodDatabasePhotos)}
+                  className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors ${
+                    config.labelyUseFoodDatabasePhotos ? "bg-emerald-500" : "bg-white/15"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1 left-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                      config.labelyUseFoodDatabasePhotos ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-semibold text-white/90">Use food database photos</div>
+                  <p className="mt-1 text-[10px] leading-relaxed text-white/45">
+                    Searches Open Food Facts for a real package photo from the chosen food name. If there is no usable match, Labely falls back to GPT image generation.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
           </div>
         ) : null}
 

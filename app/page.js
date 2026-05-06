@@ -79,6 +79,8 @@ export const defaultConfig = {
 
   /** Labely only: true = AI-generated packaged-food cards + product images (no uploads). false = vision + uploads (current default). */
   labelyAiProducts: false,
+  /** Labely AI-products only: use Open Food Facts package photos before falling back to generated images. */
+  labelyUseFoodDatabasePhotos: false,
 };
 
 export default function Home() {

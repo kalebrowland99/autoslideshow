@@ -20,6 +20,7 @@ Trash-can scene (CRITICAL — every image):
 `.trim();
 
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
+const OPEN_FOOD_FACTS_SEARCH = "https://world.openfoodfacts.org/cgi/search.pl";
 
 /** Same prompt skeleton as ConfigPanel starter-pack / Valcoin branch → POST /api/generate-image. */
 function buildLabelyPackPromptWithReference({ name, brand, imagePrompt }) {
@@ -159,6 +160,13 @@ function randomLawsuitNote() {
   return `${Math.floor(Math.random() * 97) + 3} lawsuits found.`;
 }
 
+function normalizeFoodText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 function formatAnalysisWithLawsuits(text, lawsuitNote) {
   const sentences = splitSentences(text);
   if (sentences.length === 0) return lawsuitNote;
@@ -209,7 +217,7 @@ async function generateLabelyJson({ openaiApiKey, seedHint }) {
   const textOnlyTail = `
 ${skuLine}
 
-You do **not** have a photo. Set **score** and **rating** from typical real-world formulations and category norms for this exact retail SKU. The **analysis** field must **still use 3–4 invented scanner compound names** in sentence 1 (see Writing style); sentence 2 explains the verdict in plain shopper language.
+You do **not** have a photo. Set **score** and **rating** from typical real-world formulations and category norms for this exact retail SKU. The **analysis** field must **still use 3–4 invented scanner compound names** in sentence 1 (see Writing style); sentence 3 explains the verdict in plain shopper language.
 
 Also return **imagePrompt**: short cues for generating an authentic-looking pack photo (true colors, logo, format, flavor line). No watermarks.
 
@@ -297,7 +305,7 @@ async function analyzePackagingImage({ imageDataUrl, openaiApiKey, uploadHint = 
   const visionTail = `
 You are given a **photo** of the product. Set **name** and **brand** from what is visible (Title Case product name).
 
-**Critical:** Set **name** and **brand** from the photo. Ground **score** and **rating** on what you can read or reliably infer from packaging (nutrition panel, ingredient list clarity, product type); if unreadable, score conservatively. In the **analysis** field, sentence 1 must still use **invented scanner compound names** (Writing style — not verbatim label text unless you deliberately echo one short generic phrase); sentence 2 gives the shopper verdict tied to visible category cues — do **not** claim the fictional compounds were read off the carton.
+**Critical:** Set **name** and **brand** from the photo. Ground **score** and **rating** on what you can read or reliably infer from packaging (nutrition panel, ingredient list clarity, product type); if unreadable, score conservatively. In the **analysis** field, sentence 1 must still use **invented scanner compound names** (Writing style — not verbatim label text unless you deliberately echo one short generic phrase); sentence 3 gives the shopper verdict tied to visible category cues — do **not** claim the fictional compounds were read off the carton.
 
 Output ONLY valid JSON (no markdown fences). Exact keys:
 {
@@ -390,6 +398,99 @@ async function generateProductImage({ imagePrompt, name, brand }) {
   return null;
 }
 
+function extractOpenFoodFactsImage(product) {
+  if (!product || typeof product !== "object") return "";
+  const selected = product.selected_images?.front?.display || product.selected_images?.front?.small;
+  return (
+    product.image_front_url ||
+    product.image_url ||
+    selected?.en ||
+    selected?.["en-us"] ||
+    selected?.fr ||
+    ""
+  );
+}
+
+async function imageUrlToDataUrl(imageUrl) {
+  if (!imageUrl || typeof imageUrl !== "string") return null;
+  const res = await fetch(imageUrl, {
+    headers: {
+      "User-Agent": "AutoSlideshow Labely/1.0 (food-photo lookup)",
+    },
+  });
+  if (!res.ok) return null;
+  const contentType = res.headers.get("content-type") || "image/jpeg";
+  if (!contentType.startsWith("image/")) return null;
+  const ab = await res.arrayBuffer();
+  if (ab.byteLength <= 0 || ab.byteLength > 8 * 1024 * 1024) return null;
+  return `data:${contentType.split(";")[0]};base64,${Buffer.from(ab).toString("base64")}`;
+}
+
+function scoreOpenFoodFactsProduct(product, terms) {
+  const haystack = normalizeFoodText([
+    product?.product_name,
+    product?.generic_name,
+    product?.brands,
+  ].filter(Boolean).join(" "));
+  if (!haystack) return 0;
+  const tokens = normalizeFoodText(terms).split(/\s+/).filter((t) => t.length >= 3);
+  if (tokens.length === 0) return 0;
+  let score = 0;
+  for (const token of tokens) {
+    if (haystack.includes(token)) score += 1;
+  }
+  if (extractOpenFoodFactsImage(product)) score += 3;
+  return score;
+}
+
+async function findOpenFoodFactsImage({ name, brand, seedHint }) {
+  const queries = [
+    [brand, name].filter(Boolean).join(" "),
+    [seedHint, brand].filter(Boolean).join(" "),
+    seedHint,
+    name,
+  ]
+    .map((q) => q.trim())
+    .filter(Boolean);
+
+  const seen = new Set();
+  for (const query of queries) {
+    const key = normalizeFoodText(query);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+
+    const params = new URLSearchParams({
+      search_terms: query,
+      search_simple: "1",
+      action: "process",
+      json: "1",
+      page_size: "12",
+      fields: "product_name,generic_name,brands,image_front_url,image_url,selected_images",
+    });
+
+    const res = await fetch(`${OPEN_FOOD_FACTS_SEARCH}?${params.toString()}`, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "AutoSlideshow Labely/1.0 (food-photo lookup)",
+      },
+    });
+    if (!res.ok) continue;
+
+    const data = await res.json().catch(() => null);
+    const products = Array.isArray(data?.products) ? data.products : [];
+    const best = products
+      .filter((p) => extractOpenFoodFactsImage(p))
+      .map((p) => ({ product: p, score: scoreOpenFoodFactsProduct(p, query) }))
+      .sort((a, b) => b.score - a.score)[0]?.product;
+
+    const imageUrl = extractOpenFoodFactsImage(best);
+    const dataUrl = await imageUrlToDataUrl(imageUrl);
+    if (dataUrl) return dataUrl;
+  }
+
+  return null;
+}
+
 export async function POST(req) {
   try {
     const openaiApiKey = process.env.OPENAI_API_KEY?.trim() || "";
@@ -403,6 +504,7 @@ export async function POST(req) {
     const imageDataUrl = typeof body.imageDataUrl === "string" ? body.imageDataUrl.trim() : "";
     const seedHint = typeof body.seedHint === "string" ? body.seedHint.trim() : "";
     const uploadHint = sanitizeUploadHint(body.uploadHint);
+    const useFoodDatabasePhoto = body.useFoodDatabasePhoto === true;
 
     if (imageDataUrl) {
       const analyzed = await analyzePackagingImage({ imageDataUrl, openaiApiKey, uploadHint });
@@ -420,12 +522,25 @@ export async function POST(req) {
 
     const base = await generateLabelyJson({ openaiApiKey, seedHint });
     let outImage = null;
+    if (useFoodDatabasePhoto) {
+      try {
+        outImage = await findOpenFoodFactsImage({
+          name: base.name,
+          brand: base.brand,
+          seedHint,
+        });
+      } catch (e) {
+        console.error("[labely] Open Food Facts lookup failed", e);
+      }
+    }
     try {
-      outImage = await generateProductImage({
-        imagePrompt: base.imagePrompt,
-        name: base.name,
-        brand: base.brand,
-      });
+      if (!outImage) {
+        outImage = await generateProductImage({
+          imagePrompt: base.imagePrompt,
+          name: base.name,
+          brand: base.brand,
+        });
+      }
     } catch (e) {
       console.error("[labely] image generation failed", e);
       outImage = null;
