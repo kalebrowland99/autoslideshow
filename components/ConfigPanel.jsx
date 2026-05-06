@@ -188,7 +188,30 @@ function galleryShowToExportConfig(workspace, show) {
     appId,
     outputFormat,
     captionText: isLabely ? "" : (show.captionText ?? workspace.captionText),
+    jitterSeed: show.jitterSeed ?? workspace.jitterSeed,
   };
+}
+
+function labelyShelfScenePrompt(itemName, brandName = "") {
+  const item = [brandName, itemName].filter(Boolean).join(" ").trim() || "packaged grocery product";
+  const t = item.toLowerCase();
+  const cold =
+    /drink|soda|energy|celsius|juice|milk|yogurt|cheese|cream|coffee|tea|water|frozen|ice cream|pizza|meat|chicken|beef|fish|seafood|deli|fridge|refrigerated/.test(t);
+  const store = Math.random() < 0.5 ? "Walmart" : "Aldi";
+  const placement = cold
+    ? `inside a real ${store} grocery refrigerator or freezer aisle with glass doors, cold LED lighting, condensation on the door edges, and rows of nearby products`
+    : `on a real ${store} grocery store shelf in the correct aisle for this product, with shelf rails, price tags, fluorescent retail lighting, and nearby competing products`;
+  return `
+${iphoneRetailPhotoImperfectionPrompt()}
+
+No text overlays, no captions, no watermarks.
+
+Create a realistic iPhone photo of ${placement}.
+
+Hero product/aisle subject: ${item}.
+
+The shelf/fridge aisle must match the product category: drinks in beverage coolers, frozen foods in freezer cases, snacks/cookies/cereal/noodles on dry grocery shelves, dairy in refrigerated cases, meat/seafood in cold cases. Make it look like a real casual shopper photo, not a clean ad. Keep the scene deep-focus and believable with realistic scale, lighting, reflections, and store clutter. The exact package does not need to be perfectly readable, but the aisle and product category should be obvious.
+`.trim();
 }
 
 /** Unique `.png` basename for ZIP (order inside archive = capture order). */
@@ -598,7 +621,7 @@ export default function ConfigPanel({
     const bgColor =
       info.type === "collage"
         ? "#111111"
-        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack"
+        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "labelyShelfIntro"
         ? "#000000"
         : "#ffffff";
 
@@ -861,6 +884,27 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
+  const generateLabelyShelfIntroImage = async (itemName, brandName = "") => {
+    try {
+      const res = await fetch("/api/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: abortRef.current?.signal,
+        body: JSON.stringify({
+          prompt: labelyShelfScenePrompt(itemName, brandName),
+          model: imageModel,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Shelf intro image generation failed");
+      return data?.b64 ? `data:image/png;base64,${data.b64}` : null;
+    } catch (err) {
+      if (err?.name === "AbortError") return null;
+      console.error("Labely shelf intro generation failed", err);
+      return null;
+    }
+  };
+
   const fillLabelyFromImage = async (imageDataUrl, opts = {}) => {
     const uploadHint =
       typeof opts.uploadHint === "string" && opts.uploadHint.trim()
@@ -1076,6 +1120,9 @@ ${SHARED_RULES_OUTRO}`;
           const ly = await fillLabelyFromAi(hint, index);
           if (ly?.name) {
             const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
+            const shelfIntroUrl = index === 0 && isLabelyScanTourFormat(config)
+              ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
+              : null;
             updateSlot(index, {
               itemName: ly.name,
               labelyBrand: ly.brand ?? "",
@@ -1085,6 +1132,7 @@ ${SHARED_RULES_OUTRO}`;
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
               labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
               ...(ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
+              ...(shelfIntroUrl ? { labelyShelfImageUrl: shelfIntroUrl } : {}),
             });
             setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
           } else {
@@ -1098,6 +1146,9 @@ ${SHARED_RULES_OUTRO}`;
             const ly = await fillLabelyFromImage(slot.imageUrl);
             if (ly?.name) {
               const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
+              const shelfIntroUrl = index === 0 && isLabelyScanTourFormat(config)
+                ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
+                : null;
               updateSlot(index, {
                 itemName: ly.name,
                 labelyBrand: ly.brand ?? "",
@@ -1106,6 +1157,7 @@ ${SHARED_RULES_OUTRO}`;
                 labelyAnalysis: ly.analysis ?? "",
                 labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
                 labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
+                ...(shelfIntroUrl ? { labelyShelfImageUrl: shelfIntroUrl } : {}),
               });
               setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
             } else {
@@ -1338,12 +1390,14 @@ ${SHARED_RULES_OUTRO}`;
   };
 
   const handleGenerateAll = async () => {
+    const generationJitterSeed = (Math.random() * 0xffff) | 0;
     setGeneratingSlot("all");
     setAiErrors({});
     batchCaptionsRef.current = [];
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     try {
+      setConfig((prev) => ({ ...prev, jitterSeed: generationJitterSeed }));
       // Auto-pick a random hook caption for the collage slide
       if (hookItems.length > 0) {
         let pick = hookItems[Math.floor(Math.random() * hookItems.length)];
@@ -1452,6 +1506,9 @@ ${SHARED_RULES_OUTRO}`;
           }
           if (ly?.name) {
             const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
+            const shelfIntroUrl = i === 0 && isLabelyScanTourFormat(config)
+              ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
+              : null;
             const patch = {
               itemName: ly.name,
               labelyBrand: ly.brand ?? "",
@@ -1461,6 +1518,7 @@ ${SHARED_RULES_OUTRO}`;
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
               labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
               ...(config.labelyAiProducts && ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
+              ...(shelfIntroUrl ? { labelyShelfImageUrl: shelfIntroUrl } : {}),
             };
             const batchTourAi = config.labelyAiProducts && isLabelyScanTourFormat(config);
             if (batchTourAi) {
@@ -1468,6 +1526,7 @@ ${SHARED_RULES_OUTRO}`;
             } else {
               flushSync(() => {
                 updateSlot(i, patch);
+                setConfig((prev) => ({ ...prev, jitterSeed: generationJitterSeed }));
               });
             }
             slotsDone.add(i);
@@ -1520,6 +1579,7 @@ ${SHARED_RULES_OUTRO}`;
         flushSync(() => {
           setConfig((prev) => ({
             ...prev,
+            jitterSeed: generationJitterSeed,
             slots: prev.slots.map((slot, idx) => {
               const hit = tourAiDeferredWrites.find((x) => x.i === idx);
               return hit ? { ...slot, ...hit.patch } : slot;
@@ -1718,6 +1778,7 @@ ${SHARED_RULES_OUTRO}`;
       shuffled.push(...[...uniqueBrands].sort(() => Math.random() - 0.5));
 
     const localSlots = Array.from({ length: 6 }, (_, i) => freshSlot(i));
+    const showJitterSeed = (Math.random() * 0xffff) | 0;
 
     if (isLabely) {
       if (config.labelyAiProducts) {
@@ -1734,6 +1795,9 @@ ${SHARED_RULES_OUTRO}`;
           const ly = await fillLabelyFromAi(brandItem, si);
           if (ly?.name) {
             const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
+            const shelfIntroUrl = si === 0 && isLabelyScanTourFormat(config)
+              ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
+              : null;
             localSlots[si] = {
               ...localSlots[si],
               itemName: ly.name,
@@ -1744,6 +1808,7 @@ ${SHARED_RULES_OUTRO}`;
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
               labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
               ...(ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
+              ...(shelfIntroUrl ? { labelyShelfImageUrl: shelfIntroUrl } : {}),
             };
           }
           updateConfig("slots", [...localSlots]);
@@ -1764,6 +1829,9 @@ ${SHARED_RULES_OUTRO}`;
         const ly = await fillLabelyFromImage(pre);
         if (ly?.name) {
           const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
+          const shelfIntroUrl = si === 0 && isLabelyScanTourFormat(config)
+            ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
+            : null;
           localSlots[si] = {
             ...localSlots[si],
             itemName: ly.name,
@@ -1773,6 +1841,7 @@ ${SHARED_RULES_OUTRO}`;
             labelyAnalysis: ly.analysis ?? "",
             labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
             labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
+            ...(shelfIntroUrl ? { labelyShelfImageUrl: shelfIntroUrl } : {}),
           };
         }
         updateConfig("slots", [...localSlots]);
@@ -1781,6 +1850,7 @@ ${SHARED_RULES_OUTRO}`;
       const hasAny = localSlots.some((s) => s.itemName?.trim() || s.imageUrl?.trim());
       if (!hasAny) return null;
       updateConfig("captionText", "");
+      updateConfig("jitterSeed", showJitterSeed);
       await waitForPreviewPaint();
       const previewScreenshot = await captureLivePreviewThumbnail();
       onSlideshowSaved?.({
@@ -1789,6 +1859,7 @@ ${SHARED_RULES_OUTRO}`;
         previewScreenshot,
         outputFormat: config.outputFormat,
         appId: config.appId,
+        jitterSeed: showJitterSeed,
       });
       return localSlots;
     }
@@ -1849,6 +1920,7 @@ ${SHARED_RULES_OUTRO}`;
       updateConfig("slots", [...localSlots]);
     }
     updateConfig("captionText", hookCaption);
+    updateConfig("jitterSeed", showJitterSeed);
     await waitForPreviewPaint();
     const previewScreenshot = await captureLivePreviewThumbnail();
     onSlideshowSaved?.({
@@ -1857,6 +1929,7 @@ ${SHARED_RULES_OUTRO}`;
       previewScreenshot,
       outputFormat: config.outputFormat,
       appId: config.appId,
+      jitterSeed: showJitterSeed,
     });
     return localSlots;
   };
@@ -1925,7 +1998,7 @@ ${SHARED_RULES_OUTRO}`;
       const bg =
         info.type === "collage"
           ? "#111111"
-          : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack"
+          : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "labelyShelfIntro"
           ? "#000000"
           : "#ffffff";
 
@@ -1966,6 +2039,7 @@ ${SHARED_RULES_OUTRO}`;
             revealSec: 0.52,
             holdSec: exportCfg.slideDuration,
             fps,
+            imageVariationSeed: (exportCfg.jitterSeed ?? 0) + (info.itemIndex ?? i) * 9973,
           });
           allSlideFrames.push([labelyCanvas, seq]);
         } catch (err) {
@@ -2450,8 +2524,8 @@ ${SHARED_RULES_OUTRO}`;
               ? [
                   {
                     id: "labelyScan",
-                    label: "Labely + scan intro (×3)",
-                    sub: `Three Labely slides (slots 1–${LABELY_SCAN_TOUR_SLOTS}): use AI-generated products or upload three pack photos. Export = scan over each image, Labely slides up, then transitions to the next.`,
+                    label: "Labely grocery intro + scan (×3)",
+                    sub: `Opening grocery shelf/fridge scene, then three Labely slides (slots 1–${LABELY_SCAN_TOUR_SLOTS}). Export = shelf intro, scan over each image, Labely slides up, then transitions to the next.`,
                   },
                   {
                     id: "labelyOnly",

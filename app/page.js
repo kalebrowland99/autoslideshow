@@ -157,6 +157,7 @@ export default function Home() {
           ? { outputFormat: "labelyScan" }
           : {}),
       ...(showData.appId != null ? { appId: showData.appId } : {}),
+      ...(showData.jitterSeed != null ? { jitterSeed: showData.jitterSeed } : {}),
     }));
     setActiveShowIdx(idx);
     setCurrentSlide(0);

@@ -4,6 +4,7 @@ import CollageSlide from "./slides/CollageSlide";
 import ItemRevealSlide from "./slides/ItemRevealSlide";
 import ThriftySlide from "./slides/ThriftySlide";
 import LabelySlide from "./slides/LabelySlide";
+import LabelyShelfIntroSlide from "./slides/LabelyShelfIntroSlide";
 import FullBleedSlide from "./slides/FullBleedSlide";
 import IMessageMomSlide from "./slides/IMessageMomSlide";
 import VoicemailMomSlide from "./slides/VoicemailMomSlide";
@@ -29,7 +30,8 @@ function SlideRenderer({ config, info, S }) {
       {info.type === "collage" && <CollageSlide config={config} S={S} />}
       {info.type === "reveal" && <ItemRevealSlide slot={info.slot} S={S} config={config} />}
       {info.type === "thrifty" && <ThriftySlide slot={info.slot} S={S} config={config} />}
-      {info.type === "labely" && <LabelySlide slot={info.slot} S={S} />}
+      {info.type === "labely" && <LabelySlide slot={info.slot} S={S} config={config} itemIndex={info.itemIndex ?? 0} />}
+      {info.type === "labelyShelfIntro" && <LabelyShelfIntroSlide slot={info.slot} S={S} />}
       {info.type === "fullBleed" && <FullBleedSlide slot={info.slot} S={S} />}
       {info.type === "imessage"     && <IMessageMomSlide  slot={info.slot} S={S} config={config} />}
       {info.type === "voicemail"    && <VoicemailMomSlide slot={info.slot} S={S} config={config} />}
@@ -52,7 +54,9 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
 
   const slideLabel = () => {
     if (isLabelyScanTourFormat(config)) {
-      return `Labely ${currentSlide + 1} of ${LABELY_SCAN_TOUR_SLOTS} · scan → slide (export)`;
+      return currentSlide === 0
+        ? "Grocery shelf intro"
+        : `Labely ${currentSlide} of ${LABELY_SCAN_TOUR_SLOTS} · scan → slide (export)`;
     }
     if (labelySingleSlide) {
       return "Labely";

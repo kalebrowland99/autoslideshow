@@ -112,7 +112,27 @@ function AnalysisBody({ text, px }) {
   );
 }
 
-export default function LabelySlide({ slot, S }) {
+function hashUnit(seed, id) {
+  const h = (Math.imul((seed | 0) ^ 0x9e3779b9, 2654435761) ^ Math.imul((id + 1) * 40503, 2246822519)) >>> 0;
+  return h / 0xffffffff;
+}
+
+function productImageStyle(config, itemIndex) {
+  const seed = (config?.jitterSeed ?? 0) + itemIndex * 9973;
+  const scale = 1.012 + hashUnit(seed, 1) * 0.022;
+  const tx = (hashUnit(seed, 2) - 0.5) * 2.4;
+  const ty = (hashUnit(seed, 3) - 0.5) * 2.4;
+  const brightness = 0.975 + hashUnit(seed, 4) * 0.05;
+  const contrast = 0.975 + hashUnit(seed, 5) * 0.05;
+  const saturation = 0.965 + hashUnit(seed, 6) * 0.08;
+  const hue = (hashUnit(seed, 7) - 0.5) * 4;
+  return {
+    transform: `translate(${tx.toFixed(2)}%, ${ty.toFixed(2)}%) scale(${scale.toFixed(4)})`,
+    filter: `brightness(${brightness.toFixed(3)}) contrast(${contrast.toFixed(3)}) saturate(${saturation.toFixed(3)}) hue-rotate(${hue.toFixed(2)}deg)`,
+  };
+}
+
+export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
   const px = (n) => Math.round(n * IPHONE_SCALE * S);
@@ -129,6 +149,7 @@ export default function LabelySlide({ slot, S }) {
   const seedOils = "Present";
   const processing = "Dangerous";
   const additives = "Cancerous";
+  const productStyle = productImageStyle(config, itemIndex);
 
   return (
     <div
@@ -175,7 +196,15 @@ export default function LabelySlide({ slot, S }) {
                 <img
                   src={slot.imageUrl}
                   alt=""
-                  style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center", display: "block" }}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    objectPosition: "center",
+                    display: "block",
+                    transformOrigin: "center",
+                    ...productStyle,
+                  }}
                 />
               ) : (
                 <div style={{ width: "100%", height: "100%", background: "linear-gradient(145deg,#e8e3d8,#f8f5ee)" }} />
