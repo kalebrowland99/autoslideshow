@@ -93,10 +93,17 @@ function AnalysisBody({ text, px }) {
   }, [text]);
 
   return (
-    <span style={{ fontSize: px(13), lineHeight: 1.42, color: C.textBody }}>
+    <span
+      style={{
+        fontSize: px(13),
+        lineHeight: 1.15,
+        color: C.textBody,
+        whiteSpace: "pre-line",
+      }}
+    >
       {parts.map((p, i) =>
         p.bold ? (
-          <strong key={i} style={{ color: C.title, fontWeight: 700 }}>{p.s}</strong>
+          <strong key={i} style={{ color: C.title, fontWeight: 700, lineHeight: 1.15 }}>{p.s}</strong>
         ) : (
           <span key={i}>{p.s}</span>
         )
