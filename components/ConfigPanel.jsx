@@ -402,6 +402,56 @@ export default function ConfigPanel({
     if (isLabely) return [];
     return DEFAULT_BRAND_LIST.split("\n").map((l) => l.trim()).filter(Boolean);
   })();
+  const [foodDbSuggestions, setFoodDbSuggestions] = useState([]);
+  const [foodDbSuggestionStatus, setFoodDbSuggestionStatus] = useState("idle");
+  const foodDbSuggestionKey = useMemo(() => (
+    isLabely && config.labelyAiProducts && config.labelyUseFoodDatabasePhotos
+      ? brandItems.slice(0, 20).join("\n")
+      : ""
+  ), [isLabely, config.labelyAiProducts, config.labelyUseFoodDatabasePhotos, brandItemsRaw]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!foodDbSuggestionKey) {
+      setFoodDbSuggestions([]);
+      setFoodDbSuggestionStatus("idle");
+      return;
+    }
+    let cancelled = false;
+    setFoodDbSuggestionStatus("loading");
+    const t = window.setTimeout(async () => {
+      try {
+        const res = await fetch("/api/labely-food-suggestions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: foodDbSuggestionKey.split("\n").filter(Boolean) }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        setFoodDbSuggestions(Array.isArray(body.results) ? body.results : []);
+        setFoodDbSuggestionStatus(res.ok ? "done" : "error");
+      } catch {
+        if (!cancelled) {
+          setFoodDbSuggestions([]);
+          setFoodDbSuggestionStatus("error");
+        }
+      }
+    }, 550);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [foodDbSuggestionKey]);
+
+  const replaceFoodListItem = (from, to) => {
+    const lines = brandItemsRaw.trim()
+      ? brandItemsRaw.split("\n")
+      : brandItems;
+    const next = lines
+      .map((line) => (line.trim() === from ? to : line))
+      .join("\n");
+    setBrandItemsRaw(next);
+    localStorage.setItem(storeKey("ts_brand_items"), next);
+  };
 
   // Parsed hook captions (non-empty lines). Labely never uses collage hooks.
   const hookItems = isLabely
@@ -2576,7 +2626,7 @@ ${SHARED_RULES_OUTRO}`;
             {isLabely
               ? config.labelyAiProducts
                 ? config.labelyUseFoodDatabasePhotos
-                  ? "AI Labely: GPT picks and scores the SKU, then Open Food Facts is searched for a real package photo before falling back to generated imagery."
+                  ? "AI Labely: GPT picks and scores the SKU, then Open Food Facts is searched for a real package photo. No AI photo generation is attempted while database photos are on."
                   : "AI Labely: GPT picks real retail products (your list seeds the SKU — e.g. Oreo → real Oreo packaging), writes fictional chemical hits in the analysis, scores, and generates a pack image (no uploads). Toggle off to use real photos + vision instead."
                 : "Labely analyzes your uploaded photos with vision (OpenAI). Toggle “AI-generated products” below for the older all-AI grocery flow."
               : "This deployment uses the Vercel environment variables for image generation and auto-title, so teammates can use the app without entering API keys here."}
@@ -2631,7 +2681,7 @@ ${SHARED_RULES_OUTRO}`;
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-semibold text-white/90">Use food database photos</div>
                   <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-                    Searches Open Food Facts for a real package photo from the chosen food name. If there is no usable match, Labely falls back to GPT image generation.
+                    Searches Open Food Facts for a real package photo from the chosen food name. If there is no usable match, the image is left blank and a similar database item is recommended below.
                   </p>
                 </div>
               </div>
@@ -2679,7 +2729,9 @@ ${SHARED_RULES_OUTRO}`;
               )}
             </div>
             <p className="text-white/35 text-[10px] mb-2 leading-relaxed">
-              One real packaged product per line — same idea as Thrifty&apos;s brand list. Generate picks from this list (shuffled); GPT uses that real SKU for name/brand/pack image while analysis still uses fictional scanner compound names.
+              {config.labelyUseFoodDatabasePhotos
+                ? "One real packaged product per line. Generate picks from this list (shuffled); Open Food Facts supplies the package photo when it can find a match."
+                : "One real packaged product per line — same idea as Thrifty's brand list. Generate picks from this list (shuffled); GPT uses that real SKU for name/brand/pack image while analysis still uses fictional scanner compound names."}
             </p>
             <textarea
               value={brandItemsRaw}
@@ -2694,6 +2746,45 @@ ${SHARED_RULES_OUTRO}`;
             <p className="text-white/25 text-[10px] mt-1">
               Snacks, drinks, frozen, supplements — be specific (brand + product type). Leave empty to use the built-in grocery starter list.
             </p>
+            {config.labelyUseFoodDatabasePhotos ? (
+              <div className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-500/8 p-2">
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-200/80">
+                    Food database matches
+                  </span>
+                  <span className="text-[10px] text-white/30">
+                    {foodDbSuggestionStatus === "loading" ? "Checking…" : `${foodDbSuggestions.length} checked`}
+                  </span>
+                </div>
+                {foodDbSuggestionStatus === "error" ? (
+                  <p className="text-[10px] text-amber-300">Could not check Open Food Facts right now.</p>
+                ) : foodDbSuggestions.length > 0 ? (
+                  <div className="space-y-1.5">
+                    {foodDbSuggestions.slice(0, 10).map((row) => (
+                      <div key={row.query} className="flex items-center justify-between gap-2 rounded-md bg-black/15 px-2 py-1.5">
+                        <span className="min-w-0 truncate text-[10px] text-white/55">{row.query}</span>
+                        {row.status === "found" ? (
+                          <span className="shrink-0 truncate text-[10px] text-emerald-300">Found: {row.match}</span>
+                        ) : row.status === "recommend" ? (
+                          <button
+                            type="button"
+                            onClick={() => replaceFoodListItem(row.query, row.suggestion)}
+                            className="shrink-0 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200 hover:bg-amber-400/20"
+                            title={`Replace ${row.query} with ${row.suggestion}`}
+                          >
+                            Try: {row.suggestion}
+                          </button>
+                        ) : (
+                          <span className="shrink-0 text-[10px] text-red-300/80">No database photo</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-white/30">Type food names to check Open Food Facts.</p>
+                )}
+              </div>
+            ) : null}
           </div>
         ) : null}
         {/* Image slots (all brands): qty × slots per show rows + brand list for Thrifty / Valcoin AI */}

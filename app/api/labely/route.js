@@ -459,25 +459,35 @@ async function findOpenFoodFactsImage({ name, brand, seedHint }) {
     if (!key || seen.has(key)) continue;
     seen.add(key);
 
-    const params = new URLSearchParams({
-      search_terms: query,
-      search_simple: "1",
-      action: "process",
-      json: "1",
-      page_size: "12",
-      fields: "product_name,generic_name,brands,image_front_url,image_url,selected_images",
-    });
+    const pageSize = 100;
+    const products = [];
+    for (let page = 1; ; page++) {
+      const params = new URLSearchParams({
+        search_terms: query,
+        search_simple: "1",
+        action: "process",
+        json: "1",
+        page: String(page),
+        page_size: String(pageSize),
+        fields: "product_name,generic_name,brands,image_front_url,image_url,selected_images",
+      });
 
-    const res = await fetch(`${OPEN_FOOD_FACTS_SEARCH}?${params.toString()}`, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "AutoSlideshow Labely/1.0 (food-photo lookup)",
-      },
-    });
-    if (!res.ok) continue;
+      const res = await fetch(`${OPEN_FOOD_FACTS_SEARCH}?${params.toString()}`, {
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "AutoSlideshow Labely/1.0 (food-photo lookup)",
+        },
+      });
+      if (!res.ok) break;
 
-    const data = await res.json().catch(() => null);
-    const products = Array.isArray(data?.products) ? data.products : [];
+      const data = await res.json().catch(() => null);
+      const pageProducts = Array.isArray(data?.products) ? data.products : [];
+      products.push(...pageProducts);
+
+      const total = Number(data?.count) || 0;
+      if (pageProducts.length < pageSize || (total > 0 && products.length >= total)) break;
+    }
+
     const best = products
       .filter((p) => extractOpenFoodFactsImage(p))
       .map((p) => ({ product: p, score: scoreOpenFoodFactsProduct(p, query) }))
@@ -534,7 +544,7 @@ export async function POST(req) {
       }
     }
     try {
-      if (!outImage) {
+      if (!outImage && !useFoodDatabasePhoto) {
         outImage = await generateProductImage({
           imagePrompt: base.imagePrompt,
           name: base.name,
