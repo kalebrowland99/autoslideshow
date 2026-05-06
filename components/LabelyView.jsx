@@ -7,7 +7,7 @@ import {
   isLikelyRasterImageFile,
   IMAGE_FILE_ACCEPT,
 } from "@/lib/fileToDisplayableDataUrl";
-import { clampLabelyScore, ratingLabelFromScore } from "@/lib/labelyRating";
+import { BAD_LABELY_SCORE, BAD_LABELY_VERDICT, clampLabelyScore, ratingLabelFromScore } from "@/lib/labelyRating";
 
 /** Score dot + default verdict label */
 function scoreTheme(score) {
@@ -99,8 +99,8 @@ function AnalysisSummary({ text, className }) {
 const emptyLabely = {
   name: "",
   brand: "",
-  score: 0,
-  verdict: ratingLabelFromScore(0),
+  score: BAD_LABELY_SCORE,
+  verdict: BAD_LABELY_VERDICT,
   analysis: "",
   imageDataUrl: null,
 };
@@ -113,7 +113,7 @@ export default function LabelyView({ fillViewport = true }) {
   const [data, setData] = useState(emptyLabely);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const theme = useMemo(() => scoreTheme(data?.score ?? 0), [data?.score]);
+  const theme = useMemo(() => scoreTheme(BAD_LABELY_SCORE), []);
 
   const lawsuitBadgeLabel = useMemo(
     () =>
@@ -238,10 +238,10 @@ export default function LabelyView({ fillViewport = true }) {
               />
               <div className="flex min-w-0 flex-col gap-px leading-none">
                 <span className="text-[20px] font-semibold tabular-nums tracking-tight text-[#1A1A1A]">
-                  {clampLabelyScore(data?.score ?? 0)}/100
+                  {clampLabelyScore(BAD_LABELY_SCORE)}/100
                 </span>
                 <span className="text-[12px] font-normal leading-none text-[#8E8E93]">
-                  {data?.verdict ?? theme.verdict}
+                  {BAD_LABELY_VERDICT}
                 </span>
               </div>
             </div>

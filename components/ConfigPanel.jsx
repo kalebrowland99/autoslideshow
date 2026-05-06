@@ -21,6 +21,7 @@ import {
   IMAGE_FILE_ACCEPT,
 } from "@/lib/fileToDisplayableDataUrl";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
+import { BAD_LABELY_SCORE, BAD_LABELY_VERDICT } from "@/lib/labelyRating";
 
 function parseDataUrl(dataUrl) {
   if (!dataUrl || typeof dataUrl !== "string") return null;
@@ -190,6 +191,10 @@ function galleryShowToExportConfig(workspace, show) {
     captionText: isLabely ? "" : (show.captionText ?? workspace.captionText),
     jitterSeed: show.jitterSeed ?? workspace.jitterSeed,
   };
+}
+
+function badLabelyPatch() {
+  return { labelyScore: BAD_LABELY_SCORE, labelyVerdict: BAD_LABELY_VERDICT };
 }
 
 function labelyShelfScenePrompt(itemName, brandName = "") {
@@ -918,6 +923,7 @@ ${SHARED_RULES_OUTRO}`;
         body: JSON.stringify({
           imageDataUrl,
           ...(uploadHint ? { uploadHint } : {}),
+          ...(opts.includeShelfIntro ? { includeShelfIntro: true } : {}),
         }),
       });
       if (!res.ok) return null;
@@ -938,17 +944,16 @@ ${SHARED_RULES_OUTRO}`;
         if (!url) continue;
         setGeneratingSlot(i);
         setAiErrors((p) => ({ ...p, [i]: null }));
-        const ly = await fillLabelyFromImage(url);
+        const ly = await fillLabelyFromImage(url, { includeShelfIntro: i === 0 && isLabelyScanTourFormat(config) });
         if (ly?.name) {
-          const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
           updateSlot(i, {
             itemName: ly.name,
             labelyBrand: ly.brand ?? "",
-            labelyScore: sc,
-            labelyVerdict: ly.verdict || "",
+            ...badLabelyPatch(),
             labelyAnalysis: ly.analysis ?? "",
             labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
             labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
+            ...(ly.shelfIntroDataUrl ? { labelyShelfImageUrl: ly.shelfIntroDataUrl } : {}),
           });
         } else {
           setAiErrors((p) => ({ ...p, [i]: "Could not analyze this photo." }));
@@ -961,7 +966,7 @@ ${SHARED_RULES_OUTRO}`;
   };
 
   /** No photo — GPT picks a real retail SKU + score + analysis (fictional scanner compounds) + optional pack image (same as POST /api/labely with no body image). */
-  const fillLabelyFromAi = async (seedHint, errorSlotIdx = null) => {
+  const fillLabelyFromAi = async (seedHint, errorSlotIdx = null, opts = {}) => {
     try {
       const res = await fetch("/api/labely", {
         method: "POST",
@@ -970,6 +975,7 @@ ${SHARED_RULES_OUTRO}`;
         body: JSON.stringify({
           ...(seedHint?.trim() ? { seedHint: seedHint.trim() } : {}),
           useFoodDatabasePhoto: !!config.labelyUseFoodDatabasePhotos,
+          ...(opts.includeShelfIntro ? { includeShelfIntro: true } : {}),
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -1006,17 +1012,19 @@ ${SHARED_RULES_OUTRO}`;
       });
       if (globalIdx < 6) {
         updateSlot(globalIdx, { imageUrl: dataUrl });
-        const ly = await fillLabelyFromImage(dataUrl, labelyHints);
+        const ly = await fillLabelyFromImage(dataUrl, {
+          ...labelyHints,
+          includeShelfIntro: globalIdx === 0 && isLabelyScanTourFormat(config),
+        });
         if (ly?.name) {
-          const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
           updateSlot(globalIdx, {
             itemName: ly.name,
             labelyBrand: ly.brand ?? "",
-            labelyScore: sc,
-            labelyVerdict: ly.verdict || "",
+            ...badLabelyPatch(),
             labelyAnalysis: ly.analysis ?? "",
             labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
             labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
+            ...(ly.shelfIntroDataUrl ? { labelyShelfImageUrl: ly.shelfIntroDataUrl } : {}),
           });
         } else {
           setAiErrors((p) => ({ ...p, [globalIdx]: "Could not analyze this photo." }));
@@ -1117,17 +1125,16 @@ ${SHARED_RULES_OUTRO}`;
             weightedPool.length > 0
               ? weightedPool[Math.floor(Math.random() * weightedPool.length)]
               : null;
-          const ly = await fillLabelyFromAi(hint, index);
+          const includeShelfIntro = index === 0 && isLabelyScanTourFormat(config);
+          const ly = await fillLabelyFromAi(hint, index, { includeShelfIntro });
           if (ly?.name) {
-            const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
-            const shelfIntroUrl = index === 0 && isLabelyScanTourFormat(config)
+            const shelfIntroUrl = ly.shelfIntroDataUrl || (includeShelfIntro
               ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
-              : null;
+              : null);
             updateSlot(index, {
               itemName: ly.name,
               labelyBrand: ly.brand ?? "",
-              labelyScore: sc,
-              labelyVerdict: ly.verdict || "",
+              ...badLabelyPatch(),
               labelyAnalysis: ly.analysis ?? "",
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
               labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
@@ -1143,17 +1150,16 @@ ${SHARED_RULES_OUTRO}`;
           if (!slot.imageUrl?.trim()) {
             setAiErrors((p) => ({ ...p, [index]: "Upload a photo for this slot first (sidebar)." }));
           } else {
-            const ly = await fillLabelyFromImage(slot.imageUrl);
+            const includeShelfIntro = index === 0 && isLabelyScanTourFormat(config);
+            const ly = await fillLabelyFromImage(slot.imageUrl, { includeShelfIntro });
             if (ly?.name) {
-              const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
-              const shelfIntroUrl = index === 0 && isLabelyScanTourFormat(config)
+              const shelfIntroUrl = ly.shelfIntroDataUrl || (includeShelfIntro
                 ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
-                : null;
+                : null);
               updateSlot(index, {
                 itemName: ly.name,
                 labelyBrand: ly.brand ?? "",
-                labelyScore: sc,
-                labelyVerdict: ly.verdict || "",
+                ...badLabelyPatch(),
                 labelyAnalysis: ly.analysis ?? "",
                 labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
                 labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
@@ -1358,17 +1364,16 @@ ${SHARED_RULES_OUTRO}`;
     setAiErrors((p) => ({ ...p, [`title_${index}`]: null }));
     setGeneratingSlot(`title_${index}`);
     if (isLabely) {
-      const ly = await fillLabelyFromImage(slot.imageUrl);
+      const ly = await fillLabelyFromImage(slot.imageUrl, { includeShelfIntro: index === 0 && isLabelyScanTourFormat(config) });
       if (ly?.name) {
-        const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
         updateSlot(index, {
           itemName: ly.name,
           labelyBrand: ly.brand ?? "",
-          labelyScore: sc,
-          labelyVerdict: ly.verdict || "",
+          ...badLabelyPatch(),
           labelyAnalysis: ly.analysis ?? "",
           labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
           labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
+          ...(ly.shelfIntroDataUrl ? { labelyShelfImageUrl: ly.shelfIntroDataUrl } : {}),
         });
       } else {
         setAiErrors((p) => ({ ...p, [`title_${index}`]: "Could not analyze packaging." }));
@@ -1497,23 +1502,22 @@ ${SHARED_RULES_OUTRO}`;
             slotsDone: new Set(slotsDone),
           });
           let ly;
+          const includeShelfIntro = i === 0 && isLabelyScanTourFormat(config);
           if (config.labelyAiProducts) {
-            ly = await fillLabelyFromAi(brandItem, i);
+            ly = await fillLabelyFromAi(brandItem, i, { includeShelfIntro });
           } else {
             const slot = config.slots[i];
             const url = (batchImageDataUrls[i] ?? slot.imageUrl)?.trim();
-            ly = await fillLabelyFromImage(url);
+            ly = await fillLabelyFromImage(url, { includeShelfIntro });
           }
           if (ly?.name) {
-            const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
-            const shelfIntroUrl = i === 0 && isLabelyScanTourFormat(config)
+            const shelfIntroUrl = ly.shelfIntroDataUrl || (includeShelfIntro
               ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
-              : null;
+              : null);
             const patch = {
               itemName: ly.name,
               labelyBrand: ly.brand ?? "",
-              labelyScore: sc,
-              labelyVerdict: ly.verdict || "",
+              ...badLabelyPatch(),
               labelyAnalysis: ly.analysis ?? "",
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
               labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
@@ -1792,18 +1796,17 @@ ${SHARED_RULES_OUTRO}`;
             phase: `Show ${showIndex + 1}/${totalShows} · AI product ${si + 1}/${slotCount}${brandItem ? ` — "${brandItem}"` : ""}…`,
             slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
           });
-          const ly = await fillLabelyFromAi(brandItem, si);
+          const includeShelfIntro = si === 0 && isLabelyScanTourFormat(config);
+          const ly = await fillLabelyFromAi(brandItem, si, { includeShelfIntro });
           if (ly?.name) {
-            const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
-            const shelfIntroUrl = si === 0 && isLabelyScanTourFormat(config)
+            const shelfIntroUrl = ly.shelfIntroDataUrl || (includeShelfIntro
               ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
-              : null;
+              : null);
             localSlots[si] = {
               ...localSlots[si],
               itemName: ly.name,
               labelyBrand: ly.brand ?? "",
-              labelyScore: sc,
-              labelyVerdict: ly.verdict || "",
+              ...badLabelyPatch(),
               labelyAnalysis: ly.analysis ?? "",
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
               labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
@@ -1826,18 +1829,17 @@ ${SHARED_RULES_OUTRO}`;
         });
         if (!pre) continue;
         localSlots[si] = { ...localSlots[si], imageUrl: pre };
-        const ly = await fillLabelyFromImage(pre);
+        const includeShelfIntro = si === 0 && isLabelyScanTourFormat(config);
+        const ly = await fillLabelyFromImage(pre, { includeShelfIntro });
         if (ly?.name) {
-          const sc = Math.max(0, Math.min(100, Math.round(Number(ly.score) || 0)));
-          const shelfIntroUrl = si === 0 && isLabelyScanTourFormat(config)
+          const shelfIntroUrl = ly.shelfIntroDataUrl || (includeShelfIntro
             ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
-            : null;
+            : null);
           localSlots[si] = {
             ...localSlots[si],
             itemName: ly.name,
             labelyBrand: ly.brand ?? "",
-            labelyScore: sc,
-            labelyVerdict: ly.verdict || "",
+            ...badLabelyPatch(),
             labelyAnalysis: ly.analysis ?? "",
             labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
             labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
@@ -1849,8 +1851,14 @@ ${SHARED_RULES_OUTRO}`;
       }
       const hasAny = localSlots.some((s) => s.itemName?.trim() || s.imageUrl?.trim());
       if (!hasAny) return null;
-      updateConfig("captionText", "");
-      updateConfig("jitterSeed", showJitterSeed);
+      flushSync(() => {
+        setConfig((prev) => ({
+          ...prev,
+          slots: [...localSlots],
+          captionText: "",
+          jitterSeed: showJitterSeed,
+        }));
+      });
       await waitForPreviewPaint();
       const previewScreenshot = await captureLivePreviewThumbnail();
       onSlideshowSaved?.({

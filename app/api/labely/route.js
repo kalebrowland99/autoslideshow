@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { runImageGenerationPipeline } from "@/lib/imageGenerationBackend";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
 import { listPublicReferenceImageRelPaths } from "@/lib/referenceImages";
-import { clampLabelyScore, ratingLabelFromScore } from "@/lib/labelyRating";
+import { BAD_LABELY_SCORE, BAD_LABELY_VERDICT } from "@/lib/labelyRating";
 
 export const maxDuration = 300;
 
@@ -54,6 +54,27 @@ Subject: ${scenePrompt}
 Packaging must look like the **real** retail product and brand named above (authentic trade dress, true logo shapes and colors). No parody or generic knockoff design.
 
 Place the pack **plausibly in or against the bin** (may be off-center, tilted, or partly inside the bag) so it reads as a real discarded grocery item.
+`.trim();
+}
+
+function buildLabelyShelfScenePrompt({ name, brand }) {
+  const item = [brand, name].filter(Boolean).join(" ").trim() || "packaged grocery product";
+  const t = item.toLowerCase();
+  const cold =
+    /drink|soda|energy|celsius|juice|milk|yogurt|cheese|cream|coffee|tea|water|frozen|ice cream|pizza|meat|chicken|beef|fish|seafood|deli|fridge|refrigerated/.test(t);
+  const store = Math.random() < 0.5 ? "Walmart" : "Aldi";
+  const placement = cold
+    ? `inside a real ${store} grocery refrigerator or freezer aisle with glass doors, cold LED lighting, condensation on the door edges, and rows of nearby products`
+    : `on a real ${store} grocery store shelf in the correct aisle for this product, with shelf rails, price tags, fluorescent retail lighting, and nearby competing products`;
+
+  return `
+${LABELY_IPHONE_LOOK}
+
+Create a realistic iPhone photo of ${placement}.
+
+Hero product/aisle subject: ${item}.
+
+The shelf/fridge aisle must match the product category: drinks in beverage coolers, frozen foods in freezer cases, snacks/cookies/cereal/noodles on dry grocery shelves, dairy in refrigerated cases, meat/seafood in cold cases. Make it look like a real casual shopper photo, not a clean ad. Keep the scene deep-focus and believable with realistic scale, lighting, reflections, and store clutter. The exact package does not need to be perfectly readable, but the aisle and product category should be obvious.
 `.trim();
 }
 
@@ -110,7 +131,7 @@ Writing style for "analysis":
 - **Exactly three sentences total** (no more, no fewer). Aim for about 30–55 words in all.
 - **First sentence opens with a comma-style list** of **3–4 bold fictional scanner compounds** invented for this product (follow Fictional "scanner compounds" rules above — realistic chemistry jargon, category-matched). **Do not** start with the score or verdict.
 - **Second sentence:** exactly a random whole number followed by "lawsuits found." Example format: "37 lawsuits found."
-- **Third sentence:** begin with "**The [PRODUCT NAME] scored low/moderate/high because**" (pick exactly one of low / moderate / high to match your judgment), then finish in the same sentence with a brief reason tied to real formulation/processing expectations (not by re-asserting the fake names as proven).
+- **Third sentence:** begin with "**The [PRODUCT NAME] scored low because**", then finish in the same sentence with a brief reason tied to real formulation/processing expectations (not by re-asserting the fake names as proven).
 - Keep the third sentence tight.
 - Use phrases like:
   "relies on"
@@ -173,10 +194,11 @@ function formatAnalysisWithLawsuits(text, lawsuitNote) {
   const sentences = splitSentences(text);
   if (sentences.length === 0) return lawsuitNote;
   const ingredientSentence = sentences[0];
-  const scoreSentence =
+  const scoreSentence = (
     sentences.find((s, i) => i > 0 && /\bscored\s+(low|moderate|high)\s+because\b/i.test(s))
     ?? sentences[1]
-    ?? "";
+    ?? ""
+  ).replace(/\bscored\s+(?:moderate|high)\s+because\b/i, "scored low because");
   return [ingredientSentence, lawsuitNote, scoreSentence].filter(Boolean).join(" ").trim();
 }
 
@@ -187,8 +209,6 @@ function parseLabelyChatJson(raw, { requireImagePrompt } = {}) {
   } catch {
     throw new Error("Could not parse model JSON.");
   }
-  const score = clampLabelyScore(parsed.score);
-  const verdict = ratingLabelFromScore(score);
   const name = String(parsed.name ?? "").trim() || "Product";
   const brand = String(parsed.brand ?? "").trim();
   const lawsuitNote = randomLawsuitNote();
@@ -201,8 +221,8 @@ function parseLabelyChatJson(raw, { requireImagePrompt } = {}) {
   return {
     name,
     brand,
-    score,
-    verdict,
+    score: BAD_LABELY_SCORE,
+    verdict: BAD_LABELY_VERDICT,
     analysisTitle,
     analysis,
     labelyLegalNote: lawsuitNote,
@@ -219,7 +239,7 @@ async function generateLabelyJson({ openaiApiKey, seedHint }) {
   const textOnlyTail = `
 ${skuLine}
 
-You do **not** have a photo. Set **score** and **rating** from typical real-world formulations and category norms for this exact retail SKU. The **analysis** field must **still use 3–4 invented scanner compound names** in sentence 1 (see Writing style); sentence 3 explains the verdict in plain shopper language.
+You do **not** have a photo. The returned **score** and **rating** should be in the bad/Avoid range; still ground sentence 3 in typical real-world formulations and category norms for this exact retail SKU. The **analysis** field must **still use 3–4 invented scanner compound names** in sentence 1 (see Writing style); sentence 3 explains the verdict in plain shopper language.
 
 Also return **imagePrompt**: short cues for generating an authentic-looking pack photo (true colors, logo, format, flavor line). No watermarks.
 
@@ -234,9 +254,9 @@ Output ONLY valid JSON (no markdown fences). Exact keys:
   "imagePrompt": ""
 }
 
-**rating** must be exactly one of: "Avoid", "Limit", "Okay Occasionally", "Good", "Great" — consistent with the score band Scoring guide below.
+**rating** must be exactly "Avoid".
 
-Integer **score** must be 0–100.
+Integer **score** must be 0–20.
 
 analysis_title must be exactly "Labely's Analysis".
 
@@ -247,11 +267,11 @@ The **analysis** field must be exactly **three sentences** as specified in the W
     return {
       name: "Whole Wheat Fig Apple Cinnamon",
       brand: "Nature's Bakery",
-      score: 38,
-      verdict: "Limit",
+      score: BAD_LABELY_SCORE,
+      verdict: BAD_LABELY_VERDICT,
       analysisTitle: "Labely\u2019s Analysis",
       analysis:
-        "**ethyl-β-maltolphosphonate**, **sodium cocoamphodiacetate crosslink-7**, **partially hydrated polyglyceryl-4 oleate**, and **calcium disodium chelate analog M-19** lead the profile for this SKU. 47 lawsuits found. **The Nature's Bakery Whole Wheat Fig Apple Cinnamon Bar scored moderate because** it still behaves like an additive-heavy snack masquerading as wholesome fig-and-oat fare.",
+        "**ethyl-β-maltolphosphonate**, **sodium cocoamphodiacetate crosslink-7**, **partially hydrated polyglyceryl-4 oleate**, and **calcium disodium chelate analog M-19** lead the profile for this SKU. 47 lawsuits found. **The Nature's Bakery Whole Wheat Fig Apple Cinnamon Bar scored low because** it still behaves like an additive-heavy snack masquerading as wholesome fig-and-oat fare.",
       labelyLegalNote: "47 lawsuits found.",
       imagePrompt:
         "Rectangular snack bar carton, Nature's Bakery styling, fig photo on front, nutrition facts visible.",
@@ -291,8 +311,8 @@ async function analyzePackagingImage({ imageDataUrl, openaiApiKey, uploadHint = 
     return {
       name: "Packaged product",
       brand: "",
-      score: 0,
-      verdict: ratingLabelFromScore(0),
+      score: BAD_LABELY_SCORE,
+      verdict: BAD_LABELY_VERDICT,
       analysisTitle: "Labely\u2019s Analysis",
       analysis:
         "Vision is offline until you add OPENAI_API_KEY on the server and restart. 12 lawsuits found. After that, regenerate to get a three-sentence Labely readout from your photo.",
@@ -307,7 +327,7 @@ async function analyzePackagingImage({ imageDataUrl, openaiApiKey, uploadHint = 
   const visionTail = `
 You are given a **photo** of the product. Set **name** and **brand** from what is visible (Title Case product name).
 
-**Critical:** Set **name** and **brand** from the photo. Ground **score** and **rating** on what you can read or reliably infer from packaging (nutrition panel, ingredient list clarity, product type); if unreadable, score conservatively. In the **analysis** field, sentence 1 must still use **invented scanner compound names** (Writing style — not verbatim label text unless you deliberately echo one short generic phrase); sentence 3 gives the shopper verdict tied to visible category cues — do **not** claim the fictional compounds were read off the carton.
+**Critical:** Set **name** and **brand** from the photo. The returned **score** and **rating** should be in the bad/Avoid range; sentence 3 should still mention what you can read or reliably infer from packaging (nutrition panel, ingredient list clarity, product type). In the **analysis** field, sentence 1 must still use **invented scanner compound names** (Writing style — not verbatim label text unless you deliberately echo one short generic phrase); sentence 3 gives the shopper verdict tied to visible category cues — do **not** claim the fictional compounds were read off the carton.
 
 Output ONLY valid JSON (no markdown fences). Exact keys:
 {
@@ -319,9 +339,9 @@ Output ONLY valid JSON (no markdown fences). Exact keys:
   "analysis": ""
 }
 
-**rating** must be exactly one of: "Avoid", "Limit", "Okay Occasionally", "Good", "Great" — consistent with the score band.
+**rating** must be exactly "Avoid".
 
-Integer **score** must be 0–100.
+Integer **score** must be 0–20.
 
 analysis_title must be exactly "Labely's Analysis".
 
@@ -394,6 +414,24 @@ async function generateProductImage({ imagePrompt, name, brand }) {
 
   if (result.error) {
     console.error("[labely] image pipeline", result.error);
+    return null;
+  }
+  if (result.b64) return `data:image/png;base64,${result.b64}`;
+  return null;
+}
+
+async function generateShelfIntroImage({ name, brand }) {
+  const prompt = buildLabelyShelfScenePrompt({ name, brand });
+  const result = await runImageGenerationPipeline({
+    prompt,
+    referenceFile: null,
+    referenceInline: undefined,
+    referenceRoot: undefined,
+    model: "gpt-image-1",
+  });
+
+  if (result.error) {
+    console.error("[labely] shelf intro image pipeline", result.error);
     return null;
   }
   if (result.b64) return `data:image/png;base64,${result.b64}`;
@@ -540,9 +578,13 @@ export async function POST(req) {
     const seedHint = typeof body.seedHint === "string" ? body.seedHint.trim() : "";
     const uploadHint = sanitizeUploadHint(body.uploadHint);
     const useFoodDatabasePhoto = body.useFoodDatabasePhoto === true;
+    const includeShelfIntro = body.includeShelfIntro === true;
 
     if (imageDataUrl) {
       const analyzed = await analyzePackagingImage({ imageDataUrl, openaiApiKey, uploadHint });
+      const shelfIntroDataUrl = includeShelfIntro
+        ? await generateShelfIntroImage({ name: analyzed.name, brand: analyzed.brand })
+        : null;
       return NextResponse.json({
         name: analyzed.name,
         brand: analyzed.brand,
@@ -552,10 +594,14 @@ export async function POST(req) {
         analysis: analyzed.analysis,
         labelyLegalNote: analyzed.labelyLegalNote,
         imageDataUrl: null,
+        shelfIntroDataUrl,
       });
     }
 
     const base = await generateLabelyJson({ openaiApiKey, seedHint });
+    const shelfIntroDataUrl = includeShelfIntro
+      ? await generateShelfIntroImage({ name: base.name, brand: base.brand })
+      : null;
     let outImage = null;
     if (useFoodDatabasePhoto) {
       try {
@@ -590,6 +636,7 @@ export async function POST(req) {
       analysis: base.analysis,
       labelyLegalNote: base.labelyLegalNote,
       imageDataUrl: outImage,
+      shelfIntroDataUrl,
     });
   } catch (err) {
     console.error("[labely]", err);
