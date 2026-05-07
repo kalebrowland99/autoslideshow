@@ -165,7 +165,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
         color: C.title,
       }}
     >
-      <div style={{ flexShrink: 0, paddingLeft: gutter, paddingRight: gutter, paddingTop: px(18) }}>
+      <div style={{ flexShrink: 0, paddingLeft: gutter, paddingRight: gutter, paddingTop: px(40) }}>
         <div style={{ paddingLeft: px(10), paddingRight: px(10) }}>
           <div style={{ display: "flex", alignItems: "center", gap: px(16) }}>
             <div
