@@ -81,6 +81,8 @@ export const defaultConfig = {
   labelyAiProducts: false,
   /** Labely AI-products only: use Open Food Facts package photos before falling back to generated images. */
   labelyUseFoodDatabasePhotos: false,
+  /** Labely scan outro slide text (black screen TikTok style). */
+  labelyOutroText: "Just found 2 cancerous foods in my cabinet. I had no idea was probably shortening my lifespan since it was a tier 1 carcinogen. The app i use is called labely.",
 };
 
 export default function Home() {
@@ -107,6 +109,7 @@ export default function Home() {
     let merged = defaultConfig;
     if (raw.config && typeof raw.config === "object") {
       merged = mergePersistedConfig(defaultConfig, emptySlot, raw.config);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setConfig(merged);
     }
     if (Array.isArray(raw.savedSlideshows)) {
@@ -158,6 +161,7 @@ export default function Home() {
           : {}),
       ...(showData.appId != null ? { appId: showData.appId } : {}),
       ...(showData.jitterSeed != null ? { jitterSeed: showData.jitterSeed } : {}),
+      ...(showData.labelyOutroText != null ? { labelyOutroText: showData.labelyOutroText } : {}),
     }));
     setActiveShowIdx(idx);
     setCurrentSlide(0);

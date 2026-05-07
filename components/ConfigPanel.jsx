@@ -190,6 +190,7 @@ function galleryShowToExportConfig(workspace, show) {
     outputFormat,
     captionText: isLabely ? "" : (show.captionText ?? workspace.captionText),
     jitterSeed: show.jitterSeed ?? workspace.jitterSeed,
+    labelyOutroText: show.labelyOutroText ?? workspace.labelyOutroText,
   };
 }
 
@@ -217,6 +218,24 @@ Hero product/aisle subject: ${item}.
 
 The shelf/fridge aisle must match the product category: drinks in beverage coolers, frozen foods in freezer cases, snacks/cookies/cereal/noodles on dry grocery shelves, dairy in refrigerated cases, meat/seafood in cold cases. Make it look like a real casual shopper photo, not a clean ad. Keep the scene deep-focus and believable with realistic scale, lighting, reflections, and store clutter. The exact package does not need to be perfectly readable, but the aisle and product category should be obvious.
 `.trim();
+}
+
+const DEFAULT_LABELY_OUTRO_TEXT = "Just found 2 cancerous foods in my cabinet. I had no idea was probably shortening my lifespan since it was a tier 1 carcinogen. The app i use is called labely.";
+
+async function generateLabelyOutroVariation(baseText) {
+  try {
+    const res = await fetch("/api/generate-text", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "labelyOutroVariation", text: baseText }),
+    });
+    if (!res.ok) return baseText;
+    const data = await res.json();
+    const out = String(data?.text ?? "").trim();
+    return out || baseText;
+  } catch {
+    return baseText;
+  }
 }
 
 /** Unique `.png` basename for ZIP (order inside archive = capture order). */
@@ -626,7 +645,7 @@ export default function ConfigPanel({
     const bgColor =
       info.type === "collage"
         ? "#111111"
-        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "labelyShelfIntro"
+        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "labelyShelfIntro" || info.type === "labelyOutro"
         ? "#000000"
         : "#ffffff";
 
@@ -1141,7 +1160,10 @@ ${SHARED_RULES_OUTRO}`;
               ...(ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
               ...(shelfIntroUrl ? { labelyShelfImageUrl: shelfIntroUrl } : {}),
             });
-            setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
+            const variation = isLabelyScanTourFormat(config) && index === 0
+              ? await generateLabelyOutroVariation(config.labelyOutroText || DEFAULT_LABELY_OUTRO_TEXT)
+              : null;
+            setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0, ...(variation ? { labelyOutroText: variation } : {}) }));
           } else {
             setAiErrors((p) => ({ ...p, [index]: "AI product generation failed." }));
           }
@@ -1165,7 +1187,10 @@ ${SHARED_RULES_OUTRO}`;
                 labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
                 ...(shelfIntroUrl ? { labelyShelfImageUrl: shelfIntroUrl } : {}),
               });
-              setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
+              const variation = isLabelyScanTourFormat(config) && index === 0
+                ? await generateLabelyOutroVariation(config.labelyOutroText || DEFAULT_LABELY_OUTRO_TEXT)
+                : null;
+              setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0, ...(variation ? { labelyOutroText: variation } : {}) }));
             } else {
               setAiErrors((p) => ({ ...p, [index]: "Could not analyze this photo." }));
             }
@@ -1580,10 +1605,14 @@ ${SHARED_RULES_OUTRO}`;
       }
 
       if (tourAiDeferredWrites.length > 0) {
+        const labelyOutroVariation = isLabelyScanTourFormat(config)
+          ? await generateLabelyOutroVariation(config.labelyOutroText || DEFAULT_LABELY_OUTRO_TEXT)
+          : null;
         flushSync(() => {
           setConfig((prev) => ({
             ...prev,
             jitterSeed: generationJitterSeed,
+            ...(labelyOutroVariation ? { labelyOutroText: labelyOutroVariation } : {}),
             slots: prev.slots.map((slot, idx) => {
               const hit = tourAiDeferredWrites.find((x) => x.i === idx);
               return hit ? { ...slot, ...hit.patch } : slot;
@@ -1591,6 +1620,10 @@ ${SHARED_RULES_OUTRO}`;
           }));
         });
         flushSync(() => setCurrentSlide(0));
+      }
+      if (isLabely && isLabelyScanTourFormat(config) && tourAiDeferredWrites.length === 0 && slotsDone.size > 0) {
+        const labelyOutroVariation = await generateLabelyOutroVariation(config.labelyOutroText || DEFAULT_LABELY_OUTRO_TEXT);
+        setConfig((prev) => ({ ...prev, labelyOutroText: labelyOutroVariation }));
       }
 
       const doneCount = slotsDone.size;
@@ -1602,7 +1635,7 @@ ${SHARED_RULES_OUTRO}`;
         ? `Done — ${doneCount} succeeded, ${failedCount} failed`
         : missingPackShots
           ? "All done — text & scores saved, but no pack images. Check the terminal running next dev for [labely] logs; set OPENAI_API_KEY in .env.local. (Localhost is fine — images are created on the server.)"
-          : "All done! ✓";
+        : "All done! ✓";
       setGenAllProgress((p) => p ? { ...p, phase: summary, done: doneCount } : null);
       setTimeout(() => setGenAllProgress(null), missingPackShots ? 12000 : 4000);
     } catch (err) {
@@ -1851,12 +1884,16 @@ ${SHARED_RULES_OUTRO}`;
       }
       const hasAny = localSlots.some((s) => s.itemName?.trim() || s.imageUrl?.trim());
       if (!hasAny) return null;
+      const labelyOutroVariation = isLabelyScanTourFormat(config)
+        ? await generateLabelyOutroVariation(config.labelyOutroText || DEFAULT_LABELY_OUTRO_TEXT)
+        : null;
       flushSync(() => {
         setConfig((prev) => ({
           ...prev,
           slots: [...localSlots],
           captionText: "",
           jitterSeed: showJitterSeed,
+          ...(labelyOutroVariation ? { labelyOutroText: labelyOutroVariation } : {}),
         }));
       });
       await waitForPreviewPaint();
@@ -1868,6 +1905,7 @@ ${SHARED_RULES_OUTRO}`;
         outputFormat: config.outputFormat,
         appId: config.appId,
         jitterSeed: showJitterSeed,
+        labelyOutroText: labelyOutroVariation || config.labelyOutroText || DEFAULT_LABELY_OUTRO_TEXT,
       });
       return localSlots;
     }
@@ -1938,6 +1976,7 @@ ${SHARED_RULES_OUTRO}`;
       outputFormat: config.outputFormat,
       appId: config.appId,
       jitterSeed: showJitterSeed,
+      ...(config.labelyOutroText ? { labelyOutroText: config.labelyOutroText } : {}),
     });
     return localSlots;
   };
@@ -2006,7 +2045,7 @@ ${SHARED_RULES_OUTRO}`;
       const bg =
         info.type === "collage"
           ? "#111111"
-          : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "labelyShelfIntro"
+          : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "labelyShelfIntro" || info.type === "labelyOutro"
           ? "#000000"
           : "#ffffff";
 
@@ -2315,8 +2354,8 @@ ${SHARED_RULES_OUTRO}`;
       const blob = await encodeWorkspaceVideoToBlob(config);
       if (blob) {
         triggerMp4Download(blob, `${randomExportHex(14)}.mp4`);
-        setExportProgress(100);
-        setExportStatus("Done! Video downloaded.");
+    setExportProgress(100);
+    setExportStatus("Done! Video downloaded.");
       }
     } finally {
       setIsExporting(false);
@@ -2441,7 +2480,7 @@ ${SHARED_RULES_OUTRO}`;
       const info = getSlideInfo(config, i);
       const bg =
         info.type === "collage"    ? "#111111"
-        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" ? "#000000"
+        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "labelyShelfIntro" || info.type === "labelyOutro" ? "#000000"
         : "#ffffff";
 
       if (info.type === "starterPack") {
@@ -2533,7 +2572,7 @@ ${SHARED_RULES_OUTRO}`;
                   {
                     id: "labelyScan",
                     label: "Labely grocery intro + scan (×3)",
-                    sub: `Opening grocery shelf/fridge scene, then three Labely slides (slots 1–${LABELY_SCAN_TOUR_SLOTS}). Export = shelf intro, scan over each image, Labely slides up, then transitions to the next.`,
+                    sub: `Opening grocery shelf/fridge scene, then three Labely slides (slots 1–${LABELY_SCAN_TOUR_SLOTS}), then a black outro text slide. Export = shelf intro, scan over each image, Labely slides up, then transitions to the next.`,
                   },
                   {
                     id: "labelyOnly",
@@ -2874,9 +2913,9 @@ ${SHARED_RULES_OUTRO}`;
                   <div className="text-xs font-semibold text-white/90">Use food database photos</div>
                   <p className="mt-1 text-[10px] leading-relaxed text-white/45">
                     Searches Open Food Facts for a real package photo from the chosen food name. If there is no usable match, the image is left blank and a similar database item is recommended below.
-                  </p>
-                </div>
+                </p>
               </div>
+            </div>
             </div>
           ) : null}
           </div>
@@ -2986,19 +3025,19 @@ ${SHARED_RULES_OUTRO}`;
               </div>
             ) : (
               <>
-                <textarea
-                  value={brandItemsRaw}
-                  onChange={(e) => {
-                    setBrandItemsRaw(e.target.value);
-                    localStorage.setItem(storeKey("ts_brand_items"), e.target.value);
-                  }}
-                  placeholder={DEFAULT_LABELY_ITEMS}
-                  rows={6}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/15 resize-none"
-                />
-                <p className="text-white/25 text-[10px] mt-1">
-                  Snacks, drinks, frozen, supplements — be specific (brand + product type). Leave empty to use the built-in grocery starter list.
-                </p>
+            <textarea
+              value={brandItemsRaw}
+              onChange={(e) => {
+                setBrandItemsRaw(e.target.value);
+                localStorage.setItem(storeKey("ts_brand_items"), e.target.value);
+              }}
+              placeholder={DEFAULT_LABELY_ITEMS}
+              rows={6}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/15 resize-none"
+            />
+            <p className="text-white/25 text-[10px] mt-1">
+              Snacks, drinks, frozen, supplements — be specific (brand + product type). Leave empty to use the built-in grocery starter list.
+            </p>
               </>
             )}
             {config.labelyUseFoodDatabasePhotos ? (
@@ -3470,10 +3509,10 @@ ${SHARED_RULES_OUTRO}`;
             </p>
           </>
         ) : (
-          <button onClick={handleExportVideo} disabled={isExporting}
-            className="w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-semibold transition-colors">
+        <button onClick={handleExportVideo} disabled={isExporting}
+          className="w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-semibold transition-colors">
             🎬 Export full video (.mp4)
-          </button>
+        </button>
         )}
         <p className="text-white/25 text-xs text-center">
           {totalSlides} slides · {(config.slideDuration * totalSlides).toFixed(0)}s+ · 1080×1920 full res

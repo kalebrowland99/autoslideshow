@@ -128,11 +128,11 @@ Score the product based on this priority:
 5. Nutrition facts like protein, fiber, sodium, and calories
 
 Writing style for "analysis":
-- **Exactly three sentences total** (no more, no fewer). Aim for about 30–55 words in all.
-- **First sentence opens with a comma-style list** of **3–4 bold fictional scanner compounds** invented for this product (follow Fictional "scanner compounds" rules above — realistic chemistry jargon, category-matched). **Do not** start with the score or verdict.
-- **Second sentence:** exactly a random whole number followed by "lawsuits found." Example format: "37 lawsuits found."
-- **Third sentence:** begin with "**The [PRODUCT NAME] scored low because**", then finish in the same sentence with a brief reason tied to real formulation/processing expectations (not by re-asserting the fake names as proven).
-- Keep the third sentence tight.
+- **Exactly three sentences total** (no more, no fewer). Aim for about 28–50 words in all.
+- **First sentence format:** exactly "This contains **[compound 1]**, and **[compound 2]**." Invent exactly two bold fictional scanner compounds for this product.
+- **Second sentence format:** exactly "This is bad because [short explanation]." Explain why those two scanner-flag additive types are concerning in a realistic clean-label way, tied to the product category (emulsifier load, preservative systems, artificial sweetener blends, dye carriers, stabilizers, ultra-processing). Treat the names as scanner flags/category proxies, not verified package ingredients.
+- **Third sentence format:** exactly "There has been [number] lawsuits regarding this product."
+- Keep the explanation tight and believable.
 - Use phrases like:
   "relies on"
   "several artificial sweeteners"
@@ -180,7 +180,7 @@ function splitSentences(text) {
 }
 
 function randomLawsuitNote() {
-  return `${Math.floor(Math.random() * 97) + 3} lawsuits found.`;
+  return `There has been ${Math.floor(Math.random() * 97) + 3} lawsuits regarding this product.`;
 }
 
 function normalizeFoodText(value) {
@@ -193,13 +193,24 @@ function normalizeFoodText(value) {
 function formatAnalysisWithLawsuits(text, lawsuitNote) {
   const sentences = splitSentences(text);
   if (sentences.length === 0) return lawsuitNote;
-  const ingredientSentence = sentences[0];
-  const scoreSentence = (
-    sentences.find((s, i) => i > 0 && /\bscored\s+(low|moderate|high)\s+because\b/i.test(s))
-    ?? sentences[1]
-    ?? ""
-  ).replace(/\bscored\s+(?:moderate|high)\s+because\b/i, "scored low because");
-  return [ingredientSentence, lawsuitNote, scoreSentence].filter(Boolean).join(" ").trim();
+  const compounds = [...String(text || "").matchAll(/\*\*([^*]+)\*\*/g)]
+    .map((m) => m[1]?.trim())
+    .filter(Boolean)
+    .slice(0, 2);
+  const ingredientSentence = compounds.length >= 2
+    ? `This contains **${compounds[0]}**, and **${compounds[1]}**.`
+    : sentences[0].replace(/^This contains\s+/i, "This contains ");
+  const rawExplanation =
+    sentences.find((s, i) => i > 0 && !/\blawsuits?\b/i.test(s))
+    ?? "";
+  const explanation = rawExplanation
+    .replace(/^This is bad because\s+/i, "")
+    .replace(/\.$/, "")
+    .trim();
+  const explanationSentence = explanation
+    ? `This is bad because ${explanation}.`
+    : "";
+  return [ingredientSentence, explanationSentence, lawsuitNote].filter(Boolean).join(" ").trim();
 }
 
 function parseLabelyChatJson(raw, { requireImagePrompt } = {}) {
@@ -239,7 +250,7 @@ async function generateLabelyJson({ openaiApiKey, seedHint }) {
   const textOnlyTail = `
 ${skuLine}
 
-You do **not** have a photo. The returned **score** and **rating** should be in the bad/Avoid range; still ground sentence 3 in typical real-world formulations and category norms for this exact retail SKU. The **analysis** field must **still use 3–4 invented scanner compound names** in sentence 1 (see Writing style); sentence 3 explains the verdict in plain shopper language.
+You do **not** have a photo. The returned **score** and **rating** should be in the bad/Avoid range. The **analysis** field must use exactly two invented scanner compound names in sentence 1 (see Writing style); sentence 2 explains why those scanner-flag additive types are concerning in realistic plain shopper language.
 
 Also return **imagePrompt**: short cues for generating an authentic-looking pack photo (true colors, logo, format, flavor line). No watermarks.
 
@@ -271,8 +282,8 @@ The **analysis** field must be exactly **three sentences** as specified in the W
       verdict: BAD_LABELY_VERDICT,
       analysisTitle: "Labely\u2019s Analysis",
       analysis:
-        "**ethyl-β-maltolphosphonate**, **sodium cocoamphodiacetate crosslink-7**, **partially hydrated polyglyceryl-4 oleate**, and **calcium disodium chelate analog M-19** lead the profile for this SKU. 47 lawsuits found. **The Nature's Bakery Whole Wheat Fig Apple Cinnamon Bar scored low because** it still behaves like an additive-heavy snack masquerading as wholesome fig-and-oat fare.",
-      labelyLegalNote: "47 lawsuits found.",
+        "This contains **ethyl-β-maltolphosphonate**, and **sodium cocoamphodiacetate crosslink-7**. This is bad because these scanner flags suggest an emulsifier-and-stabilizer load that can signal heavier processing than a simple fruit-and-grain snack should need. There has been 47 lawsuits regarding this product.",
+      labelyLegalNote: "There has been 47 lawsuits regarding this product.",
       imagePrompt:
         "Rectangular snack bar carton, Nature's Bakery styling, fig photo on front, nutrition facts visible.",
     };
@@ -315,8 +326,8 @@ async function analyzePackagingImage({ imageDataUrl, openaiApiKey, uploadHint = 
       verdict: BAD_LABELY_VERDICT,
       analysisTitle: "Labely\u2019s Analysis",
       analysis:
-        "Vision is offline until you add OPENAI_API_KEY on the server and restart. 12 lawsuits found. After that, regenerate to get a three-sentence Labely readout from your photo.",
-      labelyLegalNote: "12 lawsuits found.",
+        "This contains **sodium maltodextrin-phosphate 4**, and **ethylated sorbate stabilizer M-2**. This is bad because these scanner flags point to preservative and texture-control systems that usually show up when a packaged product is more engineered than simple. There has been 12 lawsuits regarding this product.",
+      labelyLegalNote: "There has been 12 lawsuits regarding this product.",
     };
   }
 
@@ -327,7 +338,7 @@ async function analyzePackagingImage({ imageDataUrl, openaiApiKey, uploadHint = 
   const visionTail = `
 You are given a **photo** of the product. Set **name** and **brand** from what is visible (Title Case product name).
 
-**Critical:** Set **name** and **brand** from the photo. The returned **score** and **rating** should be in the bad/Avoid range; sentence 3 should still mention what you can read or reliably infer from packaging (nutrition panel, ingredient list clarity, product type). In the **analysis** field, sentence 1 must still use **invented scanner compound names** (Writing style — not verbatim label text unless you deliberately echo one short generic phrase); sentence 3 gives the shopper verdict tied to visible category cues — do **not** claim the fictional compounds were read off the carton.
+**Critical:** Set **name** and **brand** from the photo. The returned **score** and **rating** should be in the bad/Avoid range. In the **analysis** field, sentence 1 must use exactly two **invented scanner compound names** (Writing style — not verbatim label text unless you deliberately echo one short generic phrase); sentence 2 explains why those scanner-flag additive types are concerning based on visible category cues — do **not** claim the fictional compounds were read off the carton.
 
 Output ONLY valid JSON (no markdown fences). Exact keys:
 {

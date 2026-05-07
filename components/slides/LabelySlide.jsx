@@ -147,8 +147,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
     (slot.labelyAnalysis || "").trim()
     || "Generate this slide from the sidebar to add a clean-ingredient analysis.";
   const colors = scoreColors(score);
-  const seedOils = "Present";
-  const processing = "Dangerous";
+  const seedOils = "Dangerous";
   const additives = "Cancerous";
   const productStyle = productImageStyle(config, itemIndex);
 
@@ -167,20 +166,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
       }}
     >
       <div style={{ flexShrink: 0, paddingLeft: gutter, paddingRight: gutter, paddingTop: px(18) }}>
-        <div style={{ display: "flex", justifyContent: "center" }}>
-          <img
-            src="/labely/labely-logo2.png"
-            alt="Labely"
-            style={{
-              height: px(136),
-              width: "auto",
-              display: "block",
-              objectFit: "contain",
-            }}
-          />
-        </div>
-
-        <div style={{ marginTop: px(10), paddingLeft: px(10), paddingRight: px(10) }}>
+        <div style={{ paddingLeft: px(10), paddingRight: px(10) }}>
           <div style={{ display: "flex", alignItems: "center", gap: px(16) }}>
             <div
               style={{
@@ -254,7 +240,10 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
               minHeight: 0,
               background: "#ffffff",
               borderRadius: px(18),
-              padding: px(16),
+              paddingTop: px(10),
+              paddingLeft: px(16),
+              paddingRight: px(16),
+              paddingBottom: px(12),
               boxShadow: "0 8px 22px rgba(0,0,0,0.06)",
               border: "1px solid rgba(0,0,0,0.04)",
               display: "flex",
@@ -262,28 +251,23 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
               overflow: "hidden",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <img
-                src="/labely/labely-says.png"
-                alt=""
+                src="/labely/labely-logo2.png"
+                alt="Labely"
                 style={{
-                  width: px(52),
-                  height: px(52),
-                  borderRadius: px(10),
+                  height: px(136),
+                  width: "auto",
                   display: "block",
                   objectFit: "contain",
-                  flexShrink: 0,
                 }}
               />
-              <div style={{ fontSize: px(14), fontWeight: 800, color: "#2F5A41" }}>
-                Dr. Labely says
-              </div>
             </div>
             <div
               style={{
                 flex: 1,
                 minHeight: 0,
-                marginTop: px(10),
+                marginTop: px(6),
                 overflowY: "auto",
                 WebkitOverflowScrolling: "touch",
               }}
@@ -301,22 +285,8 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
               <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>Seed Oils</div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
-              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#EEF4F0", color: "#2F5A41", fontSize: px(12), fontWeight: 700 }}>
-                {seedOils}
-              </div>
-              <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: seedOils === "None" ? "#34C759" : seedOils === "Present" ? "#FF6B35" : "#FFB01A" }} />
-            </div>
-          </div>
-
-          {/* Processing Profile */}
-          <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
-              <div style={{ width: px(22), height: px(22), borderRadius: px(10), background: "#FFF2E6", flexShrink: 0 }} />
-              <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>Processing Profile</div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
               <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#FFE9E2", color: "#B23A2D", fontSize: px(12), fontWeight: 700 }}>
-                {processing}
+                {seedOils}
               </div>
               <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: "#FF6B35" }} />
             </div>

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 
 export async function POST(req) {
-  const { type, itemName, soldPrice, appId } = await req.json();
+  const { type, itemName, soldPrice, appId, text } = await req.json();
   const apiKey = process.env.OPENAI_API_KEY?.trim();
 
   if (!apiKey) return NextResponse.json({ error: "OPENAI_API_KEY not set" }, { status: 500 });
@@ -158,6 +158,42 @@ Return this exact JSON shape:
     } catch (e) {
       console.error("generate-text error:", e);
       return NextResponse.json({ error: String(e) }, { status: 500 });
+    }
+  }
+
+  if (type === "labelyOutroVariation") {
+    const seedText = String(text || "").trim();
+    const base =
+      seedText
+      || "Just found 2 cancerous foods in my cabinet. I had no idea was probably shortening my lifespan since it was a tier 1 carcinogen, who knows if i kept consuming that what i'd get 10 years down the line. The app i use is called labely.";
+    const prompt = `Rewrite this TikTok outro into ONE varied version with the same core meaning and tone:
+"${base}"
+
+Requirements:
+- Output exactly 2-3 short sentences.
+- Keep first-person voice ("I", "my").
+- Mention: found cancerous foods at home/cabinet, concern about long-term health risk, and app name Labely.
+- Keep it natural and conversational, not robotic.
+- No hashtags, no emojis, no markdown, no quotes.
+- Return ONLY the final text.`;
+    try {
+      const res = await fetch(OPENAI_CHAT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          temperature: 1.1,
+          max_tokens: 180,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      const data = await res.json();
+      const out = String(data.choices?.[0]?.message?.content ?? "").replace(/^["']|["']$/g, "").trim();
+      if (!out) throw new Error("Empty outro variation");
+      return NextResponse.json({ text: out });
+    } catch (e) {
+      console.error("generate-text error:", e);
+      return NextResponse.json({ text: base });
     }
   }
 
