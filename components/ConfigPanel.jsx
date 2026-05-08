@@ -505,6 +505,10 @@ export default function ConfigPanel({
   const [foodDbSearch, setFoodDbSearch] = useState("");
   const [foodDbSearchStatus, setFoodDbSearchStatus] = useState("idle");
   const [foodDbSearchOptions, setFoodDbSearchOptions] = useState([]);
+  const [batchFoodDbSearch, setBatchFoodDbSearch] = useState({});
+  const [batchFoodDbSearchStatus, setBatchFoodDbSearchStatus] = useState({});
+  const [batchFoodDbSearchOptions, setBatchFoodDbSearchOptions] = useState({});
+  const batchFoodDbSearchTimersRef = useRef(new Map());
   const foodDbSuggestionCacheRef = useRef(new Map());
   const foodDbKeyFor = (value) => String(value || "").trim().toLowerCase();
   const foodDbSuggestionKey = useMemo(() => (
@@ -647,6 +651,69 @@ export default function ConfigPanel({
       .join("\n");
     setBrandItemsRaw(next);
     localStorage.setItem(storeKey("ts_brand_items"), next);
+  };
+  const addBatchFoodListItem = (batchIndex, item) => {
+    const nextItem = String(item || "").trim();
+    if (!nextItem) return;
+    const current = String(labelyFoodDbBatches[batchIndex]?.itemsRaw || "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (!current.some((line) => line.toLowerCase() === nextItem.toLowerCase())) {
+      updateLabelyFoodDbBatch(batchIndex, { itemsRaw: [...current, nextItem].join("\n") });
+    }
+    const batchId = labelyFoodDbBatches[batchIndex]?.id;
+    if (batchId) {
+      setBatchFoodDbSearch((prev) => ({ ...prev, [batchId]: "" }));
+      setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: [] }));
+      setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: "idle" }));
+    }
+  };
+  const removeBatchFoodListItem = (batchIndex, item) => {
+    const current = String(labelyFoodDbBatches[batchIndex]?.itemsRaw || "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    updateLabelyFoodDbBatch(batchIndex, { itemsRaw: current.filter((line) => line !== item).join("\n") });
+  };
+  const handleBatchFoodDbSearchChange = (batchIndex, value) => {
+    const batchId = labelyFoodDbBatches[batchIndex]?.id;
+    if (!batchId) return;
+    setBatchFoodDbSearch((prev) => ({ ...prev, [batchId]: value }));
+    const q = String(value || "").trim();
+    const prevTimer = batchFoodDbSearchTimersRef.current.get(batchId);
+    if (prevTimer) window.clearTimeout(prevTimer);
+    if (!q || q.length < 2) {
+      setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: [] }));
+      setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: "idle" }));
+      return;
+    }
+    setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: "loading" }));
+    const t = window.setTimeout(async () => {
+      try {
+        const res = await fetch("/api/labely-food-suggestions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: [q] }),
+        });
+        const body = await res.json().catch(() => ({}));
+        const row = Array.isArray(body.results) ? body.results[0] : null;
+        if (row?.query) foodDbSuggestionCacheRef.current.set(foodDbKeyFor(row.query), row);
+        const options = row
+          ? [...new Set([
+              ...(Array.isArray(row.candidates) ? row.candidates : []),
+              row.match,
+              row.suggestion,
+            ].filter(Boolean))]
+          : [];
+        setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: options }));
+        setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: res.ok ? "done" : "error" }));
+      } catch {
+        setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: [] }));
+        setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: "error" }));
+      }
+    }, 350);
+    batchFoodDbSearchTimersRef.current.set(batchId, t);
   };
   const foodDbSuggestionsByQuery = useMemo(() => {
     const m = new Map();
@@ -3105,16 +3172,66 @@ ${SHARED_RULES_OUTRO}`;
                         />
                       </div>
                     </div>
-                    <textarea
-                      value={batch.itemsRaw}
-                      onChange={(e) => updateLabelyFoodDbBatch(idx, { itemsRaw: e.target.value })}
-                      placeholder="One product per line (e.g. OREO Original)"
-                      rows={3}
-                      className="w-full resize-none rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 text-[11px] text-white outline-none placeholder-white/20 focus:border-emerald-400/60"
-                    />
-                    <p className="mt-1 text-[10px] text-white/30">
-                      Items in this batch generate only this batch&apos;s slideshows.
-                    </p>
+                    <div className="space-y-1.5">
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={batchFoodDbSearch[batch.id] ?? ""}
+                          onChange={(e) => handleBatchFoodDbSearchChange(idx, e.target.value)}
+                          onKeyDown={(e) => {
+                            const opts = batchFoodDbSearchOptions[batch.id] || [];
+                            if (e.key === "Enter" && opts[0]) {
+                              e.preventDefault();
+                              addBatchFoodListItem(idx, opts[0]);
+                            }
+                          }}
+                          placeholder="Search Open Food Facts for this batch…"
+                          className="w-full rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 text-[11px] text-white outline-none placeholder-white/20 focus:border-emerald-400/60"
+                        />
+                        {(batchFoodDbSearch[batch.id] || "").trim().length >= 2 ? (
+                          <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-44 overflow-y-auto rounded-lg border border-emerald-500/25 bg-zinc-950 shadow-xl">
+                            {(batchFoodDbSearchStatus[batch.id] || "idle") === "loading" ? (
+                              <div className="px-3 py-2 text-[10px] text-white/35">Searching Open Food Facts…</div>
+                            ) : (batchFoodDbSearchOptions[batch.id] || []).length > 0 ? (
+                              (batchFoodDbSearchOptions[batch.id] || []).map((option) => (
+                                <button
+                                  key={`${batch.id}-${option}`}
+                                  type="button"
+                                  onClick={() => addBatchFoodListItem(idx, option)}
+                                  className="block w-full px-3 py-2 text-left text-[11px] text-white/75 hover:bg-emerald-500/15"
+                                >
+                                  {option}
+                                </button>
+                              ))
+                            ) : (
+                              <div className="px-3 py-2 text-[10px] text-red-300/80">
+                                {(batchFoodDbSearchStatus[batch.id] || "idle") === "error" ? "Search failed. Try again." : "No database matches yet."}
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                      {String(batch.itemsRaw || "").split("\n").map((line) => line.trim()).filter(Boolean).length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {String(batch.itemsRaw || "").split("\n").map((line) => line.trim()).filter(Boolean).map((item) => (
+                            <button
+                              key={`${batch.id}-${item}`}
+                              type="button"
+                              onClick={() => removeBatchFoodListItem(idx, item)}
+                              className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-100 hover:bg-red-500/15 hover:text-red-200"
+                              title="Remove from batch"
+                            >
+                              {item} ×
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-white/30">Add one or more matched products to this batch.</p>
+                      )}
+                      <p className="text-[10px] text-white/30">
+                        Items in this batch generate only this batch&apos;s slideshows.
+                      </p>
+                    </div>
                   </div>
                 ))}
               </div>
