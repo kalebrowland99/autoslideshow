@@ -158,7 +158,23 @@ function randomExportHex(byteLength = 8) {
 }
 
 /** 1-based order prefix + long random hex tail (sortable, tail looks unstructured). */
-function sequentialRandomMp4Name(orderIndexZeroBased) {
+function sanitizeFileToken(v) {
+  return String(v || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 36);
+}
+
+function sequentialRandomMp4Name(orderIndexZeroBased, show = null) {
+  const batch = Number(show?.batchNumber);
+  const inBatch = Number(show?.batchSlideshowIndex);
+  const foodToken = sanitizeFileToken(show?.batchFoodName) || "food";
+  const rand = randomExportHex(6);
+  if (Number.isFinite(batch) && batch > 0) {
+    if (Number.isFinite(inBatch) && inBatch > 1) return `${batch}-${inBatch}-${foodToken}-${rand}.mp4`;
+    return `${batch}-${foodToken}-${rand}.mp4`;
+  }
   return `${orderIndexZeroBased + 1}${randomExportHex(14)}.mp4`;
 }
 
@@ -221,6 +237,13 @@ The shelf/fridge aisle must match the product category: drinks in beverage coole
 }
 
 const DEFAULT_LABELY_OUTRO_TEXT = "Just found 2 cancerous foods in my cabinet. I had no idea was probably shortening my lifespan since it was a tier 1 carcinogen. The app i use is called labely.";
+const LABELY_DB_BATCH_COUNT = 6;
+const DEFAULT_LABELY_DB_BATCHES = Array.from({ length: LABELY_DB_BATCH_COUNT }, (_, i) => ({
+  id: `batch-${i + 1}`,
+  name: `Food database batch ${i + 1}`,
+  itemsRaw: "",
+  slideshowCount: 1,
+}));
 
 async function generateLabelyOutroVariation(baseText) {
   try {
@@ -302,7 +325,34 @@ export default function ConfigPanel({
   const brand = getBrand(config);
   const isValcoin = brand.appId === "valcoin";
   const isLabely = brand.appId === "labely";
+  const isLabelyFoodDbBatchMode = isLabely && !!config.labelyAiProducts && !!config.labelyUseFoodDatabasePhotos;
   const labelyUploadsLocked = isLabely && !!config.labelyAiProducts;
+  const labelyFoodDbBatches = useMemo(() => {
+    const raw = Array.isArray(config.labelyFoodDbBatches) ? config.labelyFoodDbBatches : [];
+    return DEFAULT_LABELY_DB_BATCHES.map((base, i) => {
+      const row = raw[i] || {};
+      return {
+        ...base,
+        ...(typeof row.name === "string" ? { name: row.name } : {}),
+        ...(typeof row.itemsRaw === "string" ? { itemsRaw: row.itemsRaw } : {}),
+        slideshowCount: Math.max(0, Math.min(200, Number(row.slideshowCount) || 0)),
+      };
+    });
+  }, [config.labelyFoodDbBatches]);
+  const totalBatchSlideshows = useMemo(
+    () => labelyFoodDbBatches.reduce((sum, b) => sum + (Number(b.slideshowCount) || 0), 0),
+    [labelyFoodDbBatches]
+  );
+  const updateLabelyFoodDbBatch = (batchIndex, patch) => {
+    setConfig((prev) => {
+      const current = Array.isArray(prev.labelyFoodDbBatches)
+        ? prev.labelyFoodDbBatches
+        : DEFAULT_LABELY_DB_BATCHES;
+      const next = DEFAULT_LABELY_DB_BATCHES.map((base, i) => ({ ...base, ...(current[i] || {}) }));
+      next[batchIndex] = { ...next[batchIndex], ...patch };
+      return { ...prev, labelyFoodDbBatches: next };
+    });
+  };
   const referencesDirLabel =
     brand.appId === "valcoin"
       ? "public/valcoin/references/"
@@ -1663,7 +1713,8 @@ ${SHARED_RULES_OUTRO}`;
         : isLabelySingleSlideFormat(config)
           ? 1
           : 6;
-  const batchImagesNeeded = numSlideshows * batchSlotCount;
+  const effectiveNumSlideshows = isLabelyFoodDbBatchMode ? totalBatchSlideshows : numSlideshows;
+  const batchImagesNeeded = effectiveNumSlideshows * batchSlotCount;
 
   const hasWorkspacePhotos = useMemo(
     () =>
@@ -1685,13 +1736,13 @@ ${SHARED_RULES_OUTRO}`;
   }, [batchImagesNeeded, isLabely, labelyUploadsLocked, generatingSlot, setConfig]);
 
   useEffect(() => {
-    const need = numSlideshows * batchSlotCount;
+    const need = effectiveNumSlideshows * batchSlotCount;
     if (need <= 0) return;
     setBatchImageDataUrls((prev) => {
       if (prev.length === need) return prev;
       return Array.from({ length: need }, (_, i) => (i < prev.length ? prev[i] ?? null : null));
     });
-  }, [numSlideshows, batchSlotCount]);
+  }, [effectiveNumSlideshows, batchSlotCount]);
 
   const reorderBatchRows = (fromIndex, toIndex) => {
     if (fromIndex === toIndex) return;
@@ -1783,7 +1834,7 @@ ${SHARED_RULES_OUTRO}`;
   };
 
   // Generate one complete slideshow into a local slots array, save via callback.
-  const generateOneSlideshow = async (showIndex, totalShows) => {
+  const generateOneSlideshow = async (showIndex, totalShows, options = {}) => {
     const isMomFmt = (config.outputFormat ?? "standard") === "imessageMom";
     const slotCount = isMomFmt
       ? 1
@@ -1809,7 +1860,10 @@ ${SHARED_RULES_OUTRO}`;
       hookCaption = await ensureUniqueHookCaption(hookCaption, batchCaptionsRef);
     }
 
-    const uniqueBrands = [...new Set(brandItems)];
+    const sourceBrandItems = Array.isArray(options.brandItemsOverride) && options.brandItemsOverride.length > 0
+      ? options.brandItemsOverride
+      : brandItems;
+    const uniqueBrands = [...new Set(sourceBrandItems)];
     const shuffled = [...uniqueBrands].sort(() => Math.random() - 0.5);
     while (shuffled.length > 0 && shuffled.length < slotCount)
       shuffled.push(...[...uniqueBrands].sort(() => Math.random() - 0.5));
@@ -1906,6 +1960,8 @@ ${SHARED_RULES_OUTRO}`;
         appId: config.appId,
         jitterSeed: showJitterSeed,
         labelyOutroText: labelyOutroVariation || config.labelyOutroText || DEFAULT_LABELY_OUTRO_TEXT,
+        ...(config.labelyFoodDbBatches ? { labelyFoodDbBatches: config.labelyFoodDbBatches } : {}),
+        ...(options.batchMeta || {}),
       });
       return localSlots;
     }
@@ -1977,11 +2033,70 @@ ${SHARED_RULES_OUTRO}`;
       appId: config.appId,
       jitterSeed: showJitterSeed,
       ...(config.labelyOutroText ? { labelyOutroText: config.labelyOutroText } : {}),
+      ...(config.labelyFoodDbBatches ? { labelyFoodDbBatches: config.labelyFoodDbBatches } : {}),
+      ...(options.batchMeta || {}),
     });
     return localSlots;
   };
 
   const handleGenerateBatch = async () => {
+    if (isLabelyFoodDbBatchMode) {
+      const plans = labelyFoodDbBatches
+        .map((b, idx) => ({
+          batchNumber: idx + 1,
+          batchName: String(b.name || "").trim(),
+          items: String(b.itemsRaw || "").split("\n").map((x) => x.trim()).filter(Boolean),
+          slideshowCount: Math.max(0, Math.min(200, Number(b.slideshowCount) || 0)),
+        }))
+        .filter((b) => b.slideshowCount > 0);
+      const totalShows = plans.reduce((sum, p) => sum + p.slideshowCount, 0);
+      if (totalShows <= 0) {
+        alert("Set at least one batch slideshow count above 0.");
+        return;
+      }
+      if (plans.some((p) => p.items.length === 0)) {
+        alert("Each batch with a non-zero slideshow count needs at least one food item.");
+        return;
+      }
+      setGeneratingSlot("all");
+      setAiErrors({});
+      batchCaptionsRef.current = [];
+      cancelGenRef.current = false;
+      abortRef.current?.abort();
+      abortRef.current = new AbortController();
+      try {
+        let globalShowIdx = 0;
+        for (const plan of plans) {
+          for (let i = 0; i < plan.slideshowCount; i++) {
+            if (cancelGenRef.current) break;
+            await generateOneSlideshow(globalShowIdx, totalShows, {
+              brandItemsOverride: plan.items,
+              batchMeta: {
+                batchNumber: plan.batchNumber,
+                batchSlideshowIndex: i + 1,
+                batchFoodName: plan.batchName || plan.items[0] || "food",
+              },
+            });
+            globalShowIdx++;
+          }
+          if (cancelGenRef.current) break;
+        }
+        setGenAllProgress((p) => p
+          ? { ...p, phase: `✓ ${totalShows} slideshow${totalShows > 1 ? "s" : ""} saved to gallery!`, done: 6 }
+          : null
+        );
+        setTimeout(() => setGenAllProgress(null), 4000);
+      } catch (err) {
+        console.error("Generate batch failed:", err);
+        setGenAllProgress((p) => p ? { ...p, phase: "Batch failed — check console for details." } : null);
+        setTimeout(() => setGenAllProgress(null), 5000);
+      } finally {
+        setGeneratingSlot(null);
+        abortRef.current = null;
+      }
+      return;
+    }
+
     if (isLabely) {
       if (!config.labelyAiProducts && !batchImageDataUrls.some(Boolean)) {
         alert("Add at least one photo in the image rows above (or use multi-select). Order is slideshow #1 first, then #2, etc.");
@@ -2385,7 +2500,7 @@ ${SHARED_RULES_OUTRO}`;
         await waitForPreviewPaint();
         const blob = await encodeWorkspaceVideoToBlob(exportCfg);
         if (blob) {
-          triggerMp4Download(blob, sequentialRandomMp4Name(i));
+          triggerMp4Download(blob, sequentialRandomMp4Name(i, show));
           await new Promise((r) => setTimeout(r, 400));
         }
       }
@@ -2953,9 +3068,11 @@ ${SHARED_RULES_OUTRO}`;
           <div className="mt-3 bg-white/4 border border-white/10 rounded-xl p-3">
             <div className="flex items-center justify-between mb-1">
               <Label>Food &amp; drink list</Label>
-              {mounted && brandItems.length > 0 && (
+              {mounted && (isLabelyFoodDbBatchMode ? totalBatchSlideshows > 0 : brandItems.length > 0) && (
                 <span className="text-violet-300 text-[10px] font-medium">
-                  {brandItems.length} item{brandItems.length > 1 ? "s" : ""}
+                  {isLabelyFoodDbBatchMode
+                    ? `${totalBatchSlideshows} slideshow${totalBatchSlideshows > 1 ? "s" : ""}`
+                    : `${brandItems.length} item${brandItems.length > 1 ? "s" : ""}`}
                 </span>
               )}
             </div>
@@ -2964,7 +3081,44 @@ ${SHARED_RULES_OUTRO}`;
                 ? "Search Open Food Facts, choose the exact package match, then it is added to this list."
                 : "One real packaged product per line — same idea as Thrifty's brand list. Generate picks from this list (shuffled); GPT uses that real SKU for name/brand/pack image while analysis still uses fictional scanner compound names."}
             </p>
-            {config.labelyUseFoodDatabasePhotos ? (
+            {isLabelyFoodDbBatchMode ? (
+              <div className="space-y-2">
+                {labelyFoodDbBatches.map((batch, idx) => (
+                  <div key={batch.id} className="rounded-lg border border-emerald-500/20 bg-emerald-500/8 p-2">
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <input
+                        type="text"
+                        value={batch.name}
+                        onChange={(e) => updateLabelyFoodDbBatch(idx, { name: e.target.value.slice(0, 42) })}
+                        placeholder={`Food database batch ${idx + 1}`}
+                        className="min-w-0 flex-1 rounded-md border border-white/10 bg-black/25 px-2 py-1 text-[11px] font-semibold text-emerald-100 outline-none placeholder-emerald-200/35 focus:border-emerald-400/60"
+                      />
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-white/35">slideshows</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={200}
+                          value={batch.slideshowCount}
+                          onChange={(e) => updateLabelyFoodDbBatch(idx, { slideshowCount: Math.max(0, Math.min(200, Number(e.target.value) || 0)) })}
+                          className="w-16 rounded-md border border-white/15 bg-black/30 px-2 py-1 text-center text-[11px] text-white outline-none focus:border-emerald-400/60"
+                        />
+                      </div>
+                    </div>
+                    <textarea
+                      value={batch.itemsRaw}
+                      onChange={(e) => updateLabelyFoodDbBatch(idx, { itemsRaw: e.target.value })}
+                      placeholder="One product per line (e.g. OREO Original)"
+                      rows={3}
+                      className="w-full resize-none rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 text-[11px] text-white outline-none placeholder-white/20 focus:border-emerald-400/60"
+                    />
+                    <p className="mt-1 text-[10px] text-white/30">
+                      Items in this batch generate only this batch&apos;s slideshows.
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : config.labelyUseFoodDatabasePhotos ? (
               <div className="space-y-2">
                 <div className="relative">
                   <input
@@ -3040,7 +3194,7 @@ ${SHARED_RULES_OUTRO}`;
             </p>
               </>
             )}
-            {config.labelyUseFoodDatabasePhotos ? (
+            {config.labelyUseFoodDatabasePhotos && !isLabelyFoodDbBatchMode ? (
               <div className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-500/8 p-2">
                 <div className="mb-1 flex items-center justify-between gap-2">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-200/80">
@@ -3113,8 +3267,8 @@ ${SHARED_RULES_OUTRO}`;
             <Label>Image slots</Label>
           )}
           <p className="text-white/35 text-[10px] mb-2 leading-relaxed">
-            <span className="text-white/50">{batchImagesNeeded}</span> rows = <span className="text-white/50">{numSlideshows}</span> slideshow
-            {numSlideshows !== 1 ? "s" : ""} × {batchSlotCount} photo{batchSlotCount !== 1 ? "s" : ""} each. Drag{" "}
+            <span className="text-white/50">{batchImagesNeeded}</span> rows = <span className="text-white/50">{effectiveNumSlideshows}</span> slideshow
+            {effectiveNumSlideshows !== 1 ? "s" : ""} × {batchSlotCount} photo{batchSlotCount !== 1 ? "s" : ""} each. Drag{" "}
             <span className="text-white/50">⋮⋮</span> to reorder. Drop a photo or pick a file per row.
             {labelyUploadsLocked
               ? " AI mode is on — uploads are disabled; run Generate to fill slots."
@@ -3323,15 +3477,19 @@ ${SHARED_RULES_OUTRO}`;
         <div className="mt-3 pt-3 border-t border-white/8">
           <div className="flex items-center gap-2 mb-2">
             <span className="text-white/45 text-xs flex-1">Generate multiple slideshows</span>
-            <div className="flex items-center gap-1.5">
-              <span className="text-white/30 text-[11px]">qty</span>
-              <input
-                type="number" min={1} max={50}
-                value={numSlideshows}
-                onChange={(e) => setNumSlideshows(Math.max(1, Math.min(50, Number(e.target.value))))}
-                className="w-14 bg-white/8 border border-white/15 rounded-lg px-2 py-1 text-white text-sm text-center focus:outline-none focus:border-violet-500/60"
-              />
-            </div>
+            {!isLabelyFoodDbBatchMode ? (
+              <div className="flex items-center gap-1.5">
+                <span className="text-white/30 text-[11px]">qty</span>
+                <input
+                  type="number" min={1} max={50}
+                  value={numSlideshows}
+                  onChange={(e) => setNumSlideshows(Math.max(1, Math.min(50, Number(e.target.value))))}
+                  className="w-14 bg-white/8 border border-white/15 rounded-lg px-2 py-1 text-white text-sm text-center focus:outline-none focus:border-violet-500/60"
+                />
+              </div>
+            ) : (
+              <span className="text-emerald-200/80 text-[11px] font-semibold">{effectiveNumSlideshows} total</span>
+            )}
           </div>
           <div className="mb-2 rounded-lg border border-white/10 bg-black/25 px-2.5 py-2">
             <div className="text-white/45 text-[10px] font-semibold mb-1">Bulk fill rows (optional)</div>
@@ -3374,12 +3532,13 @@ ${SHARED_RULES_OUTRO}`;
             onClick={handleGenerateBatch}
             disabled={
               generatingSlot !== null
+              || (isLabelyFoodDbBatchMode && effectiveNumSlideshows <= 0)
               || (isLabely && !config.labelyAiProducts && !batchImageDataUrls.some(Boolean))
               || (!isLabely && brandItems.length === 0 && !batchImageDataUrls.some(Boolean))
             }
             className="w-full py-2.5 rounded-xl bg-fuchsia-700 hover:bg-fuchsia-600 disabled:opacity-40 text-white text-sm font-bold transition-colors"
           >
-            {generatingSlot === "all" ? "Generating…" : `🎬 Generate ${numSlideshows} Slideshow${numSlideshows > 1 ? "s" : ""}`}
+            {generatingSlot === "all" ? "Generating…" : `🎬 Generate ${effectiveNumSlideshows} Slideshow${effectiveNumSlideshows > 1 ? "s" : ""}`}
           </button>
           {!isLabely && (
           <p className="text-white/25 text-[10px] mt-1.5 text-center">

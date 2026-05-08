@@ -81,6 +81,13 @@ export const defaultConfig = {
   labelyAiProducts: false,
   /** Labely AI-products only: use Open Food Facts package photos before falling back to generated images. */
   labelyUseFoodDatabasePhotos: false,
+  /** Labely DB photo mode: six isolated generation batches. */
+  labelyFoodDbBatches: Array.from({ length: 6 }, (_, i) => ({
+    id: `batch-${i + 1}`,
+    name: `Food database batch ${i + 1}`,
+    itemsRaw: "",
+    slideshowCount: 1,
+  })),
   /** Labely scan outro slide text (black screen TikTok style). */
   labelyOutroText: "Just found 2 cancerous foods in my cabinet. I had no idea was probably shortening my lifespan since it was a tier 1 carcinogen. The app i use is called labely.",
 };
@@ -162,6 +169,7 @@ export default function Home() {
       ...(showData.appId != null ? { appId: showData.appId } : {}),
       ...(showData.jitterSeed != null ? { jitterSeed: showData.jitterSeed } : {}),
       ...(showData.labelyOutroText != null ? { labelyOutroText: showData.labelyOutroText } : {}),
+      ...(showData.labelyFoodDbBatches != null ? { labelyFoodDbBatches: showData.labelyFoodDbBatches } : {}),
     }));
     setActiveShowIdx(idx);
     setCurrentSlide(0);
