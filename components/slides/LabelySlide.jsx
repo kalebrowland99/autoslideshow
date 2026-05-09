@@ -167,6 +167,100 @@ function labelySlideRandomDisplayCounts(slot, config, itemIndex = 0) {
   };
 }
 
+function collectBoldRuns(text) {
+  const runs = [];
+  const re = /\*\*([^*]+)\*\*/g;
+  let m;
+  while ((m = re.exec(text || "")) !== null) {
+    runs.push(m[1].trim());
+  }
+  return runs;
+}
+
+/** Prefer ingredient-style bold phrases; fall back to any bold segment. */
+function isLikelyChemicalName(s) {
+  const t = (s || "").trim();
+  if (t.length < 3) return false;
+  if (/^[A-Z][A-Z0-9\-]{1,14}$/.test(t)) return true;
+  if (/\d/.test(t)) return true;
+  if (/ate|ide|ine|ol\b|ane|ene|yl\b|acid|amine|phen|propylene|sodium|calcium|citrate|benzo|paraben|sulfate|phosphate/i.test(t))
+    return true;
+  if (/^[a-z]{4,}(?:\s[a-z]{3,}){0,4}$/i.test(t)) return true;
+  return false;
+}
+
+function pickCircledBoldRunIndex(analysisRaw, seedStr) {
+  const runs = collectBoldRuns(analysisRaw);
+  if (runs.length === 0) return null;
+  const chemicalIdx = runs.map((r, i) => (isLikelyChemicalName(r) ? i : -1)).filter((i) => i >= 0);
+  const pool = chemicalIdx.length > 0 ? chemicalIdx : runs.map((_, i) => i);
+  const rng = mulberry32(fnv1a32(seedStr + "|circlePick") || 1);
+  return pool[Math.floor(rng() * pool.length)];
+}
+
+/** Imperfect closed loop — reads like marker / highlighter oval (export-safe SVG path). */
+function roughRedOvalPath(seedStr) {
+  const seed = fnv1a32(String(seedStr)) || 1;
+  const cx = 50;
+  const cy = 50;
+  const rx = 37;
+  const ry = 33;
+  const n = 20;
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const t = (i / n) * Math.PI * 2 - Math.PI / 2;
+    const wobbleR = 1 + (hashUnit(seed, i + 1) - 0.5) * 0.12;
+    const wobbleT = (hashUnit(seed, i + 300) - 0.5) * 0.1;
+    const tt = t + wobbleT;
+    pts.push([cx + Math.cos(tt) * rx * wobbleR, cy + Math.sin(tt) * ry * wobbleR]);
+  }
+  let d = `M ${pts[0][0].toFixed(2)} ${pts[0][1].toFixed(2)}`;
+  for (let j = 1; j < n; j++) {
+    d += ` L ${pts[j][0].toFixed(2)} ${pts[j][1].toFixed(2)}`;
+  }
+  d += " Z";
+  return d;
+}
+
+function CircledAnalysisTerm({ children, px, pathSeed }) {
+  const rot = (hashUnit(fnv1a32(`${pathSeed}|tilt`), 2) - 0.5) * 11;
+  const d = roughRedOvalPath(`${pathSeed}|oval`);
+  return (
+    <span style={{ position: "relative", display: "inline-block", verticalAlign: "baseline" }}>
+      <svg
+        aria-hidden
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        style={{
+          position: "absolute",
+          left: px(-6),
+          top: px(-5),
+          width: `calc(100% + ${px(12)}px)`,
+          height: `calc(100% + ${px(10)}px)`,
+          overflow: "visible",
+          pointerEvents: "none",
+          zIndex: 0,
+          transform: `rotate(${rot.toFixed(2)}deg)`,
+          transformOrigin: "50% 50%",
+        }}
+      >
+        <path
+          d={d}
+          fill="none"
+          stroke="#D32F2F"
+          strokeWidth={2.75}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          opacity={0.92}
+        />
+      </svg>
+      <strong style={{ position: "relative", zIndex: 1, color: C.title, fontWeight: 700, lineHeight: 1.15 }}>
+        {children}
+      </strong>
+    </span>
+  );
+}
+
 function LawsuitBubbleInner({ count, px }) {
   const k = Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0;
   const noun = k === 1 ? "lawsuit" : "lawsuits";
@@ -182,8 +276,8 @@ function LawsuitBubbleInner({ count, px }) {
   );
 }
 
-/** Renders **bold** in analysis as strong (plain text otherwise). */
-function AnalysisBody({ text, px }) {
+/** Renders **bold** in analysis as strong (plain text otherwise). Optionally circles one bold run (summary highlight). */
+function AnalysisBody({ text, px, circleBoldRunIndex = null, ovalPathSeed = "" }) {
   const parts = useMemo(() => {
     const t = text || "";
     const out = [];
@@ -199,6 +293,7 @@ function AnalysisBody({ text, px }) {
     return out.length ? out : [{ bold: false, s: t }];
   }, [text]);
 
+  let boldRunIdx = 0;
   return (
     <span
       style={{
@@ -208,13 +303,26 @@ function AnalysisBody({ text, px }) {
         whiteSpace: "pre-line",
       }}
     >
-      {parts.map((p, i) =>
-        p.bold ? (
-          <strong key={i} style={{ color: C.title, fontWeight: 700, lineHeight: 1.15 }}>{p.s}</strong>
-        ) : (
-          <span key={i}>{p.s}</span>
-        )
-      )}
+      {parts.map((p, i) => {
+        if (!p.bold) {
+          return <span key={i}>{p.s}</span>;
+        }
+        const idx = boldRunIdx++;
+        const circled =
+          circleBoldRunIndex != null && idx === circleBoldRunIndex && String(p.s || "").trim().length >= 2;
+        if (circled) {
+          return (
+            <CircledAnalysisTerm key={i} px={px} pathSeed={`${ovalPathSeed}|run${idx}`}>
+              {p.s}
+            </CircledAnalysisTerm>
+          );
+        }
+        return (
+          <strong key={i} style={{ color: C.title, fontWeight: 700, lineHeight: 1.15 }}>
+            {p.s}
+          </strong>
+        );
+      })}
     </span>
   );
 }
@@ -294,12 +402,21 @@ function productImageStyle(config, itemIndex) {
 }
 
 /** Keyed by `analysisRaw` so truncation state resets per slide; inline bold Read more on line 3 when clipped. */
-function LabelyAnalysisBlurb({ analysisRaw, px, S }) {
+function LabelyAnalysisBlurb({ analysisRaw, px, S, itemIndex = 0, jitterSeed = 0 }) {
   const summaryLineHeightPx = Math.round(px(13) * 1.15);
   const summaryBodyMaxHeight = summaryLineHeightPx * LABELY_SUMMARY_VISIBLE_LINES;
   const analysisWidthRef = useRef(null);
   const [displayAnalysis, setDisplayAnalysis] = useState(analysisRaw);
   const [readMore, setReadMore] = useState(false);
+
+  const ovalSeed = useMemo(
+    () => `${itemIndex}|${Number(jitterSeed) || 0}|${displayAnalysis.slice(0, 180)}`,
+    [itemIndex, jitterSeed, displayAnalysis],
+  );
+  const circleBoldRunIndex = useMemo(
+    () => pickCircledBoldRunIndex(displayAnalysis, ovalSeed),
+    [displayAnalysis, ovalSeed],
+  );
 
   useLayoutEffect(() => {
     const wrap = analysisWidthRef.current;
@@ -399,7 +516,12 @@ function LabelyAnalysisBlurb({ analysisRaw, px, S }) {
         wordBreak: "break-word",
       }}
     >
-      <AnalysisBody text={displayAnalysis} px={px} />
+      <AnalysisBody
+        text={displayAnalysis}
+        px={px}
+        circleBoldRunIndex={circleBoldRunIndex}
+        ovalPathSeed={ovalSeed}
+      />
       {readMore ? (
         <strong style={{ fontWeight: 700, color: C.textBody, fontSize: px(13), lineHeight: 1.15 }}>
           {READ_MORE_SUFFIX}
@@ -590,7 +712,14 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
                 }}
               />
             </div>
-            <LabelyAnalysisBlurb key={analysisRaw} analysisRaw={analysisRaw} px={px} S={S} />
+            <LabelyAnalysisBlurb
+              key={analysisRaw}
+              analysisRaw={analysisRaw}
+              px={px}
+              S={S}
+              itemIndex={itemIndex}
+              jitterSeed={config?.jitterSeed ?? 0}
+            />
           </div>
         </div>
 
