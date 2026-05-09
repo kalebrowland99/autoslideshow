@@ -81,32 +81,45 @@ const LABELY_SUMMARY_VISIBLE_LINES = 3;
 
 const READ_MORE_SUFFIX = " Read more..";
 
-/**
- * Lawsuit count shown in bubble: changes whenever `jitterSeed` / item / copy changes (stable per frame).
- * Range 3–99 (same span as `/api/labely` random lawsuit note). Not parsed from analysis text so batch exports vary.
- */
-function lawsuitDisplayCountForSlide(slot, config, itemIndex = 0) {
-  const jitter = Number(config?.jitterSeed) || 0;
-  let h = Math.imul(jitter ^ 0x9e3779b9, 2654435761) ^ Math.imul((itemIndex + 1) * 73856093, 2246822519);
-  const str = `${slot?.itemName ?? ""}|${slot?.labelyBrand ?? ""}|${String(slot?.labelyAnalysis ?? "").slice(0, 120)}|${String(slot?.labelyLegalNote ?? "").slice(0, 80)}`;
+function fnv1a32(str) {
+  let h = 2166136261;
   for (let i = 0; i < str.length; i++) {
-    h = Math.imul(h ^ str.charCodeAt(i), 16777619);
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
   }
-  return (Math.abs(h >>> 0) % 97) + 3;
+  return h >>> 0;
 }
 
-/** Small integer shown after “Seed Oils” / “Additives” — stable per slide, varies with jitterSeed + slot + row kind. */
-function labelyIngredientParenCount(slot, config, itemIndex, salt) {
-  const jitter = Number(config?.jitterSeed) || 0;
-  let h =
-    Math.imul(jitter ^ salt, 2654435761) ^
-    Math.imul((itemIndex + 1) * 73856093, 2246822519) ^
-    Math.imul(salt, 0x85ebca6b);
-  const str = `${slot?.itemName ?? ""}|${slot?.labelyBrand ?? ""}|paren-${salt}|${itemIndex}`;
-  for (let i = 0; i < str.length; i++) {
-    h = Math.imul(h ^ str.charCodeAt(i), 16777619);
-  }
-  return (Math.abs(h >>> 0) % 12) + 1;
+/** Uniform-ish floats in [0, 1). */
+function mulberry32(seed) {
+  return function next() {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Lawsuit + “Seed Oils (n)” / “Additives (n)” counts: pseudorandom per slide, stable for the same slot export.
+ * Lawsuits 3–99; parens 1–15 (uniform draws from a keyed PRNG).
+ */
+function labelySlideRandomDisplayCounts(slot, config, itemIndex = 0) {
+  const key = [
+    itemIndex,
+    Number(config?.jitterSeed) || 0,
+    slot?.itemName ?? "",
+    slot?.labelyBrand ?? "",
+    String(slot?.imageUrl ?? "").slice(0, 200),
+    String(slot?.labelyLegalNote ?? "").slice(0, 160),
+    String(slot?.labelyAnalysis ?? "").slice(0, 100),
+  ].join("\x1e");
+  const rng = mulberry32(fnv1a32(key) || 1);
+  return {
+    lawsuitCount: 3 + Math.floor(rng() * 97),
+    seedOilsParenCount: 1 + Math.floor(rng() * 15),
+    additivesParenCount: 1 + Math.floor(rng() * 15),
+  };
 }
 
 function LawsuitBubbleInner({ count, px }) {
@@ -371,9 +384,18 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
   const processingProfile = "Dangerous";
   const productThumb = px(88);
   const productStyle = productImageStyle(config, itemIndex);
-  const lawsuitCount = lawsuitDisplayCountForSlide(slot, config, itemIndex);
-  const seedOilsParenCount = labelyIngredientParenCount(slot, config, itemIndex, 0x5eed0141);
-  const additivesParenCount = labelyIngredientParenCount(slot, config, itemIndex, 0xadd17421);
+  const { lawsuitCount, seedOilsParenCount, additivesParenCount } = useMemo(
+    () => labelySlideRandomDisplayCounts(slot, config, itemIndex),
+    [
+      itemIndex,
+      config?.jitterSeed,
+      slot?.itemName,
+      slot?.labelyBrand,
+      slot?.imageUrl,
+      slot?.labelyLegalNote,
+      slot?.labelyAnalysis,
+    ],
+  );
   const lawsuitBubbleStyle = {
     alignSelf: "center",
     display: "block",
