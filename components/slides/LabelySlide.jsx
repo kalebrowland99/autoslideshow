@@ -43,8 +43,6 @@ const C = {
 const LABELY_PAGE_BG_URL = "/labely/bg.png";
 const LABELY_ICON_SEED_OILS = "/labely/seedoils.png";
 const LABELY_ICON_ADDITIVES = "/labely/additives.png";
-const LABELY_ICON_PROCESSING = "/labely/processing.png";
-
 function LabelyRowLeadingIcon({ src, size }) {
   return (
     <img
@@ -611,7 +609,21 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
           {/* Processing profile */}
           <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
-              <LabelyRowLeadingIcon src={LABELY_ICON_PROCESSING} size={px(36)} />
+              <span
+                style={{
+                  flexShrink: 0,
+                  width: px(36),
+                  height: px(36),
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: px(30),
+                  lineHeight: 1,
+                }}
+                aria-hidden
+              >
+                🖋️
+              </span>
               <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>Processing Profile</div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
