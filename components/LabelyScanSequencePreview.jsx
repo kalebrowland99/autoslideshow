@@ -167,7 +167,7 @@ export default function LabelyScanSequencePreview({ config, currentSlide, setCur
         disabled={!canPreview || loading || open}
         title={
           canPreview
-            ? "Play scan → slide-up → confetti (matches downloaded Labely scan export)"
+            ? "Play scan → slide-up → hold (matches downloaded Labely scan export)"
             : "Switch to Labely + grocery scan format with at least 2 slides"
         }
         className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-white/10 hover:bg-white/18 disabled:opacity-35 disabled:cursor-not-allowed border border-white/15 text-white transition-colors"
@@ -190,7 +190,7 @@ export default function LabelyScanSequencePreview({ config, currentSlide, setCur
           <div className="relative flex flex-col items-center gap-3 max-w-[min(96vw,520px)]">
             <div className="flex items-center justify-between gap-3 w-full text-white/80 text-xs">
               <span className="font-semibold uppercase tracking-wider text-white/50">
-                Scan → slide-up → confetti
+                Scan → slide-up → hold
               </span>
               <button
                 type="button"
@@ -215,7 +215,7 @@ export default function LabelyScanSequencePreview({ config, currentSlide, setCur
               ) : null}
             </div>
             <p className="text-white/35 text-[10px] text-center leading-relaxed max-w-sm">
-              Same sequence as video export — confetti uses canvas-confetti (center burst, sampled at export fps).
+              Same sequence as video export — static Labely frame for the hold segment.
             </p>
           </div>
         </div>

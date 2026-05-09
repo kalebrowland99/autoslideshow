@@ -12,7 +12,6 @@
     "@ffmpeg/ffmpeg": "^0.12.6",
     "@ffmpeg/util": "^0.12.1",
     "@fontsource/tiktok-sans": "^5.2.4",
-    "canvas-confetti": "^1.9.4",
     "fflate": "^0.8.2",
     "heic-convert": "^2.1.0",
     "heic2any": "^0.0.4",

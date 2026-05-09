@@ -84,43 +84,6 @@ function LabelyMetricDropdownChevron({ size }) {
   );
 }
 
-function scoreColors(score) {
-  const s = clampLabelyScore(score);
-  if (s <= 20) {
-    return {
-      dot: "#E54D42",
-      scoreColor: C.title,
-      verdictColor: C.textMuted,
-    };
-  }
-  if (s <= 45) {
-    return {
-      dot: "#FF6B35",
-      scoreColor: C.title,
-      verdictColor: C.textMuted,
-    };
-  }
-  if (s <= 60) {
-    return {
-      dot: "#FFB01A",
-      scoreColor: C.title,
-      verdictColor: C.textMuted,
-    };
-  }
-  if (s <= 80) {
-    return {
-      dot: "#9CCC65",
-      scoreColor: C.title,
-      verdictColor: C.textMuted,
-    };
-  }
-  return {
-    dot: "#34C759",
-    scoreColor: C.title,
-    verdictColor: C.textMuted,
-  };
-}
-
 /** Visible summary lines (clip + measure target). */
 const LABELY_SUMMARY_VISIBLE_LINES = 3;
 
@@ -146,7 +109,7 @@ function mulberry32(seed) {
 }
 
 /**
- * Lawsuit + metric parens + healthier-alternatives reveal count — pseudorandom per slide, stable for export.
+ * Lawsuit + metric parens — pseudorandom per slide, stable for export.
  * Lawsuits 3–99; small parens 1–15 (uniform draws from a keyed PRNG).
  */
 function labelySlideRandomDisplayCounts(slot, config, itemIndex = 0) {
@@ -164,102 +127,18 @@ function labelySlideRandomDisplayCounts(slot, config, itemIndex = 0) {
     lawsuitCount: 3 + Math.floor(rng() * 97),
     seedOilsParenCount: 1 + Math.floor(rng() * 15),
     additivesParenCount: 1 + Math.floor(rng() * 15),
-    healthierAlternativesRevealCount: 1 + Math.floor(rng() * 15),
   };
 }
 
-function collectBoldRuns(text) {
-  const runs = [];
-  const re = /\*\*([^*]+)\*\*/g;
-  let m;
-  while ((m = re.exec(text || "")) !== null) {
-    runs.push(m[1].trim());
-  }
-  return runs;
-}
-
-/** Prefer ingredient-style bold phrases; fall back to any bold segment. */
-function isLikelyChemicalName(s) {
-  const t = (s || "").trim();
-  if (t.length < 3) return false;
-  if (/^[A-Z][A-Z0-9\-]{1,14}$/.test(t)) return true;
-  if (/\d/.test(t)) return true;
-  if (/ate|ide|ine|ol\b|ane|ene|yl\b|acid|amine|phen|propylene|sodium|calcium|citrate|benzo|paraben|sulfate|phosphate/i.test(t))
-    return true;
-  if (/^[a-z]{4,}(?:\s[a-z]{3,}){0,4}$/i.test(t)) return true;
-  return false;
-}
-
-function pickCircledBoldRunIndex(analysisRaw, seedStr) {
-  const runs = collectBoldRuns(analysisRaw);
-  if (runs.length === 0) return null;
-  const chemicalIdx = runs.map((r, i) => (isLikelyChemicalName(r) ? i : -1)).filter((i) => i >= 0);
-  const pool = chemicalIdx.length > 0 ? chemicalIdx : runs.map((_, i) => i);
-  const rng = mulberry32(fnv1a32(seedStr + "|circlePick") || 1);
-  return pool[Math.floor(rng() * pool.length)];
-}
-
-/** Imperfect closed loop — reads like marker / highlighter oval (export-safe SVG path). */
-function roughRedOvalPath(seedStr) {
-  const seed = fnv1a32(String(seedStr)) || 1;
-  const cx = 50;
-  const cy = 50;
-  const rx = 37;
-  const ry = 33;
-  const n = 20;
-  const pts = [];
-  for (let i = 0; i < n; i++) {
-    const t = (i / n) * Math.PI * 2 - Math.PI / 2;
-    const wobbleR = 1 + (hashUnit(seed, i + 1) - 0.5) * 0.12;
-    const wobbleT = (hashUnit(seed, i + 300) - 0.5) * 0.1;
-    const tt = t + wobbleT;
-    pts.push([cx + Math.cos(tt) * rx * wobbleR, cy + Math.sin(tt) * ry * wobbleR]);
-  }
-  let d = `M ${pts[0][0].toFixed(2)} ${pts[0][1].toFixed(2)}`;
-  for (let j = 1; j < n; j++) {
-    d += ` L ${pts[j][0].toFixed(2)} ${pts[j][1].toFixed(2)}`;
-  }
-  d += " Z";
-  return d;
-}
-
-function CircledAnalysisTerm({ children, px, pathSeed }) {
-  const rot = (hashUnit(fnv1a32(`${pathSeed}|tilt`), 2) - 0.5) * 11;
-  const d = roughRedOvalPath(`${pathSeed}|oval`);
-  return (
-    <span style={{ position: "relative", display: "inline-block", verticalAlign: "baseline" }}>
-      <svg
-        aria-hidden
-        viewBox="0 0 100 100"
-        preserveAspectRatio="none"
-        style={{
-          position: "absolute",
-          left: px(-6),
-          top: px(-5),
-          width: `calc(100% + ${px(12)}px)`,
-          height: `calc(100% + ${px(10)}px)`,
-          overflow: "visible",
-          pointerEvents: "none",
-          zIndex: 0,
-          transform: `rotate(${rot.toFixed(2)}deg)`,
-          transformOrigin: "50% 50%",
-        }}
-      >
-        <path
-          d={d}
-          fill="none"
-          stroke="#D32F2F"
-          strokeWidth={2.75}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          opacity={0.92}
-        />
-      </svg>
-      <strong style={{ position: "relative", zIndex: 1, color: C.title, fontWeight: 700, lineHeight: 1.15 }}>
-        {children}
-      </strong>
-    </span>
-  );
+/** From slot data (optional explicit count); otherwise score + analysis depth — updates when analysis/score changes. */
+function healthierAlternativesRevealCountFromSlot(slot) {
+  const explicit = Number(slot?.labelyHealthierAlternativesCount);
+  if (Number.isFinite(explicit) && explicit >= 1) return Math.min(99, Math.floor(explicit));
+  const score = clampLabelyScore(slot.labelyScore);
+  const analysis = String(slot?.labelyAnalysis ?? "").trim();
+  const wc = analysis ? analysis.split(/\s+/).filter(Boolean).length : 0;
+  const n = Math.round(6 + (100 - score) * 0.14 + wc / 35);
+  return Math.min(28, Math.max(3, n));
 }
 
 function LawsuitBubbleInner({ count, px }) {
@@ -277,8 +156,8 @@ function LawsuitBubbleInner({ count, px }) {
   );
 }
 
-/** Renders **bold** in analysis as strong (plain text otherwise). Optionally circles one bold run (summary highlight). */
-function AnalysisBody({ text, px, circleBoldRunIndex = null, ovalPathSeed = "" }) {
+/** Renders **bold** in analysis as strong (plain text otherwise). */
+function AnalysisBody({ text, px }) {
   const parts = useMemo(() => {
     const t = text || "";
     const out = [];
@@ -294,7 +173,6 @@ function AnalysisBody({ text, px, circleBoldRunIndex = null, ovalPathSeed = "" }
     return out.length ? out : [{ bold: false, s: t }];
   }, [text]);
 
-  let boldRunIdx = 0;
   return (
     <span
       style={{
@@ -307,16 +185,6 @@ function AnalysisBody({ text, px, circleBoldRunIndex = null, ovalPathSeed = "" }
       {parts.map((p, i) => {
         if (!p.bold) {
           return <span key={i}>{p.s}</span>;
-        }
-        const idx = boldRunIdx++;
-        const circled =
-          circleBoldRunIndex != null && idx === circleBoldRunIndex && String(p.s || "").trim().length >= 2;
-        if (circled) {
-          return (
-            <CircledAnalysisTerm key={i} px={px} pathSeed={`${ovalPathSeed}|run${idx}`}>
-              {p.s}
-            </CircledAnalysisTerm>
-          );
         }
         return (
           <strong key={i} style={{ color: C.title, fontWeight: 700, lineHeight: 1.15 }}>
@@ -403,21 +271,12 @@ function productImageStyle(config, itemIndex) {
 }
 
 /** Keyed by `analysisRaw` so truncation state resets per slide; inline bold Read more on line 3 when clipped. */
-function LabelyAnalysisBlurb({ analysisRaw, px, S, itemIndex = 0, jitterSeed = 0 }) {
+function LabelyAnalysisBlurb({ analysisRaw, px, S }) {
   const summaryLineHeightPx = Math.round(px(13) * 1.15);
   const summaryBodyMaxHeight = summaryLineHeightPx * LABELY_SUMMARY_VISIBLE_LINES;
   const analysisWidthRef = useRef(null);
   const [displayAnalysis, setDisplayAnalysis] = useState(analysisRaw);
   const [readMore, setReadMore] = useState(false);
-
-  const ovalSeed = useMemo(
-    () => `${itemIndex}|${Number(jitterSeed) || 0}|${displayAnalysis.slice(0, 180)}`,
-    [itemIndex, jitterSeed, displayAnalysis],
-  );
-  const circleBoldRunIndex = useMemo(
-    () => pickCircledBoldRunIndex(displayAnalysis, ovalSeed),
-    [displayAnalysis, ovalSeed],
-  );
 
   useLayoutEffect(() => {
     const wrap = analysisWidthRef.current;
@@ -517,12 +376,7 @@ function LabelyAnalysisBlurb({ analysisRaw, px, S, itemIndex = 0, jitterSeed = 0
         wordBreak: "break-word",
       }}
     >
-      <AnalysisBody
-        text={displayAnalysis}
-        px={px}
-        circleBoldRunIndex={circleBoldRunIndex}
-        ovalPathSeed={ovalSeed}
-      />
+      <AnalysisBody text={displayAnalysis} px={px} />
       {readMore ? (
         <strong style={{ fontWeight: 700, color: C.textBody, fontSize: px(13), lineHeight: 1.15 }}>
           {READ_MORE_SUFFIX}
@@ -546,12 +400,11 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
   const analysisRaw =
     (slot.labelyAnalysis || "").trim()
     || "Generate this slide from the sidebar to add a clean-ingredient analysis.";
-  const colors = scoreColors(score);
   const seedOils = "Dangerous";
   const additives = "Cancerous";
   const productThumb = px(100);
   const productStyle = productImageStyle(config, itemIndex);
-  const { lawsuitCount, seedOilsParenCount, additivesParenCount, healthierAlternativesRevealCount } = useMemo(
+  const { lawsuitCount, seedOilsParenCount, additivesParenCount } = useMemo(
     () => labelySlideRandomDisplayCounts(slot, config, itemIndex),
     [
       itemIndex,
@@ -562,6 +415,10 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
       slot?.labelyLegalNote,
       slot?.labelyAnalysis,
     ],
+  );
+  const healthierAlternativesRevealCount = useMemo(
+    () => healthierAlternativesRevealCountFromSlot(slot),
+    [slot?.labelyHealthierAlternativesCount, slot?.labelyScore, slot?.labelyAnalysis],
   );
   const lawsuitBubbleStyle = {
     alignSelf: "center",
@@ -650,7 +507,6 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
                 <div style={{ fontSize: px(14), color: "#2F5A41", fontWeight: 600 }}>
                   {verdict === "Great" ? "Excellent" : verdict}
                 </div>
-                <span style={{ width: px(10), height: px(10), borderRadius: "50%", background: colors.dot, display: "inline-block", flexShrink: 0 }} />
               </div>
             </div>
           </div>
@@ -712,14 +568,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
                 }}
               />
             </div>
-            <LabelyAnalysisBlurb
-              key={analysisRaw}
-              analysisRaw={analysisRaw}
-              px={px}
-              S={S}
-              itemIndex={itemIndex}
-              jitterSeed={config?.jitterSeed ?? 0}
-            />
+            <LabelyAnalysisBlurb key={analysisRaw} analysisRaw={analysisRaw} px={px} S={S} />
           </div>
         </div>
 
