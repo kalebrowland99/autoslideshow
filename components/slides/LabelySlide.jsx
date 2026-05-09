@@ -1,7 +1,6 @@
 "use client";
 
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { BAD_LABELY_SCORE, BAD_LABELY_VERDICT, MAX_BAD_LABELY_SCORE, MIN_BAD_LABELY_SCORE, clampLabelyScore } from "@/lib/labelyRating";
 
@@ -96,12 +95,17 @@ function lawsuitDisplayCountForSlide(slot, config, itemIndex = 0) {
   return (Math.abs(h >>> 0) % 97) + 3;
 }
 
-function LawsuitBubbleInner({ count }) {
+function LawsuitBubbleInner({ count, px }) {
   const k = Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0;
   const noun = k === 1 ? "lawsuit" : "lawsuits";
+  const hereStyle = {
+    textDecoration: "underline",
+    textUnderlineOffset: px(2),
+    textDecorationThickness: Math.max(1, px(1)),
+  };
   return (
     <>
-      {k} {noun} found. Tap here to view full report.
+      ⚠️ {k} {noun} found. Tap <span style={hereStyle}>here</span> to view full report. ⚠️
     </>
   );
 }
@@ -144,10 +148,10 @@ function AnalysisBody({ text, px }) {
 }
 
 /**
- * Measure rendered height of analysis + optional inline suffix (same typography as slide).
+ * Measure rendered height off-screen. Must not use flushSync during React layout — defer read after commit.
  */
 function measureLabelyAnalysisBlockHeight({ markdown, widthPx, pxFn, withReadMore }) {
-  if (typeof document === "undefined") return 0;
+  if (typeof document === "undefined") return Promise.resolve(0);
   const w = Math.max(0, Math.floor(widthPx));
   const host = document.createElement("div");
   host.style.cssText = [
@@ -161,24 +165,40 @@ function measureLabelyAnalysisBlockHeight({ markdown, widthPx, pxFn, withReadMor
   ].join(";");
   document.body.appendChild(host);
   const root = createRoot(host);
-  try {
-    flushSync(() => {
-      root.render(
-        <span style={{ display: "block", wordBreak: "break-word" }}>
-          <AnalysisBody text={markdown} px={pxFn} />
-          {withReadMore ? (
-            <strong style={{ fontWeight: 700, color: C.textBody, fontSize: pxFn(13), lineHeight: 1.15 }}>
-              {READ_MORE_SUFFIX}
-            </strong>
-          ) : null}
-        </span>
-      );
-    });
-    return host.scrollHeight;
-  } finally {
-    root.unmount();
+  root.render(
+    <span style={{ display: "block", wordBreak: "break-word" }}>
+      <AnalysisBody text={markdown} px={pxFn} />
+      {withReadMore ? (
+        <strong style={{ fontWeight: 700, color: C.textBody, fontSize: pxFn(13), lineHeight: 1.15 }}>
+          {READ_MORE_SUFFIX}
+        </strong>
+      ) : null}
+    </span>
+  );
+
+  const cleanupAndResolve = (resolve, heightRead) => {
+    try {
+      root.unmount();
+    } catch {
+      /* ignore */
+    }
     host.remove();
-  }
+    resolve(heightRead);
+  };
+
+  return new Promise((resolve) => {
+    queueMicrotask(() => {
+      let h = host.scrollHeight;
+      if (h > 0) {
+        cleanupAndResolve(resolve, h);
+        return;
+      }
+      requestAnimationFrame(() => {
+        h = host.scrollHeight;
+        cleanupAndResolve(resolve, h);
+      });
+    });
+  });
 }
 
 function hashUnit(seed, id) {
@@ -212,21 +232,27 @@ function LabelyAnalysisBlurb({ analysisRaw, px, S }) {
   useLayoutEffect(() => {
     const wrap = analysisWidthRef.current;
     if (!wrap) return;
+    let cancelled = false;
+    let generation = 0;
 
-    const run = () => {
+    const run = async () => {
+      const g = ++generation;
       const pxFn = (n) => Math.round(n * IPHONE_SCALE * S);
       const lineH = Math.round(pxFn(13) * 1.15);
       const maxH = lineH * LABELY_SUMMARY_VISIBLE_LINES;
       const widthPx = wrap.clientWidth;
       if (widthPx <= 0) return;
 
+      const stale = () => cancelled || g !== generation;
+
       const tol = 2;
-      const hPlain = measureLabelyAnalysisBlockHeight({
+      const hPlain = await measureLabelyAnalysisBlockHeight({
         markdown: analysisRaw,
         widthPx,
         pxFn,
         withReadMore: false,
       });
+      if (stale()) return;
       if (hPlain <= maxH + tol) {
         setDisplayAnalysis(analysisRaw);
         setReadMore(false);
@@ -240,12 +266,13 @@ function LabelyAnalysisBlurb({ analysisRaw, px, S }) {
       while (lo <= hi) {
         const mid = (lo + hi) >> 1;
         const cand = tokens.slice(0, mid).join("").trimEnd();
-        const h = measureLabelyAnalysisBlockHeight({
+        const h = await measureLabelyAnalysisBlockHeight({
           markdown: cand,
           widthPx,
           pxFn,
           withReadMore: true,
         });
+        if (stale()) return;
         if (h <= maxH + tol) {
           best = cand;
           lo = mid + 1;
@@ -258,26 +285,35 @@ function LabelyAnalysisBlurb({ analysisRaw, px, S }) {
         let fallback = analysisRaw.trimEnd();
         while (fallback.length > 1) {
           fallback = fallback.slice(0, Math.max(0, fallback.length - 1)).trimEnd();
-          const h = measureLabelyAnalysisBlockHeight({
+          const h = await measureLabelyAnalysisBlockHeight({
             markdown: fallback,
             widthPx,
             pxFn,
             withReadMore: true,
           });
+          if (stale()) return;
           if (h <= maxH + tol) break;
         }
         best = fallback;
       }
 
+      if (stale()) return;
       setDisplayAnalysis(best.trimEnd() || analysisRaw.slice(0, 24));
       setReadMore(true);
     };
 
-    run();
-    const ro = new ResizeObserver(run);
+    void run();
+    const ro = new ResizeObserver(() => {
+      void run();
+    });
     ro.observe(wrap);
-    document.fonts?.ready?.then(run)?.catch(() => {});
-    return () => ro.disconnect();
+    document.fonts?.ready?.then(() => {
+      void run();
+    })?.catch(() => {});
+    return () => {
+      cancelled = true;
+      ro.disconnect();
+    };
   }, [analysisRaw, S]);
 
   return (
@@ -473,7 +509,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
 
         <div style={{ flexShrink: 0, marginTop: px(18), paddingLeft: px(10), paddingRight: px(10), display: "flex", flexDirection: "column", gap: px(12) }}>
           <span style={lawsuitBubbleStyle}>
-            <LawsuitBubbleInner count={lawsuitCount} />
+            <LawsuitBubbleInner count={lawsuitCount} px={px} />
           </span>
           {/* Seed oils */}
           <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
