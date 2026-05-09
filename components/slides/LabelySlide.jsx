@@ -151,7 +151,7 @@ function LawsuitBubbleInner({ count, px }) {
   };
   return (
     <>
-      ⚠️ {k} {noun} found. Tap <span style={hereStyle}>here</span> to view full report. ⚠️
+      ⚠️ {k} {noun} found. Tap <span style={hereStyle}>here</span> to view full report.
     </>
   );
 }
