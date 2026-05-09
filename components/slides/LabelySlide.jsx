@@ -1,6 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
 import { BAD_LABELY_SCORE, BAD_LABELY_VERDICT, MAX_BAD_LABELY_SCORE, MIN_BAD_LABELY_SCORE, clampLabelyScore } from "@/lib/labelyRating";
 
 const IPHONE_SCALE = 1080 / 390;
@@ -75,6 +77,35 @@ function scoreColors(score) {
   };
 }
 
+/** Visible summary lines (clip + measure target). */
+const LABELY_SUMMARY_VISIBLE_LINES = 3;
+
+const READ_MORE_SUFFIX = " Read more..";
+
+/**
+ * Lawsuit count shown in bubble: changes whenever `jitterSeed` / item / copy changes (stable per frame).
+ * Range 3–99 (same span as `/api/labely` random lawsuit note). Not parsed from analysis text so batch exports vary.
+ */
+function lawsuitDisplayCountForSlide(slot, config, itemIndex = 0) {
+  const jitter = Number(config?.jitterSeed) || 0;
+  let h = Math.imul(jitter ^ 0x9e3779b9, 2654435761) ^ Math.imul((itemIndex + 1) * 73856093, 2246822519);
+  const str = `${slot?.itemName ?? ""}|${slot?.labelyBrand ?? ""}|${String(slot?.labelyAnalysis ?? "").slice(0, 120)}|${String(slot?.labelyLegalNote ?? "").slice(0, 80)}`;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 16777619);
+  }
+  return (Math.abs(h >>> 0) % 97) + 3;
+}
+
+function LawsuitBubbleInner({ count }) {
+  const k = Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0;
+  const noun = k === 1 ? "lawsuit" : "lawsuits";
+  return (
+    <>
+      {k} {noun} found. Tap here to view full report.
+    </>
+  );
+}
+
 /** Renders **bold** in analysis as strong (plain text otherwise). */
 function AnalysisBody({ text, px }) {
   const parts = useMemo(() => {
@@ -112,6 +143,44 @@ function AnalysisBody({ text, px }) {
   );
 }
 
+/**
+ * Measure rendered height of analysis + optional inline suffix (same typography as slide).
+ */
+function measureLabelyAnalysisBlockHeight({ markdown, widthPx, pxFn, withReadMore }) {
+  if (typeof document === "undefined") return 0;
+  const w = Math.max(0, Math.floor(widthPx));
+  const host = document.createElement("div");
+  host.style.cssText = [
+    "position:fixed",
+    "left:-10000px",
+    "top:0",
+    `width:${w}px`,
+    "visibility:hidden",
+    "pointer-events:none",
+    "font-family:Arial, Helvetica, sans-serif",
+  ].join(";");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  try {
+    flushSync(() => {
+      root.render(
+        <span style={{ display: "block", wordBreak: "break-word" }}>
+          <AnalysisBody text={markdown} px={pxFn} />
+          {withReadMore ? (
+            <strong style={{ fontWeight: 700, color: C.textBody, fontSize: pxFn(13), lineHeight: 1.15 }}>
+              {READ_MORE_SUFFIX}
+            </strong>
+          ) : null}
+        </span>
+      );
+    });
+    return host.scrollHeight;
+  } finally {
+    root.unmount();
+    host.remove();
+  }
+}
+
 function hashUnit(seed, id) {
   const h = (Math.imul((seed | 0) ^ 0x9e3779b9, 2654435761) ^ Math.imul((id + 1) * 40503, 2246822519)) >>> 0;
   return h / 0xffffffff;
@@ -132,6 +201,106 @@ function productImageStyle(config, itemIndex) {
   };
 }
 
+/** Keyed by `analysisRaw` so truncation state resets per slide; inline bold Read more on line 3 when clipped. */
+function LabelyAnalysisBlurb({ analysisRaw, px, S }) {
+  const summaryLineHeightPx = Math.round(px(13) * 1.15);
+  const summaryBodyMaxHeight = summaryLineHeightPx * LABELY_SUMMARY_VISIBLE_LINES;
+  const analysisWidthRef = useRef(null);
+  const [displayAnalysis, setDisplayAnalysis] = useState(analysisRaw);
+  const [readMore, setReadMore] = useState(false);
+
+  useLayoutEffect(() => {
+    const wrap = analysisWidthRef.current;
+    if (!wrap) return;
+
+    const run = () => {
+      const pxFn = (n) => Math.round(n * IPHONE_SCALE * S);
+      const lineH = Math.round(pxFn(13) * 1.15);
+      const maxH = lineH * LABELY_SUMMARY_VISIBLE_LINES;
+      const widthPx = wrap.clientWidth;
+      if (widthPx <= 0) return;
+
+      const tol = 2;
+      const hPlain = measureLabelyAnalysisBlockHeight({
+        markdown: analysisRaw,
+        widthPx,
+        pxFn,
+        withReadMore: false,
+      });
+      if (hPlain <= maxH + tol) {
+        setDisplayAnalysis(analysisRaw);
+        setReadMore(false);
+        return;
+      }
+
+      const tokens = analysisRaw.split(/(\s+)/u).filter((x) => x.length > 0);
+      let lo = 1;
+      let hi = tokens.length;
+      let best = "";
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        const cand = tokens.slice(0, mid).join("").trimEnd();
+        const h = measureLabelyAnalysisBlockHeight({
+          markdown: cand,
+          widthPx,
+          pxFn,
+          withReadMore: true,
+        });
+        if (h <= maxH + tol) {
+          best = cand;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+
+      if (!best.trim()) {
+        let fallback = analysisRaw.trimEnd();
+        while (fallback.length > 1) {
+          fallback = fallback.slice(0, Math.max(0, fallback.length - 1)).trimEnd();
+          const h = measureLabelyAnalysisBlockHeight({
+            markdown: fallback,
+            widthPx,
+            pxFn,
+            withReadMore: true,
+          });
+          if (h <= maxH + tol) break;
+        }
+        best = fallback;
+      }
+
+      setDisplayAnalysis(best.trimEnd() || analysisRaw.slice(0, 24));
+      setReadMore(true);
+    };
+
+    run();
+    const ro = new ResizeObserver(run);
+    ro.observe(wrap);
+    document.fonts?.ready?.then(run)?.catch(() => {});
+    return () => ro.disconnect();
+  }, [analysisRaw, S]);
+
+  return (
+    <div
+      ref={analysisWidthRef}
+      style={{
+        flexShrink: 0,
+        marginTop: px(4),
+        maxHeight: summaryBodyMaxHeight,
+        overflow: "hidden",
+        wordBreak: "break-word",
+      }}
+    >
+      <AnalysisBody text={displayAnalysis} px={px} />
+      {readMore ? (
+        <strong style={{ fontWeight: 700, color: C.textBody, fontSize: px(13), lineHeight: 1.15 }}>
+          {READ_MORE_SUFFIX}
+        </strong>
+      ) : null}
+    </div>
+  );
+}
+
 export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
@@ -143,13 +312,34 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
   const storedScore = clampLabelyScore(slot.labelyScore);
   const score = storedScore >= MIN_BAD_LABELY_SCORE && storedScore <= MAX_BAD_LABELY_SCORE ? storedScore : BAD_LABELY_SCORE;
   const verdict = BAD_LABELY_VERDICT;
-  const analysis =
+  const analysisRaw =
     (slot.labelyAnalysis || "").trim()
     || "Generate this slide from the sidebar to add a clean-ingredient analysis.";
   const colors = scoreColors(score);
   const seedOils = "Dangerous";
   const additives = "Cancerous";
+  const processingProfile = "Dangerous";
+  const productThumb = px(88);
   const productStyle = productImageStyle(config, itemIndex);
+  const lawsuitCount = lawsuitDisplayCountForSlide(slot, config, itemIndex);
+  const lawsuitBubbleStyle = {
+    alignSelf: "center",
+    display: "block",
+    width: "fit-content",
+    maxWidth: "100%",
+    textAlign: "center",
+    flexShrink: 0,
+    borderRadius: px(999),
+    padding: `${px(8)}px ${px(16)}px`,
+    background: "#FFF9E6",
+    border: `${Math.max(1, px(1))}px solid #F2D26B`,
+    fontSize: px(11),
+    fontWeight: 700,
+    color: "#5C4A12",
+    lineHeight: 1.25,
+    whiteSpace: "normal",
+    boxShadow: `0 ${px(2)}px ${px(6)}px rgba(0,0,0,0.06)`,
+  };
 
   return (
     <div
@@ -165,17 +355,17 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
         color: C.title,
       }}
     >
-      <div style={{ flexShrink: 0, paddingLeft: gutter, paddingRight: gutter, paddingTop: px(40) }}>
+      <div style={{ flexShrink: 0, paddingLeft: gutter, paddingRight: gutter, paddingTop: px(112) }}>
         <div style={{ paddingLeft: px(10), paddingRight: px(10) }}>
-          <div style={{ display: "flex", alignItems: "center", gap: px(16) }}>
+          <div style={{ display: "flex", alignItems: "center", gap: px(14) }}>
             <div
               style={{
-                width: px(70),
-                height: px(70),
-                borderRadius: px(18),
+                width: productThumb,
+                height: productThumb,
+                borderRadius: px(22),
                 overflow: "hidden",
                 background: "#ffffff",
-                boxShadow: `0 ${px(6)}px ${px(16)}px rgba(0,0,0,0.10)`,
+                boxShadow: `0 ${px(6)}px ${px(18)}px rgba(0,0,0,0.10)`,
                 flexShrink: 0,
               }}
             >
@@ -215,7 +405,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
                 <div style={{ fontSize: px(14), color: "#2F5A41", fontWeight: 600 }}>
                   {verdict === "Great" ? "Excellent" : verdict}
                 </div>
-                <span style={{ width: px(10), height: px(10), borderRadius: "50%", background: colors.dot, display: "inline-block" }} />
+                <span style={{ width: px(10), height: px(10), borderRadius: "50%", background: colors.dot, display: "inline-block", flexShrink: 0 }} />
               </div>
             </div>
           </div>
@@ -233,17 +423,16 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
           paddingBottom: px(28),
         }}
       >
-        <div style={{ flex: 1, minHeight: 0, marginTop: px(16), paddingLeft: px(10), paddingRight: px(10), display: "flex", flexDirection: "column" }}>
+        <div style={{ flexShrink: 0, marginTop: px(16), paddingLeft: px(10), paddingRight: px(10), display: "flex", flexDirection: "column" }}>
           <div
             style={{
-              flex: 1,
-              minHeight: 0,
+              flexShrink: 0,
               background: "#ffffff",
               borderRadius: px(18),
-              paddingTop: px(10),
+              paddingTop: px(8),
               paddingLeft: px(16),
               paddingRight: px(16),
-              paddingBottom: px(12),
+              paddingBottom: px(10),
               boxShadow: "0 8px 22px rgba(0,0,0,0.06)",
               border: "1px solid rgba(0,0,0,0.04)",
               display: "flex",
@@ -251,33 +440,41 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
               overflow: "hidden",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            {/* Logo: explicit px box — avoids flex/inline-img quirks so resize reliably affects exports */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                lineHeight: 0,
+                height: px(56),
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/labely/labely-logo2.png"
                 alt="Labely"
+                draggable={false}
                 style={{
-                  height: px(136),
+                  height: px(56),
                   width: "auto",
+                  maxHeight: px(56),
+                  maxWidth: "92%",
                   display: "block",
+                  flexShrink: 0,
                   objectFit: "contain",
                 }}
               />
             </div>
-            <div
-              style={{
-                flex: 1,
-                minHeight: 0,
-                marginTop: px(6),
-                overflowY: "auto",
-                WebkitOverflowScrolling: "touch",
-              }}
-            >
-              <AnalysisBody text={analysis} px={px} />
-            </div>
+            <LabelyAnalysisBlurb key={analysisRaw} analysisRaw={analysisRaw} px={px} S={S} />
           </div>
         </div>
 
         <div style={{ flexShrink: 0, marginTop: px(18), paddingLeft: px(10), paddingRight: px(10), display: "flex", flexDirection: "column", gap: px(12) }}>
+          <span style={lawsuitBubbleStyle}>
+            <LawsuitBubbleInner count={lawsuitCount} />
+          </span>
           {/* Seed oils */}
           <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
@@ -301,6 +498,20 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
             <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
               <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#FFE9E2", color: "#B23A2D", fontSize: px(12), fontWeight: 700 }}>
                 {additives}
+              </div>
+              <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: "#FF6B35" }} />
+            </div>
+          </div>
+
+          {/* Processing profile */}
+          <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
+              <div style={{ width: px(22), height: px(22), borderRadius: px(10), background: "#EEF4F0", flexShrink: 0 }} />
+              <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>Processing Profile</div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
+              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#FFE9E2", color: "#B23A2D", fontSize: px(12), fontWeight: 700 }}>
+                {processingProfile}
               </div>
               <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: "#FF6B35" }} />
             </div>
