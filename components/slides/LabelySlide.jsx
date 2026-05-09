@@ -95,6 +95,20 @@ function lawsuitDisplayCountForSlide(slot, config, itemIndex = 0) {
   return (Math.abs(h >>> 0) % 97) + 3;
 }
 
+/** Small integer shown after “Seed Oils” / “Additives” — stable per slide, varies with jitterSeed + slot + row kind. */
+function labelyIngredientParenCount(slot, config, itemIndex, salt) {
+  const jitter = Number(config?.jitterSeed) || 0;
+  let h =
+    Math.imul(jitter ^ salt, 2654435761) ^
+    Math.imul((itemIndex + 1) * 73856093, 2246822519) ^
+    Math.imul(salt, 0x85ebca6b);
+  const str = `${slot?.itemName ?? ""}|${slot?.labelyBrand ?? ""}|paren-${salt}|${itemIndex}`;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 16777619);
+  }
+  return (Math.abs(h >>> 0) % 12) + 1;
+}
+
 function LawsuitBubbleInner({ count, px }) {
   const k = Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0;
   const noun = k === 1 ? "lawsuit" : "lawsuits";
@@ -358,6 +372,8 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
   const productThumb = px(88);
   const productStyle = productImageStyle(config, itemIndex);
   const lawsuitCount = lawsuitDisplayCountForSlide(slot, config, itemIndex);
+  const seedOilsParenCount = labelyIngredientParenCount(slot, config, itemIndex, 0x5eed0141);
+  const additivesParenCount = labelyIngredientParenCount(slot, config, itemIndex, 0xadd17421);
   const lawsuitBubbleStyle = {
     alignSelf: "center",
     display: "block",
@@ -515,7 +531,9 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
           <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
               <div style={{ width: px(22), height: px(22), borderRadius: px(10), background: "#EEF4F0", flexShrink: 0 }} />
-              <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>Seed Oils</div>
+              <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>
+                Seed Oils ({seedOilsParenCount})
+              </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
               <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#FFE9E2", color: "#B23A2D", fontSize: px(12), fontWeight: 700 }}>
@@ -529,7 +547,9 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
           <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
               <div style={{ width: px(22), height: px(22), borderRadius: px(10), background: "#EEF4F0", flexShrink: 0 }} />
-              <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>Additives</div>
+              <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>
+                Additives ({additivesParenCount})
+              </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
               <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#FFE9E2", color: "#B23A2D", fontSize: px(12), fontWeight: 700 }}>
