@@ -236,7 +236,6 @@ The shelf/fridge aisle must match the product category: drinks in beverage coole
 `.trim();
 }
 
-const DEFAULT_LABELY_OUTRO_TEXT = "Just found 2 cancerous foods in my cabinet. I had no idea was probably shortening my lifespan since it was a tier 1 carcinogen. The app i use is called labely.";
 const LABELY_DB_BATCH_COUNT = 6;
 const DEFAULT_LABELY_DB_BATCHES = Array.from({ length: LABELY_DB_BATCH_COUNT }, (_, i) => ({
   id: `batch-${i + 1}`,
@@ -244,22 +243,6 @@ const DEFAULT_LABELY_DB_BATCHES = Array.from({ length: LABELY_DB_BATCH_COUNT }, 
   itemsRaw: "",
   slideshowCount: 1,
 }));
-
-async function generateLabelyOutroVariation(baseText) {
-  try {
-    const res = await fetch("/api/generate-text", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "labelyOutroVariation", text: baseText }),
-    });
-    if (!res.ok) return baseText;
-    const data = await res.json();
-    const out = String(data?.text ?? "").trim();
-    return out || baseText;
-  } catch {
-    return baseText;
-  }
-}
 
 /** Unique `.png` basename for ZIP (order inside archive = capture order). */
 function uniqueRandomZipPngName(usedNames) {
@@ -884,7 +867,7 @@ export default function ConfigPanel({
     const bgColor =
       info.type === "collage"
         ? "#111111"
-        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "labelyShelfIntro" || info.type === "labelyOutro"
+        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "labelyShelfIntro"
         ? "#000000"
         : "#ffffff";
 
@@ -1399,10 +1382,7 @@ ${SHARED_RULES_OUTRO}`;
               ...(ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
               ...(shelfIntroUrl ? { labelyShelfImageUrl: shelfIntroUrl } : {}),
             });
-            const variation = isLabelyScanTourFormat(config) && index === 0
-              ? await generateLabelyOutroVariation(config.labelyOutroText || DEFAULT_LABELY_OUTRO_TEXT)
-              : null;
-            setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0, ...(variation ? { labelyOutroText: variation } : {}) }));
+            setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
           } else {
             setAiErrors((p) => ({ ...p, [index]: "AI product generation failed." }));
           }
@@ -1426,10 +1406,7 @@ ${SHARED_RULES_OUTRO}`;
                 labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
                 ...(shelfIntroUrl ? { labelyShelfImageUrl: shelfIntroUrl } : {}),
               });
-              const variation = isLabelyScanTourFormat(config) && index === 0
-                ? await generateLabelyOutroVariation(config.labelyOutroText || DEFAULT_LABELY_OUTRO_TEXT)
-                : null;
-              setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0, ...(variation ? { labelyOutroText: variation } : {}) }));
+              setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
             } else {
               setAiErrors((p) => ({ ...p, [index]: "Could not analyze this photo." }));
             }
@@ -1844,14 +1821,10 @@ ${SHARED_RULES_OUTRO}`;
       }
 
       if (tourAiDeferredWrites.length > 0) {
-        const labelyOutroVariation = isLabelyScanTourFormat(config)
-          ? await generateLabelyOutroVariation(config.labelyOutroText || DEFAULT_LABELY_OUTRO_TEXT)
-          : null;
         flushSync(() => {
           setConfig((prev) => ({
             ...prev,
             jitterSeed: generationJitterSeed,
-            ...(labelyOutroVariation ? { labelyOutroText: labelyOutroVariation } : {}),
             slots: prev.slots.map((slot, idx) => {
               const hit = tourAiDeferredWrites.find((x) => x.i === idx);
               return hit ? { ...slot, ...hit.patch } : slot;
@@ -1859,10 +1832,6 @@ ${SHARED_RULES_OUTRO}`;
           }));
         });
         flushSync(() => setCurrentSlide(0));
-      }
-      if (isLabely && isLabelyScanTourFormat(config) && tourAiDeferredWrites.length === 0 && slotsDone.size > 0) {
-        const labelyOutroVariation = await generateLabelyOutroVariation(config.labelyOutroText || DEFAULT_LABELY_OUTRO_TEXT);
-        setConfig((prev) => ({ ...prev, labelyOutroText: labelyOutroVariation }));
       }
 
       const doneCount = slotsDone.size;
@@ -2127,16 +2096,12 @@ ${SHARED_RULES_OUTRO}`;
       }
       const hasAny = localSlots.some((s) => s.itemName?.trim() || s.imageUrl?.trim());
       if (!hasAny) return null;
-      const labelyOutroVariation = isLabelyScanTourFormat(config)
-        ? await generateLabelyOutroVariation(config.labelyOutroText || DEFAULT_LABELY_OUTRO_TEXT)
-        : null;
       flushSync(() => {
         setConfig((prev) => ({
           ...prev,
           slots: [...localSlots],
           captionText: "",
           jitterSeed: showJitterSeed,
-          ...(labelyOutroVariation ? { labelyOutroText: labelyOutroVariation } : {}),
         }));
       });
       await waitForPreviewPaint();
@@ -2148,7 +2113,7 @@ ${SHARED_RULES_OUTRO}`;
         outputFormat: config.outputFormat,
         appId: config.appId,
         jitterSeed: showJitterSeed,
-        labelyOutroText: labelyOutroVariation || config.labelyOutroText || DEFAULT_LABELY_OUTRO_TEXT,
+        ...(config.labelyOutroText ? { labelyOutroText: config.labelyOutroText } : {}),
         ...(config.labelyFoodDbBatches ? { labelyFoodDbBatches: config.labelyFoodDbBatches } : {}),
         ...(options.batchMeta || {}),
       });
@@ -2349,7 +2314,7 @@ ${SHARED_RULES_OUTRO}`;
       const bg =
         info.type === "collage"
           ? "#111111"
-          : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "labelyShelfIntro" || info.type === "labelyOutro"
+          : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "labelyShelfIntro"
           ? "#000000"
           : "#ffffff";
 
@@ -2784,7 +2749,7 @@ ${SHARED_RULES_OUTRO}`;
       const info = getSlideInfo(config, i);
       const bg =
         info.type === "collage"    ? "#111111"
-        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "labelyShelfIntro" || info.type === "labelyOutro" ? "#000000"
+        : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "labelyShelfIntro" ? "#000000"
         : "#ffffff";
 
       if (info.type === "starterPack") {
@@ -2876,7 +2841,7 @@ ${SHARED_RULES_OUTRO}`;
                   {
                     id: "labelyScan",
                     label: "Labely grocery intro + scan (×3)",
-                    sub: `Opening grocery shelf/fridge scene, then three Labely slides (slots 1–${LABELY_SCAN_TOUR_SLOTS}), then a black outro text slide. Export = shelf intro, scan over each image, Labely slides up, then transitions to the next.`,
+                    sub: `Opening grocery shelf/fridge scene, then three Labely slides (slots 1–${LABELY_SCAN_TOUR_SLOTS}). Export = shelf intro, scan over each image, Labely slides up, then transitions to the next.`,
                   },
                   {
                     id: "labelyOnly",

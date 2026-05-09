@@ -88,8 +88,6 @@ export const defaultConfig = {
     itemsRaw: "",
     slideshowCount: 1,
   })),
-  /** Labely scan outro slide text (black screen TikTok style). */
-  labelyOutroText: "Just found 2 cancerous foods in my cabinet. I had no idea was probably shortening my lifespan since it was a tier 1 carcinogen. The app i use is called labely.",
 };
 
 export default function Home() {
