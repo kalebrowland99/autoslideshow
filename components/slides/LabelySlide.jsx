@@ -60,6 +60,30 @@ function LabelyRowLeadingIcon({ src, size }) {
   );
 }
 
+/** Chevron for metric rows (reads as dropdown affordance; decorative only). */
+function LabelyMetricDropdownChevron({ size }) {
+  const s = Math.max(12, Math.round(size));
+  return (
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+      style={{ flexShrink: 0, display: "block" }}
+    >
+      <path
+        d="M7 10l5 5 5-5"
+        stroke="#8E8E93"
+        strokeWidth="2.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function scoreColors(score) {
   const s = clampLabelyScore(score);
   if (s <= 20) {
@@ -602,7 +626,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
               <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#FFE9E2", color: "#B23A2D", fontSize: px(12), fontWeight: 700 }}>
                 {additives}
               </div>
-              <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: "#FF6B35" }} />
+              <LabelyMetricDropdownChevron size={px(20)} />
             </div>
           </div>
 
@@ -630,7 +654,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
               <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#FFE9E2", color: "#B23A2D", fontSize: px(12), fontWeight: 700 }}>
                 {processingProfile}
               </div>
-              <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: "#FF6B35" }} />
+              <LabelyMetricDropdownChevron size={px(20)} />
             </div>
           </div>
         </div>
