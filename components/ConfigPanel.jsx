@@ -2796,7 +2796,7 @@ ${SHARED_RULES_OUTRO}`;
       } finally {
         flushSync(() => setConfig(restoreConfig));
         flushSync(() => setCurrentSlide(0));
-        setIsExporting(false);
+    setIsExporting(false);
         setTimeout(() => {
           setExportStatus("");
           setExportProgress(0);
@@ -2825,7 +2825,7 @@ ${SHARED_RULES_OUTRO}`;
         }
         setExportProgress(Math.round(((i + 1) / savedSlideshows.length) * 100));
       }
-      setExportProgress(100);
+    setExportProgress(100);
       setExportStatus(`Done! ${savedSlideshows.length} videos downloaded.`);
     } catch (e) {
       console.error(e);
@@ -3921,15 +3921,15 @@ ${SHARED_RULES_OUTRO}`;
           <div className="flex items-center gap-2 mb-2">
             <span className="text-white/45 text-xs flex-1">Generate multiple slideshows</span>
             {!isLabelyFoodDbBatchMode ? (
-              <div className="flex items-center gap-1.5">
-                <span className="text-white/30 text-[11px]">qty</span>
-                <input
-                  type="number" min={1} max={50}
-                  value={numSlideshows}
-                  onChange={(e) => setNumSlideshows(Math.max(1, Math.min(50, Number(e.target.value))))}
-                  className="w-14 bg-white/8 border border-white/15 rounded-lg px-2 py-1 text-white text-sm text-center focus:outline-none focus:border-violet-500/60"
-                />
-              </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-white/30 text-[11px]">qty</span>
+              <input
+                type="number" min={1} max={50}
+                value={numSlideshows}
+                onChange={(e) => setNumSlideshows(Math.max(1, Math.min(50, Number(e.target.value))))}
+                className="w-14 bg-white/8 border border-white/15 rounded-lg px-2 py-1 text-white text-sm text-center focus:outline-none focus:border-violet-500/60"
+              />
+            </div>
             ) : (
               <span className="text-emerald-200/80 text-[11px] font-semibold">{effectiveNumSlideshows} total</span>
             )}

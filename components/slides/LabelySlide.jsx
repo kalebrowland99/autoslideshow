@@ -173,7 +173,7 @@ function AnalysisBody({ text, px }) {
     >
       {parts.map((p, i) => {
         if (!p.bold) {
-          return <span key={i}>{p.s}</span>;
+          return <span key={i}>{p.s.replace(/\*\*/g, "")}</span>;
         }
         return (
           <strong key={i} style={{ color: C.title, fontWeight: 700, lineHeight: 1.15 }}>
@@ -598,8 +598,9 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
-              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#FFE9E2", color: "#B23A2D", fontSize: px(12), fontWeight: 700 }}>
-                {seedOils}
+              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#FFE9E2", color: "#B23A2D", fontSize: px(12), fontWeight: 700, display: "inline-flex", alignItems: "center", gap: px(4) }}>
+                <span>{seedOils}</span>
+                <span aria-hidden>⚠️</span>
               </div>
               <LabelyMetricDropdownChevron size={px(20)} />
             </div>
@@ -614,8 +615,9 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
-              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#FFE9E2", color: "#B23A2D", fontSize: px(12), fontWeight: 700 }}>
-                {additives}
+              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#FFE9E2", color: "#B23A2D", fontSize: px(12), fontWeight: 700, display: "inline-flex", alignItems: "center", gap: px(4) }}>
+                <span>{additives}</span>
+                <span aria-hidden>⚠️</span>
               </div>
               <LabelyMetricDropdownChevron size={px(20)} />
             </div>
