@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import VideoPreview from "@/components/VideoPreview";
+import LabelyScanSequencePreview from "@/components/LabelyScanSequencePreview";
 import ConfigPanel from "@/components/ConfigPanel";
 import { getTotalSlides } from "@/lib/slideLayout";
 import {
@@ -291,7 +292,15 @@ export default function Home() {
 
         <main className="flex-1 min-h-0 flex items-center justify-center p-8 overflow-auto bg-[#080808]">
           <div className="flex flex-col items-center gap-4">
-            <p className="text-white/40 text-xs uppercase tracking-widest">Live Preview</p>
+            <div className="flex items-center justify-center gap-3 flex-wrap">
+              <p className="text-white/40 text-xs uppercase tracking-widest">Live Preview</p>
+              <LabelyScanSequencePreview
+                config={config}
+                currentSlide={currentSlide}
+                setCurrentSlide={setCurrentSlide}
+                totalSlides={totalSlides}
+              />
+            </div>
             <VideoPreview
               config={config}
               currentSlide={currentSlide}
