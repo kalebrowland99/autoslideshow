@@ -215,7 +215,7 @@ export default function LabelyScanSequencePreview({ config, currentSlide, setCur
               ) : null}
             </div>
             <p className="text-white/35 text-[10px] text-center leading-relaxed max-w-sm">
-              Same sequence as video export for this Labely card (sample shelf photo if no pack image).
+              Same sequence as video export — confetti bursts from the screen center (SwiftUI-style radial burst; ConfettiSwiftUI is iOS-only).
             </p>
           </div>
         </div>
