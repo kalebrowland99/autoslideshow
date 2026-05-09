@@ -85,7 +85,7 @@ function LabelyMetricDropdownChevron({ size }) {
 }
 
 /** Visible summary lines (clip + measure target). */
-const LABELY_SUMMARY_VISIBLE_LINES = 3;
+const LABELY_SUMMARY_VISIBLE_LINES = 2;
 
 const READ_MORE_SUFFIX = " Read more..";
 
@@ -128,17 +128,6 @@ function labelySlideRandomDisplayCounts(slot, config, itemIndex = 0) {
     seedOilsParenCount: 1 + Math.floor(rng() * 15),
     additivesParenCount: 1 + Math.floor(rng() * 15),
   };
-}
-
-/** From slot data (optional explicit count); otherwise score + analysis depth — updates when analysis/score changes. */
-function healthierAlternativesRevealCountFromSlot(slot) {
-  const explicit = Number(slot?.labelyHealthierAlternativesCount);
-  if (Number.isFinite(explicit) && explicit >= 1) return Math.min(99, Math.floor(explicit));
-  const score = clampLabelyScore(slot.labelyScore);
-  const analysis = String(slot?.labelyAnalysis ?? "").trim();
-  const wc = analysis ? analysis.split(/\s+/).filter(Boolean).length : 0;
-  const n = Math.round(6 + (100 - score) * 0.14 + wc / 35);
-  return Math.min(28, Math.max(3, n));
 }
 
 function LawsuitBubbleInner({ count, px }) {
@@ -272,7 +261,7 @@ function productImageStyle(config, itemIndex) {
 
 /** Keyed by `analysisRaw` so truncation state resets per slide; inline bold Read more on line 3 when clipped. */
 function LabelyAnalysisBlurb({ analysisRaw, px, S }) {
-  const summaryLineHeightPx = Math.round(px(13) * 1.15);
+  const summaryLineHeightPx = Math.ceil(px(13) * 1.15);
   const summaryBodyMaxHeight = summaryLineHeightPx * LABELY_SUMMARY_VISIBLE_LINES;
   const analysisWidthRef = useRef(null);
   const [displayAnalysis, setDisplayAnalysis] = useState(analysisRaw);
@@ -287,7 +276,7 @@ function LabelyAnalysisBlurb({ analysisRaw, px, S }) {
     const run = async () => {
       const g = ++generation;
       const pxFn = (n) => Math.round(n * IPHONE_SCALE * S);
-      const lineH = Math.round(pxFn(13) * 1.15);
+      const lineH = Math.ceil(pxFn(13) * 1.15);
       const maxH = lineH * LABELY_SUMMARY_VISIBLE_LINES;
       const widthPx = wrap.clientWidth;
       if (widthPx <= 0) return;
@@ -416,10 +405,6 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
       slot?.labelyAnalysis,
     ],
   );
-  const healthierAlternativesRevealCount = useMemo(
-    () => healthierAlternativesRevealCountFromSlot(slot),
-    [slot?.labelyHealthierAlternativesCount, slot?.labelyScore, slot?.labelyAnalysis],
-  );
   const lawsuitBubbleStyle = {
     alignSelf: "center",
     display: "block",
@@ -457,7 +442,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
         color: C.title,
       }}
     >
-      <div style={{ flexShrink: 0, paddingLeft: gutter, paddingRight: gutter, paddingTop: px(112) }}>
+      <div style={{ flexShrink: 0, paddingLeft: gutter, paddingRight: gutter, paddingTop: px(104) }}>
         <div style={{ paddingLeft: px(10), paddingRight: px(10) }}>
           <div style={{ display: "flex", alignItems: "center", gap: px(14) }}>
             <div
@@ -507,6 +492,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
                 <div style={{ fontSize: px(14), color: "#2F5A41", fontWeight: 600 }}>
                   {verdict === "Great" ? "Excellent" : verdict}
                 </div>
+                <span style={{ width: px(10), height: px(10), borderRadius: "50%", background: "#E54D42", display: "inline-block", flexShrink: 0 }} />
               </div>
             </div>
           </div>
@@ -595,7 +581,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
                 🌿
               </span>
               <div style={{ fontSize: px(14), fontWeight: 700, color: "#274B36", lineHeight: 1.2 }}>
-                Reveal ({healthierAlternativesRevealCount}) Healthier Alternatives
+                Reveal Healthier Alternatives
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
