@@ -196,6 +196,45 @@ function triggerZipDownload(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
+/** Rows for food DB search dropdowns — label text + optional Open Food Facts front photo. */
+function foodDbDropdownRowsFromSuggestionRow(row) {
+  if (!row) return [];
+  const labels = [
+    ...new Set(
+      [
+        ...(Array.isArray(row.candidates) ? row.candidates : []),
+        row.match,
+        row.suggestion,
+      ].filter(Boolean),
+    ),
+  ];
+  const detailMap = new Map(
+    (Array.isArray(row.candidateDetails) ? row.candidateDetails : []).map((d) => [
+      d.label,
+      String(d.imageUrl || "").trim(),
+    ]),
+  );
+  return labels.map((label) => ({ label, imageUrl: detailMap.get(label) || "" }));
+}
+
+/** @param {{ label: string, imageUrl?: string }} row */
+function FoodDbDropdownRowThumb({ row }) {
+  const url = String(row.imageUrl || "").trim();
+  return url ? (
+    <img
+      src={url}
+      alt=""
+      className="h-11 w-11 shrink-0 rounded-md border border-white/10 bg-white object-contain"
+      loading="lazy"
+    />
+  ) : (
+    <div
+      className="h-11 w-11 shrink-0 rounded-md border border-dashed border-white/15 bg-white/5"
+      aria-hidden
+    />
+  );
+}
+
 /** Merge a saved gallery show into the workspace snapshot for export (keeps duration, transitions, audio). */
 function galleryShowToExportConfig(workspace, show) {
   const appId = show.appId != null ? show.appId : workspace.appId;
@@ -661,13 +700,7 @@ export default function ConfigPanel({
         if (cancelled) return;
         const row = Array.isArray(body.results) ? body.results[0] : null;
         if (row?.query) foodDbSuggestionCacheRef.current.set(foodDbKeyFor(row.query), row);
-        const options = row
-          ? [...new Set([
-              ...(Array.isArray(row.candidates) ? row.candidates : []),
-              row.match,
-              row.suggestion,
-            ].filter(Boolean))]
-          : [];
+        const options = foodDbDropdownRowsFromSuggestionRow(row);
         setFoodDbSearchOptions(options);
         setFoodDbSearchStatus(res.ok ? "done" : "error");
       } catch {
@@ -791,13 +824,7 @@ export default function ConfigPanel({
         const body = await res.json().catch(() => ({}));
         const row = Array.isArray(body.results) ? body.results[0] : null;
         if (row?.query) foodDbSuggestionCacheRef.current.set(foodDbKeyFor(row.query), row);
-        const options = row
-          ? [...new Set([
-              ...(Array.isArray(row.candidates) ? row.candidates : []),
-              row.match,
-              row.suggestion,
-            ].filter(Boolean))]
-          : [];
+        const options = foodDbDropdownRowsFromSuggestionRow(row);
         setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: options }));
         setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: res.ok ? "done" : "error" }));
       } catch {
@@ -3417,9 +3444,9 @@ ${SHARED_RULES_OUTRO}`;
                           onChange={(e) => handleBatchFoodDbSearchChange(idx, e.target.value)}
                           onKeyDown={(e) => {
                             const opts = batchFoodDbSearchOptions[batch.id] || [];
-                            if (e.key === "Enter" && opts[0]) {
+                            if (e.key === "Enter" && opts[0]?.label) {
                               e.preventDefault();
-                              addBatchFoodListItem(idx, opts[0]);
+                              addBatchFoodListItem(idx, opts[0].label);
                             }
                           }}
                           placeholder="Search Open Food Facts for this batch…"
@@ -3432,12 +3459,15 @@ ${SHARED_RULES_OUTRO}`;
                             ) : (batchFoodDbSearchOptions[batch.id] || []).length > 0 ? (
                               (batchFoodDbSearchOptions[batch.id] || []).map((option) => (
                                 <button
-                                  key={`${batch.id}-${option}`}
+                                  key={`${batch.id}-${option.label}`}
                                   type="button"
-                                  onClick={() => addBatchFoodListItem(idx, option)}
-                                  className="block w-full px-3 py-2 text-left text-[11px] text-white/75 hover:bg-emerald-500/15"
+                                  onClick={() => addBatchFoodListItem(idx, option.label)}
+                                  className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-emerald-500/15"
                                 >
-                                  {option}
+                                  <span className="min-w-0 flex-1 text-[11px] leading-snug text-white/75">
+                                    {option.label}
+                                  </span>
+                                  <FoodDbDropdownRowThumb row={option} />
                                 </button>
                               ))
                             ) : (
@@ -3536,9 +3566,9 @@ ${SHARED_RULES_OUTRO}`;
                     value={foodDbSearch}
                     onChange={(e) => setFoodDbSearch(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && foodDbSearchOptions[0]) {
+                      if (e.key === "Enter" && foodDbSearchOptions[0]?.label) {
                         e.preventDefault();
-                        addFoodListItem(foodDbSearchOptions[0]);
+                        addFoodListItem(foodDbSearchOptions[0].label);
                       }
                     }}
                     placeholder="Type to search foods (e.g. Oreo, Celsius orange, ramen)…"
@@ -3551,12 +3581,15 @@ ${SHARED_RULES_OUTRO}`;
                       ) : foodDbSearchOptions.length > 0 ? (
                         foodDbSearchOptions.map((option) => (
                           <button
-                            key={option}
+                            key={option.label}
                             type="button"
-                            onClick={() => addFoodListItem(option)}
-                            className="block w-full px-3 py-2 text-left text-[11px] text-white/75 hover:bg-emerald-500/15"
+                            onClick={() => addFoodListItem(option.label)}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-emerald-500/15"
                           >
-                            {option}
+                            <span className="min-w-0 flex-1 text-[11px] leading-snug text-white/75">
+                              {option.label}
+                            </span>
+                            <FoodDbDropdownRowThumb row={option} />
                           </button>
                         ))
                       ) : (

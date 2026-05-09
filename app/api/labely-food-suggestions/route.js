@@ -105,6 +105,20 @@ function queryVariants(query) {
   return variants.filter(Boolean);
 }
 
+/** First winning image URL per product label (rank order preserved via ranked iteration). */
+function candidateDetailsFromRanked(ranked, candidateLabels) {
+  const imageByLabel = new Map();
+  for (const x of ranked) {
+    const img = extractOpenFoodFactsImage(x.product);
+    if (!img || imageByLabel.has(x.label)) continue;
+    imageByLabel.set(x.label, img);
+  }
+  return candidateLabels.map((label) => ({
+    label,
+    imageUrl: imageByLabel.get(label) || "",
+  }));
+}
+
 async function lookupFood(query) {
   const q = String(query || "").trim();
   if (!q) return { query: q, status: "empty" };
@@ -119,11 +133,20 @@ async function lookupFood(query) {
   const strong = products.find((p) => extractOpenFoodFactsImage(p) && isStrongMatch(p, q));
   if (strong) {
     const match = productLabel(strong);
+    const ordered = [match, ...candidates.filter((x) => x !== match)].slice(0, 12);
+    const strongImg = extractOpenFoodFactsImage(strong);
+    let candidateDetails = candidateDetailsFromRanked(ranked, ordered);
+    if (strongImg) {
+      candidateDetails = candidateDetails.map((d) =>
+        d.label === match ? { ...d, imageUrl: strongImg } : d
+      );
+    }
     return {
       query: q,
       status: "found",
       match,
-      candidates: [match, ...candidates.filter((x) => x !== match)].slice(0, 12),
+      candidates: ordered,
+      candidateDetails,
     };
   }
 
@@ -131,9 +154,13 @@ async function lookupFood(query) {
   if (!best) return { query: q, status: "missing" };
 
   const found = best.score >= 4 || normalizeFoodText(best.label).includes(normalizeFoodText(q));
-  return found
+  const row = found
     ? { query: q, status: "found", match: best.label, candidates }
     : { query: q, status: "recommend", suggestion: best.label, candidates };
+  return {
+    ...row,
+    candidateDetails: candidateDetailsFromRanked(ranked, candidates),
+  };
 }
 
 export async function POST(req) {
