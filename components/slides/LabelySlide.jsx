@@ -579,7 +579,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
           {/* Seed oils */}
           <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
-              <LabelyRowLeadingIcon src={LABELY_ICON_SEED_OILS} size={px(22)} />
+              <LabelyRowLeadingIcon src={LABELY_ICON_SEED_OILS} size={px(36)} />
               <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>
                 Seed Oils ({seedOilsParenCount})
               </div>
@@ -595,7 +595,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
           {/* Additives */}
           <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
-              <LabelyRowLeadingIcon src={LABELY_ICON_ADDITIVES} size={px(22)} />
+              <LabelyRowLeadingIcon src={LABELY_ICON_ADDITIVES} size={px(36)} />
               <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>
                 Additives ({additivesParenCount})
               </div>
@@ -611,7 +611,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
           {/* Processing profile */}
           <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
-              <LabelyRowLeadingIcon src={LABELY_ICON_PROCESSING} size={px(22)} />
+              <LabelyRowLeadingIcon src={LABELY_ICON_PROCESSING} size={px(36)} />
               <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>Processing Profile</div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
