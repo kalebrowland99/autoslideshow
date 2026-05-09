@@ -646,7 +646,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
                 }}
                 aria-hidden
               >
-                🖋️
+                📊
               </span>
               <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>Processing Profile</div>
             </div>
