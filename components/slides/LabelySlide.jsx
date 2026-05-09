@@ -146,8 +146,8 @@ function mulberry32(seed) {
 }
 
 /**
- * Lawsuit + “Seed Oils (n)” / “Additives (n)” counts: pseudorandom per slide, stable for the same slot export.
- * Lawsuits 3–99; parens 1–15 (uniform draws from a keyed PRNG).
+ * Lawsuit + metric parens + healthier-alternatives reveal count — pseudorandom per slide, stable for export.
+ * Lawsuits 3–99; small parens 1–15 (uniform draws from a keyed PRNG).
  */
 function labelySlideRandomDisplayCounts(slot, config, itemIndex = 0) {
   const key = [
@@ -164,6 +164,7 @@ function labelySlideRandomDisplayCounts(slot, config, itemIndex = 0) {
     lawsuitCount: 3 + Math.floor(rng() * 97),
     seedOilsParenCount: 1 + Math.floor(rng() * 15),
     additivesParenCount: 1 + Math.floor(rng() * 15),
+    healthierAlternativesRevealCount: 1 + Math.floor(rng() * 15),
   };
 }
 
@@ -548,10 +549,9 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
   const colors = scoreColors(score);
   const seedOils = "Dangerous";
   const additives = "Cancerous";
-  const processingProfile = "Dangerous";
   const productThumb = px(100);
   const productStyle = productImageStyle(config, itemIndex);
-  const { lawsuitCount, seedOilsParenCount, additivesParenCount } = useMemo(
+  const { lawsuitCount, seedOilsParenCount, additivesParenCount, healthierAlternativesRevealCount } = useMemo(
     () => labelySlideRandomDisplayCounts(slot, config, itemIndex),
     [
       itemIndex,
@@ -759,7 +759,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
             </div>
           </div>
 
-          {/* Processing profile */}
+          {/* Healthier alternatives reveal */}
           <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
               <span
@@ -775,14 +775,13 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
                 }}
                 aria-hidden
               >
-                📊
+                🌿
               </span>
-              <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>Processing Profile</div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
-              <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#FFE9E2", color: "#B23A2D", fontSize: px(12), fontWeight: 700 }}>
-                {processingProfile}
+              <div style={{ fontSize: px(14), fontWeight: 700, color: "#274B36", lineHeight: 1.2 }}>
+                Reveal ({healthierAlternativesRevealCount}) Healthier Alternatives
               </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
               <LabelyMetricDropdownChevron size={px(20)} />
             </div>
           </div>
