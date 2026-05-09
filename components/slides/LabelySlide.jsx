@@ -39,6 +39,9 @@ const C = {
   ctaText: "#F6F2E9",
 };
 
+/** Full-frame slide bg — `public/labely/bg.png`. */
+const LABELY_PAGE_BG_URL = "/labely/bg.png";
+
 function scoreColors(score) {
   const s = clampLabelyScore(score);
   if (s <= 20) {
@@ -420,7 +423,11 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
       style={{
         width: W,
         height: H,
-        background: C.pageBg,
+        backgroundColor: C.pageBg,
+        backgroundImage: `url(${LABELY_PAGE_BG_URL})`,
+        backgroundSize: "cover",
+        backgroundPosition: "center center",
+        backgroundRepeat: "no-repeat",
         overflow: "hidden",
         position: "relative",
         fontFamily: "Arial, Helvetica, sans-serif",
