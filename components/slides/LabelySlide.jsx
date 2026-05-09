@@ -727,6 +727,33 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
           <span style={lawsuitBubbleStyle}>
             <LawsuitBubbleInner count={lawsuitCount} px={px} />
           </span>
+          {/* Healthier alternatives reveal */}
+          <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
+              <span
+                style={{
+                  flexShrink: 0,
+                  width: px(36),
+                  height: px(36),
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: px(30),
+                  lineHeight: 1,
+                }}
+                aria-hidden
+              >
+                🌿
+              </span>
+              <div style={{ fontSize: px(14), fontWeight: 700, color: "#274B36", lineHeight: 1.2 }}>
+                Reveal ({healthierAlternativesRevealCount}) Healthier Alternatives
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+              <LabelyMetricDropdownChevron size={px(20)} />
+            </div>
+          </div>
+
           {/* Seed oils */}
           <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
@@ -755,33 +782,6 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
               <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#FFE9E2", color: "#B23A2D", fontSize: px(12), fontWeight: 700 }}>
                 {additives}
               </div>
-              <LabelyMetricDropdownChevron size={px(20)} />
-            </div>
-          </div>
-
-          {/* Healthier alternatives reveal */}
-          <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
-              <span
-                style={{
-                  flexShrink: 0,
-                  width: px(36),
-                  height: px(36),
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: px(30),
-                  lineHeight: 1,
-                }}
-                aria-hidden
-              >
-                🌿
-              </span>
-              <div style={{ fontSize: px(14), fontWeight: 700, color: "#274B36", lineHeight: 1.2 }}>
-                Reveal ({healthierAlternativesRevealCount}) Healthier Alternatives
-              </div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
               <LabelyMetricDropdownChevron size={px(20)} />
             </div>
           </div>
