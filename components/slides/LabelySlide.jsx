@@ -610,7 +610,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
               <div style={{ padding: `${px(6)}px ${px(12)}px`, borderRadius: px(999), background: "#FFE9E2", color: "#B23A2D", fontSize: px(12), fontWeight: 700 }}>
                 {seedOils}
               </div>
-              <span style={{ width: px(8), height: px(8), borderRadius: "50%", background: "#FF6B35" }} />
+              <LabelyMetricDropdownChevron size={px(20)} />
             </div>
           </div>
 
