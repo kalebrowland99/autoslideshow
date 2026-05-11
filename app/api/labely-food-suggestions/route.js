@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 export const maxDuration = 300;
 
 const OPEN_FOOD_FACTS_SEARCH = "https://world.openfoodfacts.org/cgi/search.pl";
+const SEARCH_PAGE_SIZE = 40;
 
 function normalizeFoodText(value) {
   return String(value || "")
@@ -56,7 +57,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function fetchSearchPage(params) {
   const url = `${OPEN_FOOD_FACTS_SEARCH}?${params.toString()}`;
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     const res = await fetch(url, {
       headers: {
         Accept: "application/json",
@@ -65,34 +66,24 @@ async function fetchSearchPage(params) {
     });
     if (res.ok) return res.json().catch(() => null);
     if (![429, 500, 502, 503, 504].includes(res.status)) return null;
-    await sleep(500 * (attempt + 1));
+    await sleep(350 * (attempt + 1));
   }
   return null;
 }
 
 async function fetchProducts(query) {
-  const pageSize = 100;
-  const all = [];
-  for (let page = 1; ; page++) {
-    const params = new URLSearchParams({
-      search_terms: query,
-      search_simple: "1",
-      action: "process",
-      json: "1",
-      page: String(page),
-      page_size: String(pageSize),
-      fields: "product_name,generic_name,brands,image_front_url,image_url,selected_images",
-    });
+  const params = new URLSearchParams({
+    search_terms: query,
+    search_simple: "1",
+    action: "process",
+    json: "1",
+    page: "1",
+    page_size: String(SEARCH_PAGE_SIZE),
+    fields: "product_name,generic_name,brands,image_front_url,image_url,selected_images",
+  });
 
-    const data = await fetchSearchPage(params);
-    if (!data) break;
-    const products = Array.isArray(data?.products) ? data.products : [];
-    all.push(...products);
-
-    const total = Number(data?.count) || 0;
-    if (products.length < pageSize || (total > 0 && all.length >= total)) break;
-  }
-  return all;
+  const data = await fetchSearchPage(params);
+  return Array.isArray(data?.products) ? data.products : [];
 }
 
 function queryVariants(query) {

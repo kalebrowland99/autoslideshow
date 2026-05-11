@@ -643,10 +643,6 @@ export default function ConfigPanel({
   const [batchFoodDbSearch, setBatchFoodDbSearch] = useState({});
   const [batchFoodDbSearchStatus, setBatchFoodDbSearchStatus] = useState({});
   const [batchFoodDbSearchOptions, setBatchFoodDbSearchOptions] = useState({});
-  const [batchFoodDbSuggestions, setBatchFoodDbSuggestions] = useState({});
-  const [batchFoodDbSuggestionStatus, setBatchFoodDbSuggestionStatus] = useState({});
-  const batchFoodDbSearchTimersRef = useRef(new Map());
-  const batchFoodDbSuggestionTimersRef = useRef(new Map());
   const foodDbSuggestionCacheRef = useRef(new Map());
   const foodDbKeyFor = (value) => String(value || "").trim().toLowerCase();
   const foodDbSuggestionKey = useMemo(() => (
@@ -712,53 +708,6 @@ export default function ConfigPanel({
     };
   }, [foodDbSuggestionKey]);
 
-  useEffect(() => {
-    const q = foodDbSearch.trim();
-    if (!isLabely || !config.labelyAiProducts || !config.labelyUseFoodDatabasePhotos || q.length < 2) {
-      setFoodDbSearchOptions([]);
-      setFoodDbSearchStatus("idle");
-      return;
-    }
-    let cancelled = false;
-    setFoodDbSearchStatus("loading");
-    const t = window.setTimeout(async () => {
-      try {
-        const res = await fetch("/api/labely-food-suggestions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: [q] }),
-        });
-        const body = await res.json().catch(() => ({}));
-        if (cancelled) return;
-        const row = Array.isArray(body.results) ? body.results[0] : null;
-        if (row?.query) foodDbSuggestionCacheRef.current.set(foodDbKeyFor(row.query), row);
-        const options = foodDbDropdownRowsFromSuggestionRow(row);
-        setFoodDbSearchOptions(options);
-        setFoodDbSearchStatus(res.ok ? "done" : "error");
-      } catch {
-        if (!cancelled) {
-          setFoodDbSearchOptions([]);
-          setFoodDbSearchStatus("error");
-        }
-      }
-    }, 350);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(t);
-    };
-  }, [foodDbSearch, isLabely, config.labelyAiProducts, config.labelyUseFoodDatabasePhotos]);
-
-  useEffect(() => {
-    const searchTimers = batchFoodDbSearchTimersRef.current;
-    const suggestionTimers = batchFoodDbSuggestionTimersRef.current;
-    return () => {
-      for (const t of searchTimers.values()) window.clearTimeout(t);
-      for (const t of suggestionTimers.values()) window.clearTimeout(t);
-      searchTimers.clear();
-      suggestionTimers.clear();
-    };
-  }, []);
-
   const replaceFoodListItem = (from, to) => {
     const lines = brandItemsRaw.trim()
       ? brandItemsRaw.split("\n")
@@ -794,6 +743,31 @@ export default function ConfigPanel({
       .join("\n");
     setBrandItemsRaw(next);
     localStorage.setItem(storeKey("ts_brand_items"), next);
+  };
+  const runFoodDbSearch = async () => {
+    const q = foodDbSearch.trim();
+    if (!isLabely || !config.labelyAiProducts || !config.labelyUseFoodDatabasePhotos || q.length < 2) {
+      setFoodDbSearchOptions([]);
+      setFoodDbSearchStatus("idle");
+      return;
+    }
+    setFoodDbSearchStatus("loading");
+    setFoodDbSearchOptions([]);
+    try {
+      const res = await fetch("/api/labely-food-suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: [q] }),
+      });
+      const body = await res.json().catch(() => ({}));
+      const row = Array.isArray(body.results) ? body.results[0] : null;
+      if (row?.query) foodDbSuggestionCacheRef.current.set(foodDbKeyFor(row.query), row);
+      setFoodDbSearchOptions(foodDbDropdownRowsFromSuggestionRow(row));
+      setFoodDbSearchStatus(res.ok ? "done" : "error");
+    } catch {
+      setFoodDbSearchOptions([]);
+      setFoodDbSearchStatus("error");
+    }
   };
   const addBatchFoodListItem = (batchIndex, item, option = null) => {
     const nextItem = String(item || "").trim();
@@ -834,67 +808,41 @@ export default function ConfigPanel({
     delete nextMatches[item];
     updateLabelyFoodDbBatch(batchIndex, { itemsRaw: current.filter((line) => line !== item).join("\n"), foodDbMatches: nextMatches });
   };
-  const replaceBatchFoodListItem = (batchIndex, from, to) => {
-    const lines = String(labelyFoodDbBatches[batchIndex]?.itemsRaw || "")
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const next = lines
-      .map((line) => (line === from ? to : line))
-      .join("\n");
-    const batch = labelyFoodDbBatches[batchIndex] || {};
-    const existingMatches = batch.foodDbMatches && typeof batch.foodDbMatches === "object" ? batch.foodDbMatches : {};
-    const oldPersisted = existingMatches[from];
-    const nextMatches = { ...existingMatches };
-    delete nextMatches[from];
-    const cached = foodDbSuggestionCacheRef.current.get(foodDbKeyFor(from));
-    if (cached) {
-      const nextRow = { ...cached, query: to, match: to };
-      foodDbSuggestionCacheRef.current.set(foodDbKeyFor(to), nextRow);
-      nextMatches[to] = nextRow;
-    } else if (oldPersisted) {
-      const nextRow = { ...oldPersisted, query: to, match: to };
-      foodDbSuggestionCacheRef.current.set(foodDbKeyFor(to), nextRow);
-      nextMatches[to] = nextRow;
-    }
-    updateLabelyFoodDbBatch(batchIndex, { itemsRaw: next, foodDbMatches: nextMatches });
-  };
   const handleBatchFoodDbSearchChange = (batchIndex, value) => {
     const batchId = labelyFoodDbBatches[batchIndex]?.id;
     if (!batchId) return;
     setBatchFoodDbSearch((prev) => ({ ...prev, [batchId]: value }));
-    const q = String(value || "").trim();
-    const prevTimer = batchFoodDbSearchTimersRef.current.get(batchId);
-    if (prevTimer) window.clearTimeout(prevTimer);
-    if (!q || q.length < 2) {
+    if (String(value || "").trim().length < 2) {
+      setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: [] }));
+      setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: "idle" }));
+    }
+  };
+  const runBatchFoodDbSearch = async (batchIndex) => {
+    const batchId = labelyFoodDbBatches[batchIndex]?.id;
+    if (!batchId) return;
+    const q = String(batchFoodDbSearch[batchId] || "").trim();
+    if (q.length < 2) {
       setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: [] }));
       setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: "idle" }));
       return;
     }
     setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: "loading" }));
-    const t = window.setTimeout(async () => {
-      try {
-        const res = await fetch("/api/labely-food-suggestions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: [q] }),
-        });
-        const body = await res.json().catch(() => ({}));
-        const row = Array.isArray(body.results) ? body.results[0] : null;
-        if (row?.query) foodDbSuggestionCacheRef.current.set(foodDbKeyFor(row.query), row);
-        const options = foodDbDropdownRowsFromSuggestionRow(row);
-        setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: options }));
-        setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: res.ok ? "done" : "error" }));
-      } catch {
-        setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: [] }));
-        setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: "error" }));
-      }
-    }, 350);
-    batchFoodDbSearchTimersRef.current.set(batchId, t);
-  };
-  const applyBatchFoodDbCandidate = (batchIndex, item, value) => {
-    if (!value || value === item) return;
-    replaceBatchFoodListItem(batchIndex, item, value);
+    setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: [] }));
+    try {
+      const res = await fetch("/api/labely-food-suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: [q] }),
+      });
+      const body = await res.json().catch(() => ({}));
+      const row = Array.isArray(body.results) ? body.results[0] : null;
+      if (row?.query) foodDbSuggestionCacheRef.current.set(foodDbKeyFor(row.query), row);
+      setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: foodDbDropdownRowsFromSuggestionRow(row) }));
+      setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: res.ok ? "done" : "error" }));
+    } catch {
+      setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: [] }));
+      setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: "error" }));
+    }
   };
   const foodDbSuggestionsByQuery = useMemo(() => {
     const m = new Map();
@@ -903,17 +851,6 @@ export default function ConfigPanel({
     }
     return m;
   }, [foodDbSuggestions]);
-  const batchFoodDbSuggestionsByBatch = useMemo(() => {
-    const out = {};
-    for (const [batchId, rows] of Object.entries(batchFoodDbSuggestions)) {
-      const m = new Map();
-      for (const row of Array.isArray(rows) ? rows : []) {
-        if (row?.query) m.set(row.query, row);
-      }
-      out[batchId] = m;
-    }
-    return out;
-  }, [batchFoodDbSuggestions]);
   const applyFoodDbCandidate = (item, value) => {
     if (!value || value === item) return;
     replaceFoodListItem(item, value);
@@ -989,96 +926,6 @@ export default function ConfigPanel({
       }
     }
   }, [isLabelyFoodDbBatchMode, labelyFoodDbBatches]);
-
-  useEffect(() => {
-    if (!isLabelyFoodDbBatchMode || !config.labelyUseFoodDatabasePhotos) {
-      setBatchFoodDbSuggestions({});
-      setBatchFoodDbSuggestionStatus({});
-      return;
-    }
-    const batchIds = new Set(labelyFoodDbBatches.map((b) => b.id));
-    setBatchFoodDbSuggestions((prev) => {
-      const next = {};
-      for (const [id, rows] of Object.entries(prev)) {
-        if (batchIds.has(id)) next[id] = rows;
-      }
-      return next;
-    });
-    setBatchFoodDbSuggestionStatus((prev) => {
-      const next = {};
-      for (const [id, status] of Object.entries(prev)) {
-        if (batchIds.has(id)) next[id] = status;
-      }
-      return next;
-    });
-    for (const batch of labelyFoodDbBatches) {
-      const items = String(batch.itemsRaw || "")
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .slice(0, 20);
-      if (items.length === 0) {
-        setBatchFoodDbSuggestions((prev) => ({ ...prev, [batch.id]: [] }));
-        setBatchFoodDbSuggestionStatus((prev) => ({ ...prev, [batch.id]: "idle" }));
-        continue;
-      }
-      const missingItems = items.filter((item) => !foodDbSuggestionCacheRef.current.has(foodDbKeyFor(item)));
-      const cachedRows = items
-        .map((item) => foodDbSuggestionCacheRef.current.get(foodDbKeyFor(item)))
-        .filter(Boolean);
-      setBatchFoodDbSuggestions((prev) => ({ ...prev, [batch.id]: cachedRows }));
-      if (missingItems.length === 0) {
-        setBatchFoodDbSuggestionStatus((prev) => ({ ...prev, [batch.id]: "done" }));
-        continue;
-      }
-      setBatchFoodDbSuggestionStatus((prev) => ({ ...prev, [batch.id]: "loading" }));
-      const oldTimer = batchFoodDbSuggestionTimersRef.current.get(batch.id);
-      if (oldTimer) window.clearTimeout(oldTimer);
-      const t = window.setTimeout(async () => {
-        try {
-          const res = await fetch("/api/labely-food-suggestions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ items: missingItems }),
-          });
-          const body = await res.json().catch(() => ({}));
-          const incoming = Array.isArray(body.results) ? body.results : [];
-          for (const row of incoming) {
-            if (row?.query) foodDbSuggestionCacheRef.current.set(foodDbKeyFor(row.query), row);
-          }
-          const batchIndex = labelyFoodDbBatches.findIndex((b) => b.id === batch.id);
-          const foundRows = incoming.filter((row) => row?.query && ["found", "recommend"].includes(row.status));
-          if (batchIndex >= 0 && foundRows.length > 0) {
-            const existingMatches = batch.foodDbMatches && typeof batch.foodDbMatches === "object" ? batch.foodDbMatches : {};
-            updateLabelyFoodDbBatch(batchIndex, {
-              foodDbMatches: {
-                ...existingMatches,
-                ...Object.fromEntries(foundRows.map((row) => [row.query, row])),
-              },
-            });
-          }
-          const requested = new Set(items);
-          setBatchFoodDbSuggestions((prev) => {
-            const prevRows = Array.isArray(prev[batch.id]) ? prev[batch.id] : [];
-            const prevByQuery = new Map(prevRows.map((row) => [row.query, row]));
-            for (const row of incoming) {
-              const old = prevByQuery.get(row.query);
-              const keepOld =
-                old &&
-                ["found", "recommend"].includes(old.status) &&
-                ["missing", "error"].includes(row.status);
-              prevByQuery.set(row.query, keepOld ? old : row);
-            }
-            return { ...prev, [batch.id]: [...prevByQuery.values()].filter((row) => requested.has(row.query)) };
-          });
-          setBatchFoodDbSuggestionStatus((prev) => ({ ...prev, [batch.id]: res.ok ? "done" : "error" }));
-        } catch {
-          setBatchFoodDbSuggestionStatus((prev) => ({ ...prev, [batch.id]: "error" }));
-        }
-      }, 550);
-      batchFoodDbSuggestionTimersRef.current.set(batch.id, t);
-    }
-  }, [isLabelyFoodDbBatchMode, config.labelyUseFoodDatabasePhotos, labelyFoodDbBatches]);
 
   // Parsed hook captions (non-empty lines). Labely never uses collage hooks.
   const hookItems = isLabely
@@ -3693,9 +3540,8 @@ ${SHARED_RULES_OUTRO}`;
                         .split("\n")
                         .map((line) => line.trim())
                         .filter(Boolean);
-                      const rowsByQuery = batchFoodDbSuggestionsByBatch[batch.id] || new Map();
-                      const checkedCount = batchItems.filter((item) => rowsByQuery.has(item)).length;
-                      const progressPct = batchItems.length > 0 ? Math.max(4, Math.round((checkedCount / batchItems.length) * 100)) : 0;
+                      const savedPhotoCount = batchItems.filter((item) => foodDbImageUrlForItem(item, batch.foodDbMatches)).length;
+                      const missingPhotoCount = Math.max(0, batchItems.length - savedPhotoCount);
                       return (
                         <>
                     <div className="mb-1 flex items-center justify-between gap-2">
@@ -3726,17 +3572,22 @@ ${SHARED_RULES_OUTRO}`;
                           onChange={(e) => handleBatchFoodDbSearchChange(idx, e.target.value)}
                           onKeyDown={(e) => {
                             const opts = batchFoodDbSearchOptions[batch.id] || [];
-                            if (e.key === "Enter" && opts[0]?.label) {
-                              e.preventDefault();
+                            if (e.key !== "Enter") return;
+                            e.preventDefault();
+                            if (opts[0]?.label && (batchFoodDbSearchStatus[batch.id] || "idle") === "done") {
                               addBatchFoodListItem(idx, opts[0].label, opts[0]);
+                            } else {
+                              void runBatchFoodDbSearch(idx);
                             }
                           }}
-                          placeholder="Search Open Food Facts for this batch…"
+                          placeholder="Type product, then press Enter to search…"
                           className="w-full rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 text-[11px] text-white outline-none placeholder-white/20 focus:border-emerald-400/60"
                         />
                         {(batchFoodDbSearch[batch.id] || "").trim().length >= 2 ? (
                           <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-44 overflow-y-auto rounded-lg border border-emerald-500/25 bg-zinc-950 shadow-xl">
-                            {(batchFoodDbSearchStatus[batch.id] || "idle") === "loading" ? (
+                            {(batchFoodDbSearchStatus[batch.id] || "idle") === "idle" ? (
+                              <div className="px-3 py-2 text-[10px] text-white/35">Press Enter to search Open Food Facts.</div>
+                            ) : (batchFoodDbSearchStatus[batch.id] || "idle") === "loading" ? (
                               <div className="px-3 py-2 text-[10px] text-white/35">Searching Open Food Facts…</div>
                             ) : (batchFoodDbSearchOptions[batch.id] || []).length > 0 ? (
                               (batchFoodDbSearchOptions[batch.id] || []).map((option) => (
@@ -3783,54 +3634,37 @@ ${SHARED_RULES_OUTRO}`;
                       <div className="rounded-md border border-emerald-500/15 bg-black/15 p-2">
                         <div className="mb-1 flex items-center justify-between gap-2">
                           <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-200/80">
-                            Database match progress
+                            Saved package photos
                           </span>
                           <span className="text-[10px] text-white/35">
-                            {(batchFoodDbSuggestionStatus[batch.id] || "idle") === "loading" ? "Checking…" : `${checkedCount}/${batchItems.length || 0} checked`}
+                            {savedPhotoCount}/{batchItems.length || 0} saved
                           </span>
                         </div>
-                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-                          <div
-                            className="h-full rounded-full bg-emerald-400/80 transition-all duration-300"
-                            style={{ width: `${progressPct}%` }}
-                          />
-                        </div>
-                        {(batchFoodDbSuggestionStatus[batch.id] || "idle") === "error" ? (
-                          <p className="mt-1 text-[10px] text-amber-300">Could not check Open Food Facts right now.</p>
+                        {missingPhotoCount > 0 ? (
+                          <p className="text-[10px] text-amber-300/85">
+                            {missingPhotoCount} item{missingPhotoCount === 1 ? "" : "s"} need a saved photo. Search and select an exact database result above.
+                          </p>
                         ) : batchItems.length > 0 ? (
+                          <p className="text-[10px] text-emerald-300/75">Ready. Generation uses these saved photo URLs directly.</p>
+                        ) : null}
+                        {batchItems.length > 0 ? (
                           <div className="mt-1.5 space-y-1">
                             {batchItems.slice(0, 10).map((item) => {
-                              const row = rowsByQuery.get(item);
+                              const hasPhoto = Boolean(foodDbImageUrlForItem(item, batch.foodDbMatches));
                               return (
                                 <div key={`${batch.id}-match-${item}`} className="flex items-center justify-between gap-2 rounded-md bg-black/15 px-2 py-1.5">
                                   <span className="min-w-0 truncate text-[10px] text-white/55">{item}</span>
-                                  {!row || (batchFoodDbSuggestionStatus[batch.id] || "idle") === "loading" ? (
-                                    <span className="shrink-0 text-[10px] text-white/30">Checking…</span>
-                                  ) : row.status === "found" || row.status === "recommend" ? (
-                                    <div className="flex min-w-0 shrink-0 items-center gap-1.5">
-                                      <span className={`text-[10px] font-semibold ${row.status === "found" ? "text-emerald-300" : "text-amber-200"}`}>
-                                        {row.status === "found" ? "Match" : "Try"}
-                                      </span>
-                                      <select
-                                        value={row.status === "found" ? row.match : row.suggestion}
-                                        onChange={(e) => applyBatchFoodDbCandidate(idx, item, e.target.value)}
-                                        className="max-w-[220px] rounded-md border border-white/10 bg-zinc-900 px-2 py-1 text-[10px] font-semibold text-white/80 outline-none focus:border-emerald-400/60"
-                                        title="Choose the database product for this line"
-                                      >
-                                        {(row.candidates?.length ? row.candidates : [row.match || row.suggestion]).filter(Boolean).map((candidate) => (
-                                          <option key={`${batch.id}-${item}-${candidate}`} value={candidate}>{candidate}</option>
-                                        ))}
-                                      </select>
-                                    </div>
+                                  {hasPhoto ? (
+                                    <span className="shrink-0 text-[10px] font-semibold text-emerald-300">Photo saved</span>
                                   ) : (
-                                    <span className="shrink-0 text-[10px] text-red-300/80">No database photo</span>
+                                    <span className="shrink-0 text-[10px] text-amber-300/80">Needs photo</span>
                                   )}
                                 </div>
                               );
                             })}
                           </div>
                         ) : (
-                          <p className="mt-1 text-[10px] text-white/30">Select foods to start Open Food Facts checking.</p>
+                          <p className="mt-1 text-[10px] text-white/30">Search and select products to save package photos.</p>
                         )}
                       </div>
                     </div>
@@ -3846,19 +3680,30 @@ ${SHARED_RULES_OUTRO}`;
                   <input
                     type="text"
                     value={foodDbSearch}
-                    onChange={(e) => setFoodDbSearch(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && foodDbSearchOptions[0]?.label) {
-                        e.preventDefault();
-                        addFoodListItem(foodDbSearchOptions[0].label);
+                    onChange={(e) => {
+                      setFoodDbSearch(e.target.value);
+                      if (e.target.value.trim().length < 2) {
+                        setFoodDbSearchOptions([]);
+                        setFoodDbSearchStatus("idle");
                       }
                     }}
-                    placeholder="Type to search foods (e.g. Oreo, Celsius orange, ramen)…"
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      e.preventDefault();
+                      if (foodDbSearchOptions[0]?.label && foodDbSearchStatus === "done") {
+                        addFoodListItem(foodDbSearchOptions[0].label);
+                      } else {
+                        void runFoodDbSearch();
+                      }
+                    }}
+                    placeholder="Type product, then press Enter to search…"
                     className="w-full rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 text-xs text-white outline-none placeholder-white/15 focus:border-emerald-400/60"
                   />
                   {foodDbSearch.trim().length >= 2 ? (
                     <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-lg border border-emerald-500/25 bg-zinc-950 shadow-xl">
-                      {foodDbSearchStatus === "loading" ? (
+                      {foodDbSearchStatus === "idle" ? (
+                        <div className="px-3 py-2 text-[10px] text-white/35">Press Enter to search Open Food Facts.</div>
+                      ) : foodDbSearchStatus === "loading" ? (
                         <div className="px-3 py-2 text-[10px] text-white/35">Searching Open Food Facts…</div>
                       ) : foodDbSearchOptions.length > 0 ? (
                         foodDbSearchOptions.map((option) => (

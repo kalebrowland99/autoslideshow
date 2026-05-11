@@ -259,13 +259,13 @@ function productImageStyle(config, itemIndex) {
   };
 }
 
-/** Keyed by `analysisRaw` so truncation state resets per slide; inline bold Read more on line 3 when clipped. */
+/** Keyed by `analysisRaw` so truncation state resets per slide; inline bold Read more always shown. */
 function LabelyAnalysisBlurb({ analysisRaw, px, S }) {
   const summaryLineHeightPx = Math.ceil(px(13) * 1.15);
   const summaryBodyMaxHeight = summaryLineHeightPx * LABELY_SUMMARY_VISIBLE_LINES;
   const analysisWidthRef = useRef(null);
   const [displayAnalysis, setDisplayAnalysis] = useState(analysisRaw);
-  const [readMore, setReadMore] = useState(false);
+  const [readMore, setReadMore] = useState(true);
 
   useLayoutEffect(() => {
     const wrap = analysisWidthRef.current;
@@ -284,16 +284,16 @@ function LabelyAnalysisBlurb({ analysisRaw, px, S }) {
       const stale = () => cancelled || g !== generation;
 
       const tol = 2;
-      const hPlain = await measureLabelyAnalysisBlockHeight({
+      const hFullWithReadMore = await measureLabelyAnalysisBlockHeight({
         markdown: analysisRaw,
         widthPx,
         pxFn,
-        withReadMore: false,
+        withReadMore: true,
       });
       if (stale()) return;
-      if (hPlain <= maxH + tol) {
+      if (hFullWithReadMore <= maxH + tol) {
         setDisplayAnalysis(analysisRaw);
-        setReadMore(false);
+        setReadMore(true);
         return;
       }
 
