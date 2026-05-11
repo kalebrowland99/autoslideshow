@@ -459,6 +459,7 @@ export default function ConfigPanel({
   const isValcoin = brand.appId === "valcoin";
   const isLabely = brand.appId === "labely";
   const isLabelyFoodDbBatchMode = isLabely && !!config.labelyAiProducts && !!config.labelyUseFoodDatabasePhotos;
+  const hasSavedLabelySlideshows = savedSlideshows.some((show) => show?.appId === "labely");
   const labelyUploadsLocked = isLabely && !!config.labelyAiProducts;
   const labelyFoodDbBatches = useMemo(() => {
     const raw = Array.isArray(config.labelyFoodDbBatches) ? config.labelyFoodDbBatches : [];
@@ -4348,7 +4349,7 @@ ${SHARED_RULES_OUTRO}`;
         </button>
         {savedSlideshows.length >= 2 ? (
           <>
-            {isLabely ? (
+            {hasSavedLabelySlideshows ? (
               <button
                 type="button"
                 onClick={handleFixBlankLabelyPhotos}
