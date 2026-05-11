@@ -2375,7 +2375,7 @@ ${SHARED_RULES_OUTRO}`;
       });
       await waitForPreviewPaint();
       const previewScreenshot = await captureLivePreviewThumbnail();
-      onSlideshowSaved?.({
+      const savedShow = {
         slots: [...localSlots],
         captionText: "",
         previewScreenshot,
@@ -2385,8 +2385,9 @@ ${SHARED_RULES_OUTRO}`;
         ...(config.labelyOutroText ? { labelyOutroText: config.labelyOutroText } : {}),
         ...(config.labelyFoodDbBatches ? { labelyFoodDbBatches: config.labelyFoodDbBatches } : {}),
         ...(options.batchMeta || {}),
-      });
-      return localSlots;
+      };
+      onSlideshowSaved?.(savedShow);
+      return savedShow;
     }
 
     for (let si = 0; si < slotCount; si++) {
@@ -2448,7 +2449,7 @@ ${SHARED_RULES_OUTRO}`;
     updateConfig("jitterSeed", showJitterSeed);
     await waitForPreviewPaint();
     const previewScreenshot = await captureLivePreviewThumbnail();
-    onSlideshowSaved?.({
+    const savedShow = {
       slots: [...localSlots],
       captionText: hookCaption,
       previewScreenshot,
@@ -2458,8 +2459,9 @@ ${SHARED_RULES_OUTRO}`;
       ...(config.labelyOutroText ? { labelyOutroText: config.labelyOutroText } : {}),
       ...(config.labelyFoodDbBatches ? { labelyFoodDbBatches: config.labelyFoodDbBatches } : {}),
       ...(options.batchMeta || {}),
-    });
-    return localSlots;
+    };
+    onSlideshowSaved?.(savedShow);
+    return savedShow;
   };
 
   const handleGenerateBatch = async () => {
@@ -2490,10 +2492,11 @@ ${SHARED_RULES_OUTRO}`;
       abortRef.current = new AbortController();
       try {
         let globalShowIdx = 0;
+        const generatedShows = [];
         for (const plan of plans) {
           for (let i = 0; i < plan.slideshowCount; i++) {
             if (cancelGenRef.current) break;
-            await generateOneSlideshow(globalShowIdx, totalShows, {
+            const savedShow = await generateOneSlideshow(globalShowIdx, totalShows, {
               brandItemsOverride: plan.items,
               foodDbMatchesOverride: plan.foodDbMatches,
               batchMeta: {
@@ -2502,14 +2505,27 @@ ${SHARED_RULES_OUTRO}`;
                 batchFoodName: plan.batchName || plan.items[0] || "food",
               },
             });
+            if (savedShow) generatedShows.push(savedShow);
             globalShowIdx++;
           }
           if (cancelGenRef.current) break;
         }
-        setGenAllProgress((p) => p
-          ? { ...p, phase: `✓ ${totalShows} slideshow${totalShows > 1 ? "s" : ""} saved to gallery!`, done: 6 }
-          : null
-        );
+        if (!cancelGenRef.current) {
+          setGenAllProgress((p) => p
+            ? { ...p, phase: `✓ ${generatedShows.length} slideshow${generatedShows.length > 1 ? "s" : ""} saved. Auto-exporting iPhone ZIPs…`, done: 6 }
+            : null
+          );
+          const restoreConfig = {
+            ...config,
+            slots: (config.slots ?? []).map((s) => ({ ...s })),
+          };
+          await exportIphoneZipPlans(generatedShows, restoreConfig, { auto: true });
+        } else {
+          setGenAllProgress((p) => p
+            ? { ...p, phase: `Stopped after ${generatedShows.length} slideshow${generatedShows.length === 1 ? "" : "s"}.`, done: 6 }
+            : null
+          );
+        }
         setTimeout(() => setGenAllProgress(null), 4000);
       } catch (err) {
         console.error("Generate batch failed:", err);
@@ -2906,16 +2922,12 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
-  const handleExportAllVideos = async () => {
-    const restoreConfig = {
-      ...config,
-      slots: (config.slots ?? []).map((s) => ({ ...s })),
-    };
-
-    const zipPlan = tryBuildIphoneBatchZipPlan(savedSlideshows);
+  const exportIphoneZipPlans = async (shows, restoreConfig, { auto = false } = {}) => {
+    const zipPlan = tryBuildIphoneBatchZipPlan(shows);
     if (zipPlan?.error) {
-      alert(zipPlan.error);
-      return;
+      if (auto) setExportStatus(zipPlan.error);
+      else alert(zipPlan.error);
+      return false;
     }
 
     if (zipPlan?.zipPlans?.length) {
@@ -2924,7 +2936,7 @@ ${SHARED_RULES_OUTRO}`;
       let completedJobs = 0;
       setIsExporting(true);
       setExportProgress(0);
-      setExportStatus(`Encoding ${totalJobs} videos into ${zipPlans.length} ZIPs…`);
+      setExportStatus(`${auto ? "Auto-export: " : ""}Encoding ${totalJobs} videos into ${zipPlans.length} ZIPs…`);
       try {
         const { zipSync } = await import("fflate");
         let downloadedZipCount = 0;
@@ -2933,7 +2945,7 @@ ${SHARED_RULES_OUTRO}`;
           const zipEntries = {};
           for (let i = 0; i < plan.jobs.length; i++) {
             const { zipRelPath, show } = plan.jobs[i];
-            setExportStatus(`iPhone ${plan.iphoneNumber}: encoding video ${i + 1} / ${plan.jobs.length}…`);
+            setExportStatus(`${auto ? "Auto-export: " : ""}iPhone ${plan.iphoneNumber}: encoding video ${i + 1} / ${plan.jobs.length}…`);
             const exportCfg = galleryShowToExportConfig(restoreConfig, show);
             flushSync(() => setConfig(exportCfg));
             flushSync(() => setCurrentSlide(0));
@@ -2950,7 +2962,7 @@ ${SHARED_RULES_OUTRO}`;
 
           if (Object.keys(zipEntries).length === 0) continue;
 
-          setExportStatus(`Building ZIP ${plan.iphoneNumber} / ${zipPlans.length}…`);
+          setExportStatus(`${auto ? "Auto-export: " : ""}Building ZIP ${plan.iphoneNumber} / ${zipPlans.length}…`);
           const zipData = zipSync(zipEntries, { level: 1 });
           const blob = new Blob([zipData], { type: "application/zip" });
           triggerZipDownload(blob, `labely-iphone-${String(plan.iphoneNumber).padStart(2, "0")}-${randomExportHex(10)}.zip`);
@@ -2964,9 +2976,11 @@ ${SHARED_RULES_OUTRO}`;
           setExportProgress(100);
           setExportStatus(`Done! Downloaded ${downloadedZipCount} iPhone ZIPs (${LABELY_DB_BATCH_COUNT} videos each).`);
         }
+        return downloadedZipCount > 0;
       } catch (e) {
         console.error(e);
         setExportStatus("iPhone ZIP export failed — see console.");
+        return false;
       } finally {
         flushSync(() => setConfig(restoreConfig));
         flushSync(() => setCurrentSlide(0));
@@ -2976,8 +2990,17 @@ ${SHARED_RULES_OUTRO}`;
           setExportProgress(0);
         }, 5000);
       }
-      return;
     }
+    return false;
+  };
+
+  const handleExportAllVideos = async () => {
+    const restoreConfig = {
+      ...config,
+      slots: (config.slots ?? []).map((s) => ({ ...s })),
+    };
+
+    if (await exportIphoneZipPlans(savedSlideshows, restoreConfig)) return;
 
     if (savedSlideshows.length < 2) return;
 
