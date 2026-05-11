@@ -451,7 +451,8 @@ export default function ConfigPanel({
   currentSlide, setCurrentSlide, totalSlides,
   isExporting, setIsExporting, exportProgress, setExportProgress,
   exportStatus, setExportStatus,
-  onBusyChange, registerRefreshSlide, onSlideshowSaved,
+  onBusyChange, registerRefreshSlide, onSlideshowSaved, onSavedSlideshowsChange,
+  activeShowIdx = null,
   savedSlideshows = [],
 }) {
   const brand = getBrand(config);
@@ -915,6 +916,65 @@ export default function ConfigPanel({
   const applyFoodDbCandidate = (item, value) => {
     if (!value || value === item) return;
     replaceFoodListItem(item, value);
+  };
+
+  const foodDbImageUrlFromRow = (row, item = "") => {
+    if (!row) return "";
+    const preferred = [
+      item,
+      row.match,
+      row.suggestion,
+      ...(Array.isArray(row.candidates) ? row.candidates : []),
+    ].map((x) => String(x || "").trim()).filter(Boolean);
+    const details = Array.isArray(row.candidateDetails) ? row.candidateDetails : [];
+    for (const label of preferred) {
+      const found = details.find((d) => String(d?.label || "").trim() === label);
+      const url = String(found?.imageUrl || "").trim();
+      if (url) return url;
+    }
+    for (const d of details) {
+      const url = String(d?.imageUrl || "").trim();
+      if (url) return url;
+    }
+    return "";
+  };
+
+  const foodDbImageUrlForItem = (item, matches = {}) => {
+    const key = String(item || "").trim();
+    if (!key) return "";
+    return foodDbImageUrlFromRow(matches[key], key)
+      || foodDbImageUrlFromRow(foodDbSuggestionCacheRef.current.get(foodDbKeyFor(key)), key);
+  };
+
+  const foodDbImageUrlForSlot = (slot, matches = {}) => {
+    const candidates = [
+      slot?.labelyDbSeedHint,
+      [slot?.labelyBrand, slot?.itemName].filter(Boolean).join(" "),
+      slot?.itemName,
+    ].map((x) => String(x || "").trim()).filter(Boolean);
+    for (const candidate of candidates) {
+      const url = foodDbImageUrlForItem(candidate, matches);
+      if (url) return url;
+    }
+    return "";
+  };
+
+  const fetchLabelyDatabaseImage = async ({ slot, exactImageUrl = "" }) => {
+    const res = await fetch("/api/labely", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: abortRef.current?.signal,
+      body: JSON.stringify({
+        imageOnly: true,
+        useFoodDatabasePhoto: true,
+        name: slot?.itemName || "",
+        brand: slot?.labelyBrand || "",
+        seedHint: slot?.labelyDbSeedHint || slot?.itemName || "",
+        ...(exactImageUrl ? { foodDatabaseImageUrl: exactImageUrl } : {}),
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    return res.ok && typeof body.imageDataUrl === "string" && body.imageDataUrl ? body.imageDataUrl : "";
   };
 
   useEffect(() => {
@@ -1395,6 +1455,10 @@ ${SHARED_RULES_OUTRO}`;
 
   /** No photo — GPT picks a real retail SKU + score + analysis (fictional scanner compounds) + optional pack image (same as POST /api/labely with no body image). */
   const fillLabelyFromAi = async (seedHint, errorSlotIdx = null, opts = {}) => {
+    const foodDatabaseImageUrl =
+      typeof opts.foodDatabaseImageUrl === "string" && opts.foodDatabaseImageUrl.trim()
+        ? opts.foodDatabaseImageUrl.trim()
+        : "";
     try {
       const res = await fetch("/api/labely", {
         method: "POST",
@@ -1403,6 +1467,7 @@ ${SHARED_RULES_OUTRO}`;
         body: JSON.stringify({
           ...(seedHint?.trim() ? { seedHint: seedHint.trim() } : {}),
           useFoodDatabasePhoto: !!config.labelyUseFoodDatabasePhotos,
+          ...(foodDatabaseImageUrl ? { foodDatabaseImageUrl } : {}),
           ...(opts.includeShelfIntro ? { includeShelfIntro: true } : {}),
         }),
       });
@@ -1554,7 +1619,11 @@ ${SHARED_RULES_OUTRO}`;
               ? weightedPool[Math.floor(Math.random() * weightedPool.length)]
               : null;
           const includeShelfIntro = index === 0 && isLabelyScanTourFormat(config);
-          const ly = await fillLabelyFromAi(hint, index, { includeShelfIntro });
+          const foodDatabaseImageUrl = foodDbImageUrlForItem(hint);
+          const ly = await fillLabelyFromAi(hint, index, {
+            includeShelfIntro,
+            foodDatabaseImageUrl,
+          });
           if (ly?.name) {
             const shelfIntroUrl = ly.shelfIntroDataUrl || (includeShelfIntro
               ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
@@ -1566,6 +1635,8 @@ ${SHARED_RULES_OUTRO}`;
               labelyAnalysis: ly.analysis ?? "",
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
               labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
+              ...(hint ? { labelyDbSeedHint: hint } : {}),
+              ...(foodDatabaseImageUrl ? { labelyDbImageUrl: foodDatabaseImageUrl } : {}),
               ...(ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
               ...(shelfIntroUrl ? { labelyShelfImageUrl: shelfIntroUrl } : {}),
             });
@@ -2208,6 +2279,10 @@ ${SHARED_RULES_OUTRO}`;
     const sourceBrandItems = Array.isArray(options.brandItemsOverride) && options.brandItemsOverride.length > 0
       ? options.brandItemsOverride
       : brandItems;
+    const sourceFoodDbMatches =
+      options.foodDbMatchesOverride && typeof options.foodDbMatchesOverride === "object"
+        ? options.foodDbMatchesOverride
+        : {};
     const uniqueBrands = [...new Set(sourceBrandItems)];
     const shuffled = [...uniqueBrands].sort(() => Math.random() - 0.5);
     while (shuffled.length > 0 && shuffled.length < slotCount)
@@ -2229,7 +2304,11 @@ ${SHARED_RULES_OUTRO}`;
             slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
           });
           const includeShelfIntro = si === 0 && isLabelyScanTourFormat(config);
-          const ly = await fillLabelyFromAi(brandItem, si, { includeShelfIntro });
+          const foodDatabaseImageUrl = foodDbImageUrlForItem(brandItem, sourceFoodDbMatches);
+          const ly = await fillLabelyFromAi(brandItem, si, {
+            includeShelfIntro,
+            foodDatabaseImageUrl,
+          });
           if (ly?.name) {
             const shelfIntroUrl = ly.shelfIntroDataUrl || (includeShelfIntro
               ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
@@ -2242,6 +2321,8 @@ ${SHARED_RULES_OUTRO}`;
               labelyAnalysis: ly.analysis ?? "",
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
               labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
+              ...(brandItem ? { labelyDbSeedHint: brandItem } : {}),
+              ...(foodDatabaseImageUrl ? { labelyDbImageUrl: foodDatabaseImageUrl } : {}),
               ...(ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
               ...(shelfIntroUrl ? { labelyShelfImageUrl: shelfIntroUrl } : {}),
             };
@@ -2388,6 +2469,7 @@ ${SHARED_RULES_OUTRO}`;
           batchName: String(b.name || "").trim(),
           items: String(b.itemsRaw || "").split("\n").map((x) => x.trim()).filter(Boolean),
           slideshowCount: Math.max(0, Math.min(200, Number(b.slideshowCount) || 0)),
+          foodDbMatches: b.foodDbMatches && typeof b.foodDbMatches === "object" ? b.foodDbMatches : {},
         }))
         .filter((b) => b.slideshowCount > 0);
       const totalShows = plans.reduce((sum, p) => sum + p.slideshowCount, 0);
@@ -2412,6 +2494,7 @@ ${SHARED_RULES_OUTRO}`;
             if (cancelGenRef.current) break;
             await generateOneSlideshow(globalShowIdx, totalShows, {
               brandItemsOverride: plan.items,
+              foodDbMatchesOverride: plan.foodDbMatches,
               batchMeta: {
                 batchNumber: plan.batchNumber,
                 batchSlideshowIndex: i + 1,
@@ -2928,6 +3011,91 @@ ${SHARED_RULES_OUTRO}`;
         setExportStatus("");
         setExportProgress(0);
       }, 4000);
+    }
+  };
+
+  const handleFixBlankLabelyPhotos = async () => {
+    if (!Array.isArray(savedSlideshows) || savedSlideshows.length === 0 || typeof onSavedSlideshowsChange !== "function") return;
+    const labelyShows = savedSlideshows.filter((show) => show?.appId === "labely");
+    const blankSlots = labelyShows.reduce(
+      (sum, show) => sum + (Array.isArray(show?.slots) ? show.slots.filter((slot) => !String(slot?.imageUrl || "").trim()).length : 0),
+      0,
+    );
+    if (blankSlots === 0) {
+      setExportStatus("No blank Labely photos found.");
+      setExportProgress(100);
+      setTimeout(() => {
+        setExportStatus("");
+        setExportProgress(0);
+      }, 2500);
+      return;
+    }
+
+    setIsExporting(true);
+    setExportProgress(0);
+    setExportStatus(`Fixing ${blankSlots} blank Labely photo${blankSlots === 1 ? "" : "s"}…`);
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    try {
+      const repaired = savedSlideshows.map((show) => ({
+        ...show,
+        slots: Array.isArray(show?.slots) ? show.slots.map((slot) => ({ ...slot })) : show?.slots,
+      }));
+      let checked = 0;
+      let fixed = 0;
+
+      for (let showIndex = 0; showIndex < repaired.length; showIndex++) {
+        const show = repaired[showIndex];
+        if (show?.appId !== "labely" || !Array.isArray(show.slots)) continue;
+        const batchIndex = Number(show.batchNumber) - 1;
+        const showBatches = Array.isArray(show.labelyFoodDbBatches) ? show.labelyFoodDbBatches : [];
+        const sourceBatch =
+          (batchIndex >= 0 ? showBatches[batchIndex] : null)
+          || (batchIndex >= 0 ? labelyFoodDbBatches[batchIndex] : null)
+          || null;
+        const matches = sourceBatch?.foodDbMatches && typeof sourceBatch.foodDbMatches === "object" ? sourceBatch.foodDbMatches : {};
+
+        for (let slotIndex = 0; slotIndex < show.slots.length; slotIndex++) {
+          const slot = show.slots[slotIndex];
+          if (String(slot?.imageUrl || "").trim()) continue;
+          checked++;
+          setExportStatus(`Fixing blank photo ${checked} / ${blankSlots}…`);
+          const exactImageUrl = String(slot?.labelyDbImageUrl || "").trim() || foodDbImageUrlForSlot(slot, matches);
+          const imageDataUrl = await fetchLabelyDatabaseImage({ slot, exactImageUrl });
+          if (imageDataUrl) {
+            show.slots[slotIndex] = {
+              ...slot,
+              imageUrl: imageDataUrl,
+              ...(exactImageUrl ? { labelyDbImageUrl: exactImageUrl } : {}),
+            };
+            fixed++;
+          }
+          setExportProgress(Math.round((checked / blankSlots) * 100));
+          await new Promise((r) => setTimeout(r, 80));
+        }
+      }
+
+      onSavedSlideshowsChange(repaired);
+      if (activeShowIdx != null && repaired[activeShowIdx]) {
+        const active = repaired[activeShowIdx];
+        setConfig((prev) => ({
+          ...prev,
+          slots: Array.isArray(active.slots) ? active.slots : prev.slots,
+          ...(active.jitterSeed != null ? { jitterSeed: active.jitterSeed } : {}),
+        }));
+      }
+      setExportProgress(100);
+      setExportStatus(`Done! Fixed ${fixed} / ${blankSlots} blank Labely photo${blankSlots === 1 ? "" : "s"}.`);
+    } catch (e) {
+      console.error("Fix blank Labely photos failed:", e);
+      setExportStatus("Fix blank photos failed — see console.");
+    } finally {
+      abortRef.current = null;
+      setIsExporting(false);
+      setTimeout(() => {
+        setExportStatus("");
+        setExportProgress(0);
+      }, 5000);
     }
   };
 
@@ -4180,6 +4348,16 @@ ${SHARED_RULES_OUTRO}`;
         </button>
         {savedSlideshows.length >= 2 ? (
           <>
+            {isLabely ? (
+              <button
+                type="button"
+                onClick={handleFixBlankLabelyPhotos}
+                disabled={isExporting}
+                className="w-full py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white text-sm font-semibold transition-colors"
+              >
+                Check / fix blank photos
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={handleExportAllVideos}

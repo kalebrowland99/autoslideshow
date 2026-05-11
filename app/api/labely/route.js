@@ -473,7 +473,7 @@ async function imageUrlToDataUrl(imageUrl) {
   const contentType = res.headers.get("content-type") || "image/jpeg";
   if (!contentType.startsWith("image/")) return null;
   const ab = await res.arrayBuffer();
-  if (ab.byteLength <= 0 || ab.byteLength > 8 * 1024 * 1024) return null;
+  if (ab.byteLength <= 0 || ab.byteLength > 20 * 1024 * 1024) return null;
   return `data:${contentType.split(";")[0]};base64,${Buffer.from(ab).toString("base64")}`;
 }
 
@@ -587,8 +587,12 @@ export async function POST(req) {
 
     const imageDataUrl = typeof body.imageDataUrl === "string" ? body.imageDataUrl.trim() : "";
     const seedHint = typeof body.seedHint === "string" ? body.seedHint.trim() : "";
+    const imageOnly = body.imageOnly === true;
+    const imageLookupName = typeof body.name === "string" ? body.name.trim() : "";
+    const imageLookupBrand = typeof body.brand === "string" ? body.brand.trim() : "";
     const uploadHint = sanitizeUploadHint(body.uploadHint);
     const useFoodDatabasePhoto = body.useFoodDatabasePhoto === true;
+    const foodDatabaseImageUrl = typeof body.foodDatabaseImageUrl === "string" ? body.foodDatabaseImageUrl.trim() : "";
     const includeShelfIntro = body.includeShelfIntro === true;
 
     if (imageDataUrl) {
@@ -609,6 +613,21 @@ export async function POST(req) {
       });
     }
 
+    if (imageOnly) {
+      let exactImage = null;
+      try {
+        exactImage = foodDatabaseImageUrl ? await imageUrlToDataUrl(foodDatabaseImageUrl) : null;
+      } catch {
+        exactImage = null;
+      }
+      const searchedImage = exactImage || await findOpenFoodFactsImage({
+        name: imageLookupName,
+        brand: imageLookupBrand,
+        seedHint,
+      });
+      return NextResponse.json({ imageDataUrl: searchedImage });
+    }
+
     const base = await generateLabelyJson({ openaiApiKey, seedHint });
     const shelfIntroDataUrl = includeShelfIntro
       ? await generateShelfIntroImage({ name: base.name, brand: base.brand })
@@ -616,11 +635,14 @@ export async function POST(req) {
     let outImage = null;
     if (useFoodDatabasePhoto) {
       try {
-        outImage = await findOpenFoodFactsImage({
-          name: base.name,
-          brand: base.brand,
-          seedHint,
-        });
+        outImage = foodDatabaseImageUrl ? await imageUrlToDataUrl(foodDatabaseImageUrl) : null;
+        if (!outImage) {
+          outImage = await findOpenFoodFactsImage({
+            name: base.name,
+            brand: base.brand,
+            seedHint,
+          });
+        }
       } catch (e) {
         console.error("[labely] Open Food Facts lookup failed", e);
       }

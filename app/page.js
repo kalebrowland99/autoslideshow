@@ -286,6 +286,8 @@ export default function Home() {
             onBusyChange={setIsGenerating}
             registerRefreshSlide={(fn) => { refreshHandlerRef.current = fn; }}
             onSlideshowSaved={handleSlideshowSaved}
+            onSavedSlideshowsChange={setSavedSlideshows}
+            activeShowIdx={activeShowIdx}
             savedSlideshows={savedSlideshows}
           />
         </aside>
