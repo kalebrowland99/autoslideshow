@@ -217,6 +217,34 @@ function foodDbDropdownRowsFromSuggestionRow(row) {
   return labels.map((label) => ({ label, imageUrl: detailMap.get(label) || "" }));
 }
 
+function persistedFoodDbRowForSelection(label, option = null, sourceRow = null) {
+  const name = String(label || "").trim();
+  if (!name) return null;
+  const imageUrl = String(option?.imageUrl || "").trim();
+  const candidates = [
+    name,
+    ...(Array.isArray(sourceRow?.candidates) ? sourceRow.candidates : []),
+  ].filter(Boolean);
+  const uniqueCandidates = [...new Set(candidates)].slice(0, 12);
+  const existingDetails = Array.isArray(sourceRow?.candidateDetails) ? sourceRow.candidateDetails : [];
+  const detailsByLabel = new Map(
+    existingDetails
+      .map((d) => [String(d?.label || "").trim(), String(d?.imageUrl || "").trim()])
+      .filter(([k]) => k),
+  );
+  if (imageUrl) detailsByLabel.set(name, imageUrl);
+  return {
+    query: name,
+    status: "found",
+    match: name,
+    candidates: uniqueCandidates,
+    candidateDetails: uniqueCandidates.map((candidate) => ({
+      label: candidate,
+      imageUrl: detailsByLabel.get(candidate) || "",
+    })),
+  };
+}
+
 /** @param {{ label: string, imageUrl?: string }} row */
 function FoodDbDropdownRowThumb({ row }) {
   const url = String(row.imageUrl || "").trim();
@@ -440,6 +468,7 @@ export default function ConfigPanel({
         ...(typeof row.name === "string" ? { name: row.name } : {}),
         ...(typeof row.itemsRaw === "string" ? { itemsRaw: row.itemsRaw } : {}),
         slideshowCount: Math.max(0, Math.min(200, Number(row.slideshowCount) || 0)),
+        foodDbMatches: row.foodDbMatches && typeof row.foodDbMatches === "object" ? row.foodDbMatches : {},
       };
     });
   }, [config.labelyFoodDbBatches]);
@@ -764,17 +793,28 @@ export default function ConfigPanel({
     setBrandItemsRaw(next);
     localStorage.setItem(storeKey("ts_brand_items"), next);
   };
-  const addBatchFoodListItem = (batchIndex, item) => {
+  const addBatchFoodListItem = (batchIndex, item, option = null) => {
     const nextItem = String(item || "").trim();
     if (!nextItem) return;
+    const batch = labelyFoodDbBatches[batchIndex] || {};
     const current = String(labelyFoodDbBatches[batchIndex]?.itemsRaw || "")
       .split("\n")
       .map((line) => line.trim())
       .filter(Boolean);
+    const existingMatches = batch.foodDbMatches && typeof batch.foodDbMatches === "object" ? batch.foodDbMatches : {};
+    const persistedRow = persistedFoodDbRowForSelection(nextItem, option);
+    const patch = {};
     if (!current.some((line) => line.toLowerCase() === nextItem.toLowerCase())) {
-      updateLabelyFoodDbBatch(batchIndex, { itemsRaw: [...current, nextItem].join("\n") });
+      patch.itemsRaw = [...current, nextItem].join("\n");
     }
-    const batchId = labelyFoodDbBatches[batchIndex]?.id;
+    if (persistedRow) {
+      patch.foodDbMatches = { ...existingMatches, [nextItem]: persistedRow };
+      foodDbSuggestionCacheRef.current.set(foodDbKeyFor(nextItem), persistedRow);
+    }
+    if (Object.keys(patch).length > 0) {
+      updateLabelyFoodDbBatch(batchIndex, patch);
+    }
+    const batchId = batch.id;
     if (batchId) {
       setBatchFoodDbSearch((prev) => ({ ...prev, [batchId]: "" }));
       setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: [] }));
@@ -786,7 +826,11 @@ export default function ConfigPanel({
       .split("\n")
       .map((line) => line.trim())
       .filter(Boolean);
-    updateLabelyFoodDbBatch(batchIndex, { itemsRaw: current.filter((line) => line !== item).join("\n") });
+    const batch = labelyFoodDbBatches[batchIndex] || {};
+    const existingMatches = batch.foodDbMatches && typeof batch.foodDbMatches === "object" ? batch.foodDbMatches : {};
+    const nextMatches = { ...existingMatches };
+    delete nextMatches[item];
+    updateLabelyFoodDbBatch(batchIndex, { itemsRaw: current.filter((line) => line !== item).join("\n"), foodDbMatches: nextMatches });
   };
   const replaceBatchFoodListItem = (batchIndex, from, to) => {
     const lines = String(labelyFoodDbBatches[batchIndex]?.itemsRaw || "")
@@ -796,11 +840,22 @@ export default function ConfigPanel({
     const next = lines
       .map((line) => (line === from ? to : line))
       .join("\n");
-    updateLabelyFoodDbBatch(batchIndex, { itemsRaw: next });
+    const batch = labelyFoodDbBatches[batchIndex] || {};
+    const existingMatches = batch.foodDbMatches && typeof batch.foodDbMatches === "object" ? batch.foodDbMatches : {};
+    const oldPersisted = existingMatches[from];
+    const nextMatches = { ...existingMatches };
+    delete nextMatches[from];
     const cached = foodDbSuggestionCacheRef.current.get(foodDbKeyFor(from));
     if (cached) {
-      foodDbSuggestionCacheRef.current.set(foodDbKeyFor(to), { ...cached, query: to });
+      const nextRow = { ...cached, query: to, match: to };
+      foodDbSuggestionCacheRef.current.set(foodDbKeyFor(to), nextRow);
+      nextMatches[to] = nextRow;
+    } else if (oldPersisted) {
+      const nextRow = { ...oldPersisted, query: to, match: to };
+      foodDbSuggestionCacheRef.current.set(foodDbKeyFor(to), nextRow);
+      nextMatches[to] = nextRow;
     }
+    updateLabelyFoodDbBatch(batchIndex, { itemsRaw: next, foodDbMatches: nextMatches });
   };
   const handleBatchFoodDbSearchChange = (batchIndex, value) => {
     const batchId = labelyFoodDbBatches[batchIndex]?.id;
@@ -863,6 +918,18 @@ export default function ConfigPanel({
   };
 
   useEffect(() => {
+    if (!isLabelyFoodDbBatchMode) return;
+    for (const batch of labelyFoodDbBatches) {
+      const matches = batch.foodDbMatches && typeof batch.foodDbMatches === "object" ? batch.foodDbMatches : {};
+      for (const [item, row] of Object.entries(matches)) {
+        if (item && row?.query) {
+          foodDbSuggestionCacheRef.current.set(foodDbKeyFor(item), row);
+        }
+      }
+    }
+  }, [isLabelyFoodDbBatchMode, labelyFoodDbBatches]);
+
+  useEffect(() => {
     if (!isLabelyFoodDbBatchMode || !config.labelyUseFoodDatabasePhotos) {
       setBatchFoodDbSuggestions({});
       setBatchFoodDbSuggestionStatus({});
@@ -917,6 +984,17 @@ export default function ConfigPanel({
           const incoming = Array.isArray(body.results) ? body.results : [];
           for (const row of incoming) {
             if (row?.query) foodDbSuggestionCacheRef.current.set(foodDbKeyFor(row.query), row);
+          }
+          const batchIndex = labelyFoodDbBatches.findIndex((b) => b.id === batch.id);
+          const foundRows = incoming.filter((row) => row?.query && ["found", "recommend"].includes(row.status));
+          if (batchIndex >= 0 && foundRows.length > 0) {
+            const existingMatches = batch.foodDbMatches && typeof batch.foodDbMatches === "object" ? batch.foodDbMatches : {};
+            updateLabelyFoodDbBatch(batchIndex, {
+              foodDbMatches: {
+                ...existingMatches,
+                ...Object.fromEntries(foundRows.map((row) => [row.query, row])),
+              },
+            });
           }
           const requested = new Set(items);
           setBatchFoodDbSuggestions((prev) => {
@@ -3458,7 +3536,7 @@ ${SHARED_RULES_OUTRO}`;
                             const opts = batchFoodDbSearchOptions[batch.id] || [];
                             if (e.key === "Enter" && opts[0]?.label) {
                               e.preventDefault();
-                              addBatchFoodListItem(idx, opts[0].label);
+                              addBatchFoodListItem(idx, opts[0].label, opts[0]);
                             }
                           }}
                           placeholder="Search Open Food Facts for this batch…"
@@ -3473,7 +3551,7 @@ ${SHARED_RULES_OUTRO}`;
                                 <button
                                   key={`${batch.id}-${option.label}`}
                                   type="button"
-                                  onClick={() => addBatchFoodListItem(idx, option.label)}
+                                  onClick={() => addBatchFoodListItem(idx, option.label, option)}
                                   className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-emerald-500/15"
                                 >
                                   <span className="min-w-0 flex-1 text-[11px] leading-snug text-white/75">
