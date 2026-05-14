@@ -10,7 +10,7 @@ import {
   readHomeSession,
   writeHomeSession,
 } from "@/lib/homeSessionStorage";
-import { isFirebaseConfigured } from "@/lib/firebaseClient";
+import { initFirebaseWebAnalytics, isFirebaseConfigured } from "@/lib/firebaseClient";
 export const emptySlot = (i) => ({
   imageUrl: null,
   prompt: "",
@@ -113,6 +113,10 @@ export default function Home() {
   /** Firebase anonymous uid once signed in; enables cloud backup saves. */
   const [cloudUid, setCloudUid] = useState(null);
   const [cloudStatus, setCloudStatus] = useState("");
+
+  useEffect(() => {
+    void initFirebaseWebAnalytics();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
