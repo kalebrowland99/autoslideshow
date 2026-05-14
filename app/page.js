@@ -12,6 +12,7 @@ import {
   writeHomeSession,
 } from "@/lib/homeSessionStorage";
 import { initFirebaseWebAnalytics, isFirebaseConfigured } from "@/lib/firebaseClient";
+import { firebaseFriendlyError } from "@/lib/firebaseFriendlyError";
 export const emptySlot = (i) => ({
   imageUrl: null,
   prompt: "",
@@ -114,6 +115,7 @@ export default function Home() {
   /** Firebase anonymous uid once signed in; enables cloud backup saves. */
   const [cloudUid, setCloudUid] = useState(null);
   const [cloudStatus, setCloudStatus] = useState("");
+  const [cloudStatusDetail, setCloudStatusDetail] = useState("");
 
   useEffect(() => {
     void initFirebaseWebAnalytics();
@@ -163,15 +165,19 @@ export default function Home() {
 
         const { signInFirebaseAnonymously, loadHomeSessionRemote } = await import("@/lib/firebaseHomeSession");
         const uid = await signInFirebaseAnonymously();
-        if (cancelled || !uid) {
+        if (cancelled) return;
+        if (!uid) {
+          setCloudStatus("Firebase: sign-in failed (check Auth domain + Anonymous provider)");
+          setCloudStatusDetail("signInFirebaseAnonymously returned null");
           return;
         }
-        if (!cancelled) setCloudUid(uid);
+        setCloudUid(uid);
 
         const remote = await loadHomeSessionRemote(uid);
         if (cancelled) return;
         if (!remote) {
           setCloudStatus("Firebase backup ready");
+          setCloudStatusDetail("");
           return;
         }
         const remoteAt = typeof remote.savedAt === "number" ? remote.savedAt : 0;
@@ -207,12 +213,18 @@ export default function Home() {
             savedAt: remote.savedAt,
           });
           setCloudStatus("Loaded newer session from Firebase");
+          setCloudStatusDetail("");
         } else {
           setCloudStatus("Firebase backup ready");
+          setCloudStatusDetail("");
         }
       } catch (e) {
         console.warn("[firebase]", e);
-        if (!cancelled) setCloudStatus("Firebase unavailable");
+        if (!cancelled) {
+          const h = firebaseFriendlyError(e);
+          setCloudStatus(h.short);
+          setCloudStatusDetail(h.detail);
+        }
       } finally {
         if (!cancelled) skipSaveUntilHydrated.current = false;
       }
@@ -256,9 +268,12 @@ export default function Home() {
           savedAt: Date.now(),
         });
         setCloudStatus("Backed up to Firebase");
+        setCloudStatusDetail("");
       } catch (e) {
         console.warn("[firebase] save", e);
-        setCloudStatus("Firebase backup failed");
+        const h = firebaseFriendlyError(e);
+        setCloudStatus(h.short);
+        setCloudStatusDetail(h.detail);
       }
     }, 2000);
     return () => window.clearTimeout(t);
@@ -378,7 +393,10 @@ export default function Home() {
         </div>
         <div className="flex items-center gap-3">
           {isFirebaseConfigured() && cloudStatus ? (
-            <span className="text-emerald-400/90 text-[11px] max-w-[200px] truncate" title={cloudStatus}>
+            <span
+              className="text-emerald-400/90 text-[11px] max-w-[min(280px,40vw)] truncate cursor-default"
+              title={cloudStatusDetail || cloudStatus}
+            >
               {cloudStatus}
             </span>
           ) : null}
