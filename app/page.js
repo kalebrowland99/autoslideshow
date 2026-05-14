@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import VideoPreview from "@/components/VideoPreview";
 import LabelyScanSequencePreview from "@/components/LabelyScanSequencePreview";
 import ConfigPanel from "@/components/ConfigPanel";
+import GalleryRail from "@/components/GalleryRail";
 import { getTotalSlides } from "@/lib/slideLayout";
 import {
   mergePersistedConfig,
@@ -348,7 +349,7 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
+    <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-[#0f0f0f]">
       <header className="border-b border-white/10 px-6 py-4 flex items-center justify-between shrink-0">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <div className="flex items-center gap-3">
@@ -389,7 +390,7 @@ export default function Home() {
       </header>
 
       <div className="flex-1 flex overflow-hidden min-h-0">
-        <aside className="w-[420px] border-r border-white/10 overflow-y-auto shrink-0">
+        <aside className="w-[420px] border-r border-white/10 overflow-y-auto shrink-0 min-h-0">
           <ConfigPanel
             config={config}
             setConfig={setConfig}
@@ -418,7 +419,7 @@ export default function Home() {
           />
         </aside>
 
-        <main className="flex-1 min-h-0 flex items-center justify-center p-8 overflow-auto bg-[#080808]">
+        <main className="flex-1 min-h-0 min-w-0 flex items-center justify-center p-8 overflow-auto bg-[#080808]">
           <div className="flex flex-col items-center gap-4">
             <div className="flex items-center justify-center gap-3 flex-wrap">
               <p className="text-white/40 text-xs uppercase tracking-widest">Live Preview</p>
@@ -441,72 +442,13 @@ export default function Home() {
           </div>
         </main>
 
-        {/* ── Slideshow gallery panel ─────────────────────────────────────────── */}
+        {/* ── Slideshow gallery panel (scrolls inside viewport; compact when many) ─ */}
         {savedSlideshows.length > 0 && (
-          <aside className="w-[252px] border-l border-white/10 overflow-y-auto shrink-0 bg-[#0a0a0a]">
-            <div className="p-3">
-              <div className="flex items-center justify-between mb-3 sticky top-0 bg-[#0a0a0a] py-1 z-10">
-                <span className="text-white/50 text-[11px] font-semibold uppercase tracking-wider">
-                  Slideshows
-                </span>
-                <span className="text-violet-400 text-[11px] font-semibold">
-                  {savedSlideshows.length} ready
-                </span>
-              </div>
-              <div className="space-y-2.5">
-                {savedSlideshows.map((show, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => loadShow(show, idx)}
-                    className={`w-full rounded-xl overflow-hidden border transition-all text-left ${
-                      activeShowIdx === idx
-                        ? "border-violet-500 ring-1 ring-violet-500/40"
-                        : "border-white/10 hover:border-white/25"
-                    }`}
-                  >
-                    {show.previewScreenshot ? (
-                      <div className="bg-black/80">
-                        <div className="relative bg-black" style={{ aspectRatio: "9 / 16" }}>
-                          <img
-                            src={show.previewScreenshot}
-                            alt={show.captionText ? `Preview of ${show.captionText}` : `Preview of slideshow ${idx + 1}`}
-                            className="w-full h-full object-contain object-center block"
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 gap-px bg-black/60">
-                        {show.slots.map((slot, i) => (
-                          <div key={i} className="relative overflow-hidden bg-zinc-900" style={{ aspectRatio: "3/4" }}>
-                            {slot.imageUrl
-                              ? <img src={slot.imageUrl} alt="" className="w-full h-full object-contain object-center" />
-                              : <div className="w-full h-full flex items-center justify-center">
-                                  <span className="text-white/15 text-[10px]">{i + 1}</span>
-                                </div>
-                            }
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {/* Card footer */}
-                    <div className="px-2.5 py-2 bg-zinc-900/80">
-                      <div className="flex items-center justify-between">
-                        <span className={`text-[10px] font-semibold ${activeShowIdx === idx ? "text-violet-400" : "text-white/30"}`}>
-                          #{idx + 1}
-                        </span>
-                        {activeShowIdx === idx && (
-                          <span className="text-[9px] text-violet-400 font-medium">● active</span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-white/60 truncate mt-0.5 leading-tight">
-                        {show.captionText || `Slideshow ${idx + 1}`}
-                      </p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </aside>
+          <GalleryRail
+            savedSlideshows={savedSlideshows}
+            activeShowIdx={activeShowIdx}
+            loadShow={loadShow}
+          />
         )}
       </div>
     </div>
