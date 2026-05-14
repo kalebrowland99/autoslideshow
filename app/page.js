@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import VideoPreview from "@/components/VideoPreview";
 import LabelyScanSequencePreview from "@/components/LabelyScanSequencePreview";
 import ConfigPanel from "@/components/ConfigPanel";
+import GlobalJobBar from "@/components/GlobalJobBar";
 import GalleryRail from "@/components/GalleryRail";
 import { getTotalSlides } from "@/lib/slideLayout";
 import {
@@ -406,6 +407,8 @@ export default function Home() {
           <span className="text-white/40 text-sm">Video Generator</span>
         </div>
       </header>
+
+      <GlobalJobBar />
 
       <div className="flex-1 flex overflow-hidden min-h-0">
         <aside className="w-[420px] border-r border-white/10 overflow-y-auto shrink-0 min-h-0">

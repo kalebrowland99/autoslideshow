@@ -22,6 +22,16 @@ import {
 } from "@/lib/fileToDisplayableDataUrl";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
 import { BAD_LABELY_VERDICT, normalizeBadLabelyScore } from "@/lib/labelyRating";
+import {
+  clearGlobalJob,
+  clearJobHeartbeat,
+  getGlobalJob,
+  jobControls,
+  patchGlobalJob,
+  setGlobalJob,
+  writeJobHeartbeat,
+} from "@/lib/globalJobProgress";
+import { waitForPreviewPaint } from "@/lib/waitForPreviewPaint";
 
 function parseDataUrl(dataUrl) {
   if (!dataUrl || typeof dataUrl !== "string") return null;
@@ -142,9 +152,6 @@ function labelySlotAfterImageSwap(prevSlot, imageUrl, slotIndex) {
     labelyLegalNote: "No lawsuits found.",
   };
 }
-
-const waitForPreviewPaint = () =>
-  new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
 /** Random hex id for scrambled export names and ZIP entry metadata. */
 function randomExportHex(byteLength = 8) {
@@ -1000,18 +1007,77 @@ export default function ConfigPanel({
       .catch(() => setReferenceImages([]));
   }, [brand.appId]);
   const cancelGenRef = useRef(false);
+  const jobPausedRef = useRef(false);
   const batchCaptionsRef = useRef([]);
   const apiKeyWarnedRef = useRef(false);
   const abortRef = useRef(null); // AbortController for force-stopping in-flight requests
 
-  const hardStop = () => {
+  const waitWhilePaused = useCallback(async () => {
+    while (jobPausedRef.current && !cancelGenRef.current) {
+      await new Promise((r) => setTimeout(r, 120));
+    }
+  }, []);
+
+  const hardStop = useCallback(() => {
     cancelGenRef.current = true;
+    jobPausedRef.current = false;
     try { abortRef.current?.abort("stopped"); } catch {}
     abortRef.current = null;
-    setGeneratingSlot(null);
-    setGenAllProgress((p) => p ? { ...p, phase: "Stopped." } : null);
+    setGeneratingSlotRaw(null);
+    onBusyChange?.(false);
+    setIsExporting(false);
+    setGenAllProgress((p) => (p ? { ...p, phase: "Stopped." } : null));
+    clearJobHeartbeat();
+    clearGlobalJob();
     setTimeout(() => setGenAllProgress(null), 2000);
-  };
+  }, [onBusyChange, setIsExporting, setGenAllProgress]);
+
+  useEffect(() => {
+    jobControls.pause = () => {
+      jobPausedRef.current = true;
+      const j = getGlobalJob();
+      if (j) patchGlobalJob({ paused: true });
+    };
+    jobControls.resume = () => {
+      jobPausedRef.current = false;
+      const j = getGlobalJob();
+      if (j) patchGlobalJob({ paused: false });
+    };
+    jobControls.stop = hardStop;
+    return () => {
+      jobControls.pause = () => {};
+      jobControls.resume = () => {};
+      jobControls.stop = () => {};
+    };
+  }, [hardStop]);
+
+  useEffect(() => {
+    const active = generatingSlot !== null || isExporting;
+    if (!active) {
+      clearGlobalJob();
+      clearJobHeartbeat();
+      return;
+    }
+    let percent = 0;
+    let phase = "";
+    if (isExporting) {
+      percent = typeof exportProgress === "number" ? exportProgress : 0;
+      phase = exportStatus || "Exporting…";
+    } else if (genAllProgress) {
+      const t = Math.max(1, Number(genAllProgress.total) || 1);
+      percent = Math.round(((Number(genAllProgress.done) || 0) / t) * 100);
+      phase = genAllProgress.phase || "Working…";
+    } else {
+      phase = generatingSlot === "all" ? "Preparing batch…" : "Working…";
+    }
+    setGlobalJob({
+      percent: Math.min(100, Math.max(0, percent)),
+      phase,
+      paused: jobPausedRef.current,
+      hint: "Runs in this browser tab only (not on a server). You can switch away or minimize; work keeps going but may be slower in the background. Refresh or closing the tab stops the job.",
+    });
+    writeJobHeartbeat({ percent, phase });
+  }, [generatingSlot, genAllProgress, isExporting, exportProgress, exportStatus]);
 
   const rewordCaptionApi = async (text) => {
     const res = await fetch("/api/generate-image", {
@@ -1814,6 +1880,7 @@ ${SHARED_RULES_OUTRO}`;
       setGenAllProgress({ total, done: 0, current: activeSlots[0].i, phase: `Starting ${total} image${total > 1 ? "s" : ""}…`, slotsDone });
 
       for (let idx = 0; idx < activeSlots.length; idx++) {
+        await waitWhilePaused();
         if (cancelGenRef.current) {
           if (tourAiDeferredWrites.length > 0) {
             flushSync(() => {
@@ -2124,6 +2191,8 @@ ${SHARED_RULES_OUTRO}`;
           ? hookItems[Math.floor(Math.random() * hookItems.length)]
           : config.captionText;
       hookCaption = await ensureUniqueHookCaption(hookCaption, batchCaptionsRef);
+      await waitWhilePaused();
+      if (cancelGenRef.current) return null;
     }
 
     const sourceBrandItems = Array.isArray(options.brandItemsOverride) && options.brandItemsOverride.length > 0
@@ -2144,6 +2213,7 @@ ${SHARED_RULES_OUTRO}`;
     if (isLabely) {
       if (config.labelyAiProducts) {
         for (let si = 0; si < slotCount; si++) {
+          await waitWhilePaused();
           if (cancelGenRef.current) break;
           const brandItem = shuffled.length > 0 ? shuffled[si] : null;
           setGenAllProgress({
@@ -2181,6 +2251,7 @@ ${SHARED_RULES_OUTRO}`;
         }
       } else {
       for (let si = 0; si < slotCount; si++) {
+        await waitWhilePaused();
         if (cancelGenRef.current) break;
         const pre = slice?.[si] ?? null;
         setGenAllProgress({
@@ -2240,6 +2311,7 @@ ${SHARED_RULES_OUTRO}`;
     }
 
     for (let si = 0; si < slotCount; si++) {
+      await waitWhilePaused();
       if (cancelGenRef.current) break;
       const brandItem = shuffled.length > 0 ? shuffled[si] : null;
       const pre = slice?.[si] ?? null;
@@ -2344,6 +2416,7 @@ ${SHARED_RULES_OUTRO}`;
         const generatedShows = [];
         for (const plan of plans) {
           for (let i = 0; i < plan.slideshowCount; i++) {
+            await waitWhilePaused();
             if (cancelGenRef.current) break;
             const savedShow = await generateOneSlideshow(globalShowIdx, totalShows, {
               brandItemsOverride: plan.items,
@@ -2404,6 +2477,7 @@ ${SHARED_RULES_OUTRO}`;
     abortRef.current = new AbortController();
     try {
       for (let i = 0; i < numSlideshows; i++) {
+        await waitWhilePaused();
         if (cancelGenRef.current) break;
         await generateOneSlideshow(i, numSlideshows);
       }
@@ -2425,12 +2499,18 @@ ${SHARED_RULES_OUTRO}`;
   // ── Video export: capture each slide, then animate ──
   const encodeWorkspaceVideoToBlob = async (exportCfg) => {
     setExportProgress(0);
+    await waitWhilePaused();
+    if (cancelGenRef.current) return null;
 
     if ((exportCfg.outputFormat ?? "standard") === "starterPack") {
       setExportStatus("Generating starter pack text…");
       const sp = await ensureStarterPackAutofill();
+      await waitWhilePaused();
+      if (cancelGenRef.current) return null;
       setExportStatus("Generating starter pack images…");
       await ensureStarterPackImages(sp?.imagePrompts ?? sp?.items, exportCfg);
+      await waitWhilePaused();
+      if (cancelGenRef.current) return null;
       setExportStatus("Capturing slides…");
     }
 
@@ -2441,6 +2521,8 @@ ${SHARED_RULES_OUTRO}`;
     const fps = 30;
 
     for (let i = 0; i < slidesCount; i++) {
+      await waitWhilePaused();
+      if (cancelGenRef.current) return null;
       flushSync(() => {
         setCurrentSlide(i);
       });
@@ -2459,6 +2541,11 @@ ${SHARED_RULES_OUTRO}`;
         const SP_PHASES = 4;
         const SP_PHASE_DURATION = 5 / SP_PHASES; // seconds per phase
         for (let phase = 1; phase <= SP_PHASES; phase++) {
+          await waitWhilePaused();
+          if (cancelGenRef.current) {
+            setConfig((prev) => ({ ...prev, _spPhase: -1 }));
+            return null;
+          }
           setConfig((prev) => ({ ...prev, _spPhase: phase }));
           await new Promise((r) => setTimeout(r, 120));
           try {
@@ -2523,6 +2610,9 @@ ${SHARED_RULES_OUTRO}`;
       setExportStatus("Export failed — no frames captured.");
       return null;
     }
+
+    await waitWhilePaused();
+    if (cancelGenRef.current) return null;
 
     // ── PHASE 2: Encode with native WebCodecs + mp4-muxer (no WASM, no CDN) ──────
     setExportStatus("Preparing encoder…");
@@ -2632,12 +2722,24 @@ ${SHARED_RULES_OUTRO}`;
     };
 
     for (let si = 0; si < validSlides.length; si++) {
+      await waitWhilePaused();
+      if (cancelGenRef.current) {
+        try { encoder.close(); } catch {}
+        setExportStatus("Export cancelled.");
+        return null;
+      }
       const curSnaps = validSlides[si].snapshots;
       const frameSeq = Array.isArray(curSnaps?.[1]) ? curSnaps[1] : null;
       const holdFrames = perSlideHoldFrames[si];
 
       for (let f = 0; f < holdFrames; f++) {
         if (encoderError) break;
+        await waitWhilePaused();
+        if (cancelGenRef.current) {
+          try { encoder.close(); } catch {}
+          setExportStatus("Export cancelled.");
+          return null;
+        }
         sctx.clearRect(0, 0, OUT_W, OUT_H);
         const src = frameSeq ? frameSeq[f] : curSnaps[0];
         sctx.drawImage(src, 0, 0, OUT_W, OUT_H);
@@ -2657,6 +2759,11 @@ ${SHARED_RULES_OUTRO}`;
         // Throttle if the encoder queue is building up
         while (encoder.encodeQueueSize > 12) {
           await new Promise((r) => setTimeout(r, 5));
+          if (cancelGenRef.current) {
+            try { encoder.close(); } catch {}
+            setExportStatus("Export cancelled.");
+            return null;
+          }
         }
       }
 
@@ -2667,6 +2774,12 @@ ${SHARED_RULES_OUTRO}`;
         const nxtCv = slideFirstCanvas(nxtSnaps);
         for (let f = 0; f < transitionFrames; f++) {
           if (encoderError) break;
+          await waitWhilePaused();
+          if (cancelGenRef.current) {
+            try { encoder.close(); } catch {}
+            setExportStatus("Export cancelled.");
+            return null;
+          }
           const t      = f / transitionFrames;
           const eased  = 1 - Math.pow(1 - t, 3);
           const offset = Math.round(eased * OUT_W);
@@ -2688,9 +2801,22 @@ ${SHARED_RULES_OUTRO}`;
       return null;
     }
 
+    await waitWhilePaused();
+    if (cancelGenRef.current) {
+      try { encoder.close(); } catch {}
+      setExportStatus("Export cancelled.");
+      return null;
+    }
+
     setExportStatus("Finalizing MP4…");
     setExportProgress(97);
     await encoder.flush();
+
+    await waitWhilePaused();
+    if (cancelGenRef.current) {
+      setExportStatus("Export cancelled.");
+      return null;
+    }
 
     // ── Encode audio track (if loaded) ────────────────────────────────────
     if (decodedAudio) {
@@ -2719,6 +2845,13 @@ ${SHARED_RULES_OUTRO}`;
 
         let audioOffset = 0;
         while (audioOffset < totalAudioSamples && !audioError) {
+          await waitWhilePaused();
+          if (cancelGenRef.current) {
+            try { await audioEncoder.flush(); } catch {}
+            try { audioEncoder.close(); } catch {}
+            setExportStatus("Export cancelled.");
+            return null;
+          }
           const size = Math.min(CHUNK, totalAudioSamples - audioOffset);
           // Build planar float32 buffer: [ch0 samples … ch1 samples …]
           const buf = new Float32Array(size * audioChannels);
@@ -2752,6 +2885,7 @@ ${SHARED_RULES_OUTRO}`;
   };
 
   const handleExportVideo = async () => {
+    cancelGenRef.current = false;
     setIsExporting(true);
     setExportProgress(0);
     setExportStatus("Capturing slides…");
@@ -2783,6 +2917,7 @@ ${SHARED_RULES_OUTRO}`;
       const zipPlans = zipPlan.zipPlans;
       const totalJobs = zipPlans.reduce((sum, plan) => sum + plan.jobs.length, 0);
       let completedJobs = 0;
+      cancelGenRef.current = false;
       setIsExporting(true);
       setExportProgress(0);
       setExportStatus(`${auto ? "Auto-export: " : ""}Encoding ${totalJobs} videos into ${zipPlans.length} ZIPs…`);
@@ -2791,8 +2926,11 @@ ${SHARED_RULES_OUTRO}`;
         let downloadedZipCount = 0;
 
         for (const plan of zipPlans) {
+          if (cancelGenRef.current) break;
           const zipEntries = {};
           for (let i = 0; i < plan.jobs.length; i++) {
+            await waitWhilePaused();
+            if (cancelGenRef.current) break;
             const { zipRelPath, show } = plan.jobs[i];
             setExportStatus(`${auto ? "Auto-export: " : ""}iPhone ${plan.iphoneNumber}: encoding video ${i + 1} / ${plan.jobs.length}…`);
             const exportCfg = galleryShowToExportConfig(restoreConfig, show);
@@ -2800,6 +2938,7 @@ ${SHARED_RULES_OUTRO}`;
             flushSync(() => setCurrentSlide(0));
             await waitForPreviewPaint();
             const blob = await encodeWorkspaceVideoToBlob(exportCfg);
+            if (cancelGenRef.current) break;
             if (blob) {
               const arr = new Uint8Array(await blob.arrayBuffer());
               zipEntries[zipRelPath] = [arr, randomZipEntryOptions()];
@@ -2808,6 +2947,8 @@ ${SHARED_RULES_OUTRO}`;
             setExportProgress(Math.round((completedJobs / totalJobs) * 95));
             await new Promise((r) => setTimeout(r, 120));
           }
+
+          if (cancelGenRef.current) break;
 
           if (Object.keys(zipEntries).length === 0) continue;
 
@@ -2853,11 +2994,14 @@ ${SHARED_RULES_OUTRO}`;
 
     if (savedSlideshows.length < 2) return;
 
+    cancelGenRef.current = false;
     setIsExporting(true);
     setExportProgress(0);
     setExportStatus("Preparing batch export…");
     try {
       for (let i = 0; i < savedSlideshows.length; i++) {
+        await waitWhilePaused();
+        if (cancelGenRef.current) break;
         const show = savedSlideshows[i];
         setExportStatus(`Exporting video ${i + 1} of ${savedSlideshows.length}…`);
         const exportCfg = galleryShowToExportConfig(restoreConfig, show);
@@ -2865,14 +3009,19 @@ ${SHARED_RULES_OUTRO}`;
         flushSync(() => setCurrentSlide(0));
         await waitForPreviewPaint();
         const blob = await encodeWorkspaceVideoToBlob(exportCfg);
+        if (cancelGenRef.current) break;
         if (blob) {
           triggerMp4Download(blob, sequentialRandomMp4Name(i, show));
           await new Promise((r) => setTimeout(r, 400));
         }
         setExportProgress(Math.round(((i + 1) / savedSlideshows.length) * 100));
       }
-      setExportProgress(100);
-      setExportStatus(`Done! ${savedSlideshows.length} videos downloaded.`);
+      if (cancelGenRef.current) {
+        setExportStatus("Export cancelled.");
+      } else {
+        setExportProgress(100);
+        setExportStatus(`Done! ${savedSlideshows.length} videos downloaded.`);
+      }
     } catch (e) {
       console.error(e);
       setExportStatus("Batch video export failed — see console.");

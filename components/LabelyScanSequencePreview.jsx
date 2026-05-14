@@ -6,14 +6,12 @@ import { getFontEmbedCSS, toCanvas } from "html-to-image";
 import { buildLabelyScanFrameSequence } from "@/lib/labelyScanExport";
 import { getSlideInfo, isLabelyScanTourFormat } from "@/lib/slideLayout";
 import { DISPLAY_SCALE } from "./VideoPreview";
+import { waitForPreviewPaint } from "@/lib/waitForPreviewPaint";
 
 const EXPORT_CAPTURE_PIXEL_RATIO = 1080 / Math.round(1080 * DISPLAY_SCALE);
 
 /** Fallback pack shot when the slot has no image (matches export placeholder behavior). */
 const SAMPLE_SCAN_PRODUCT_IMAGE = "/labely/references/IMG_0076.jpg";
-
-const waitForPreviewPaint = () =>
-  new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
 async function waitForFonts() {
   if (!document.fonts?.ready) return;
