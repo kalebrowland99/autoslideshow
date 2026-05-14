@@ -10,6 +10,7 @@ import {
   readHomeSession,
   writeHomeSession,
 } from "@/lib/homeSessionStorage";
+import { isFirebaseConfigured } from "@/lib/firebaseClient";
 export const emptySlot = (i) => ({
   imageUrl: null,
   prompt: "",
@@ -105,46 +106,158 @@ export default function Home() {
   // ── Batch slideshow gallery ──────────────────────────────────────────────────
   const [savedSlideshows, setSavedSlideshows] = useState([]);
   const [activeShowIdx, setActiveShowIdx] = useState(null);
+  /** Batch generator slideshow count (persisted with home session). */
+  const [numSlideshows, setNumSlideshows] = useState(3);
+  /** Flat queue of workspace photos across all batch rows (persisted; fixes refresh blanks). */
+  const [batchImageDataUrls, setBatchImageDataUrls] = useState([]);
+  /** Firebase anonymous uid once signed in; enables cloud backup saves. */
+  const [cloudUid, setCloudUid] = useState(null);
+  const [cloudStatus, setCloudStatus] = useState("");
 
   useEffect(() => {
-    const raw = readHomeSession();
-    if (!raw) {
-      skipSaveUntilHydrated.current = false;
-      return;
-    }
-    let merged = defaultConfig;
-    if (raw.config && typeof raw.config === "object") {
-      merged = mergePersistedConfig(defaultConfig, emptySlot, raw.config);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setConfig(merged);
-    }
-    if (Array.isArray(raw.savedSlideshows)) {
-      setSavedSlideshows(raw.savedSlideshows);
-    }
-    const maxSlide = Math.max(0, getTotalSlides(merged) - 1);
-    const cs = typeof raw.currentSlide === "number" ? raw.currentSlide : 0;
-    setCurrentSlide(Math.min(Math.max(0, cs), maxSlide));
-    if (typeof raw.activeShowIdx === "number" && raw.activeShowIdx >= 0) {
-      const n = Array.isArray(raw.savedSlideshows) ? raw.savedSlideshows.length : 0;
-      setActiveShowIdx(n > 0 ? Math.min(raw.activeShowIdx, n - 1) : null);
-    } else {
-      setActiveShowIdx(null);
-    }
-    skipSaveUntilHydrated.current = false;
+    let cancelled = false;
+
+    const applySnapshot = (raw) => {
+      let merged = defaultConfig;
+      if (raw?.config && typeof raw.config === "object") {
+        merged = mergePersistedConfig(defaultConfig, emptySlot, raw.config);
+        setConfig(merged);
+      }
+      if (Array.isArray(raw?.savedSlideshows)) {
+        setSavedSlideshows(raw.savedSlideshows);
+      }
+      const maxSlide = Math.max(0, getTotalSlides(merged) - 1);
+      const cs = typeof raw?.currentSlide === "number" ? raw.currentSlide : 0;
+      setCurrentSlide(Math.min(Math.max(0, cs), maxSlide));
+      if (typeof raw?.activeShowIdx === "number" && raw.activeShowIdx >= 0) {
+        const n = Array.isArray(raw.savedSlideshows) ? raw.savedSlideshows.length : 0;
+        setActiveShowIdx(n > 0 ? Math.min(raw.activeShowIdx, n - 1) : null);
+      } else {
+        setActiveShowIdx(null);
+      }
+      if (typeof raw?.numSlideshows === "number" && raw.numSlideshows >= 1 && raw.numSlideshows <= 50) {
+        setNumSlideshows(raw.numSlideshows);
+      }
+      if (Array.isArray(raw?.batchImageDataUrls)) {
+        setBatchImageDataUrls(raw.batchImageDataUrls.map((x) => (typeof x === "string" && x.trim() ? x : null)));
+      }
+      return merged;
+    };
+
+    (async () => {
+      try {
+        const raw = readHomeSession();
+        const localSavedAt = typeof raw?.savedAt === "number" ? raw.savedAt : 0;
+        if (raw) {
+          applySnapshot(raw);
+        }
+
+        if (!isFirebaseConfigured()) {
+          return;
+        }
+
+        const { signInFirebaseAnonymously, loadHomeSessionRemote } = await import("@/lib/firebaseHomeSession");
+        const uid = await signInFirebaseAnonymously();
+        if (cancelled || !uid) {
+          return;
+        }
+        if (!cancelled) setCloudUid(uid);
+
+        const remote = await loadHomeSessionRemote(uid);
+        if (cancelled) return;
+        if (!remote) {
+          setCloudStatus("Firebase backup ready");
+          return;
+        }
+        const remoteAt = typeof remote.savedAt === "number" ? remote.savedAt : 0;
+        if (remoteAt > localSavedAt) {
+          const snap = {
+            config: remote.config,
+            savedSlideshows: remote.savedSlideshows,
+            currentSlide: remote.currentSlide,
+            activeShowIdx: remote.activeShowIdx,
+            numSlideshows: remote.numSlideshows,
+            batchImageDataUrls: remote.batchImageDataUrls,
+            savedAt: remote.savedAt,
+          };
+          const mergedRemote = applySnapshot(snap);
+          const galleryLen = Array.isArray(remote.savedSlideshows) ? remote.savedSlideshows.length : 0;
+          const clampedActive =
+            typeof remote.activeShowIdx === "number" && remote.activeShowIdx >= 0 && galleryLen > 0
+              ? Math.min(remote.activeShowIdx, galleryLen - 1)
+              : null;
+          const maxSlideRemote = Math.max(0, getTotalSlides(mergedRemote) - 1);
+          const clampedSlide = Math.min(
+            Math.max(0, typeof remote.currentSlide === "number" ? remote.currentSlide : 0),
+            maxSlideRemote
+          );
+          writeHomeSession({
+            v: 1,
+            config: mergedRemote,
+            savedSlideshows: remote.savedSlideshows,
+            activeShowIdx: clampedActive,
+            currentSlide: clampedSlide,
+            numSlideshows: remote.numSlideshows,
+            batchImageDataUrls: remote.batchImageDataUrls,
+            savedAt: remote.savedAt,
+          });
+          setCloudStatus("Loaded newer session from Firebase");
+        } else {
+          setCloudStatus("Firebase backup ready");
+        }
+      } catch (e) {
+        console.warn("[firebase]", e);
+        if (!cancelled) setCloudStatus("Firebase unavailable");
+      } finally {
+        if (!cancelled) skipSaveUntilHydrated.current = false;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (skipSaveUntilHydrated.current) return;
+    const savedAt = Date.now();
     const t = window.setTimeout(() => {
       writeHomeSession({
+        v: 1,
         config,
         savedSlideshows,
         activeShowIdx,
         currentSlide,
+        numSlideshows,
+        batchImageDataUrls,
+        savedAt,
       });
     }, 400);
     return () => window.clearTimeout(t);
-  }, [config, savedSlideshows, activeShowIdx, currentSlide]);
+  }, [config, savedSlideshows, activeShowIdx, currentSlide, numSlideshows, batchImageDataUrls]);
+
+  useEffect(() => {
+    if (skipSaveUntilHydrated.current || !cloudUid || !isFirebaseConfigured()) return;
+    const t = window.setTimeout(async () => {
+      try {
+        const { saveHomeSessionRemote } = await import("@/lib/firebaseHomeSession");
+        await saveHomeSessionRemote(cloudUid, {
+          config,
+          savedSlideshows,
+          activeShowIdx,
+          currentSlide,
+          numSlideshows,
+          batchImageDataUrls,
+          savedAt: Date.now(),
+        });
+        setCloudStatus("Backed up to Firebase");
+      } catch (e) {
+        console.warn("[firebase] save", e);
+        setCloudStatus("Firebase backup failed");
+      }
+    }, 2000);
+    return () => window.clearTimeout(t);
+  }, [config, savedSlideshows, activeShowIdx, currentSlide, numSlideshows, batchImageDataUrls, cloudUid]);
 
   const handleSlideshowSaved = useCallback((showData) => {
     setSavedSlideshows((prev) => {
@@ -259,6 +372,11 @@ export default function Home() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {isFirebaseConfigured() && cloudStatus ? (
+            <span className="text-emerald-400/90 text-[11px] max-w-[200px] truncate" title={cloudStatus}>
+              {cloudStatus}
+            </span>
+          ) : null}
           <span className="text-white/30 text-xs">
             Slide {currentSlide + 1} / {totalSlides}
           </span>
@@ -289,6 +407,10 @@ export default function Home() {
             onSavedSlideshowsChange={setSavedSlideshows}
             activeShowIdx={activeShowIdx}
             savedSlideshows={savedSlideshows}
+            numSlideshows={numSlideshows}
+            setNumSlideshows={setNumSlideshows}
+            batchImageDataUrls={batchImageDataUrls}
+            setBatchImageDataUrls={setBatchImageDataUrls}
           />
         </aside>
 

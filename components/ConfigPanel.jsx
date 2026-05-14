@@ -454,6 +454,10 @@ export default function ConfigPanel({
   onBusyChange, registerRefreshSlide, onSlideshowSaved, onSavedSlideshowsChange,
   activeShowIdx = null,
   savedSlideshows = [],
+  numSlideshows,
+  setNumSlideshows,
+  batchImageDataUrls,
+  setBatchImageDataUrls,
 }) {
   const brand = getBrand(config);
   const isValcoin = brand.appId === "valcoin";
@@ -1963,9 +1967,7 @@ ${SHARED_RULES_OUTRO}`;
   };
 
   // ── Batch generation: produce N complete slideshows sequentially ─────────────
-  const [numSlideshows, setNumSlideshows] = useState(3);
   /** Data URLs in play order: show 1 slots 1…6 (or 1 for iMessage mom), then show 2, … Row count = length. */
-  const [batchImageDataUrls, setBatchImageDataUrls] = useState([]);
   const [bulkDropHover, setBulkDropHover] = useState(false);
   const bulkFileInputRef = useRef(null);
 
@@ -1997,7 +1999,7 @@ ${SHARED_RULES_OUTRO}`;
       ),
     }));
     setAiErrors({});
-  }, [batchImagesNeeded, isLabely, labelyUploadsLocked, generatingSlot, setConfig]);
+  }, [batchImagesNeeded, isLabely, labelyUploadsLocked, generatingSlot, setConfig, setBatchImageDataUrls]);
 
   useEffect(() => {
     const need = effectiveNumSlideshows * batchSlotCount;
@@ -2006,7 +2008,7 @@ ${SHARED_RULES_OUTRO}`;
       if (prev.length === need) return prev;
       return Array.from({ length: need }, (_, i) => (i < prev.length ? prev[i] ?? null : null));
     });
-  }, [effectiveNumSlideshows, batchSlotCount]);
+  }, [effectiveNumSlideshows, batchSlotCount, setBatchImageDataUrls]);
 
   const reorderBatchRows = (fromIndex, toIndex) => {
     if (fromIndex === toIndex) return;
