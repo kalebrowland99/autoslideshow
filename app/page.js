@@ -117,6 +117,113 @@ export default function Home() {
   const [cloudUid, setCloudUid] = useState(null);
   const [cloudStatus, setCloudStatus] = useState("");
   const [cloudStatusDetail, setCloudStatusDetail] = useState("");
+  const [reloadingSessionMedia, setReloadingSessionMedia] = useState(false);
+  const reloadSessionMediaBusyRef = useRef(false);
+
+  /** Apply persisted home session to React state (localStorage and/or Firebase payload). */
+  const applySessionSnapshot = useCallback((raw) => {
+    if (!raw || typeof raw !== "object") return defaultConfig;
+    let merged = defaultConfig;
+    if (raw.config && typeof raw.config === "object") {
+      merged = mergePersistedConfig(defaultConfig, emptySlot, raw.config);
+      setConfig(merged);
+    }
+    if (Array.isArray(raw.savedSlideshows)) {
+      setSavedSlideshows(
+        raw.savedSlideshows.map((s) => ({
+          ...s,
+          slots: Array.isArray(s?.slots) ? s.slots.map((slot) => ({ ...slot })) : s?.slots,
+        })),
+      );
+    }
+    const maxSlide = Math.max(0, getTotalSlides(merged) - 1);
+    const cs = typeof raw.currentSlide === "number" ? raw.currentSlide : 0;
+    setCurrentSlide(Math.min(Math.max(0, cs), maxSlide));
+    if (typeof raw.activeShowIdx === "number" && raw.activeShowIdx >= 0) {
+      const n = Array.isArray(raw.savedSlideshows) ? raw.savedSlideshows.length : 0;
+      setActiveShowIdx(n > 0 ? Math.min(raw.activeShowIdx, n - 1) : null);
+    } else {
+      setActiveShowIdx(null);
+    }
+    if (typeof raw.numSlideshows === "number" && raw.numSlideshows >= 1 && raw.numSlideshows <= 50) {
+      setNumSlideshows(raw.numSlideshows);
+    }
+    if (Array.isArray(raw.batchImageDataUrls)) {
+      setBatchImageDataUrls(raw.batchImageDataUrls.map((x) => (typeof x === "string" && x.trim() ? x : null)));
+    }
+    return merged;
+  }, []);
+
+  /** Re-apply only gallery + batch image rows (used by “Reload media” — does not reset the editor workspace). */
+  const applyGalleryAndBatchOnly = useCallback((raw) => {
+    if (!raw || typeof raw !== "object") return;
+    if (Array.isArray(raw.savedSlideshows)) {
+      setSavedSlideshows(
+        raw.savedSlideshows.map((s) => ({
+          ...s,
+          slots: Array.isArray(s?.slots) ? s.slots.map((slot) => ({ ...slot })) : s?.slots,
+        })),
+      );
+    } else {
+      setSavedSlideshows([]);
+    }
+    if (Array.isArray(raw.batchImageDataUrls)) {
+      setBatchImageDataUrls(raw.batchImageDataUrls.map((x) => (typeof x === "string" && x.trim() ? x : null)));
+    }
+    if (typeof raw.activeShowIdx === "number" && raw.activeShowIdx >= 0) {
+      const n = Array.isArray(raw.savedSlideshows) ? raw.savedSlideshows.length : 0;
+      setActiveShowIdx(n > 0 ? Math.min(raw.activeShowIdx, n - 1) : null);
+    } else {
+      setActiveShowIdx(null);
+    }
+  }, []);
+
+  const reloadGalleryAndBatchMedia = useCallback(async () => {
+    if (reloadSessionMediaBusyRef.current) return;
+    reloadSessionMediaBusyRef.current = true;
+    setReloadingSessionMedia(true);
+    const prevSkip = skipSaveUntilHydrated.current;
+    skipSaveUntilHydrated.current = true;
+    try {
+      setSavedSlideshows([]);
+      setBatchImageDataUrls([]);
+      setActiveShowIdx(null);
+      await new Promise((r) => setTimeout(r, 50));
+
+      const localRaw = readHomeSession();
+      const localAt = typeof localRaw?.savedAt === "number" ? localRaw.savedAt : 0;
+      let chosen = localRaw;
+
+      if (isFirebaseConfigured() && cloudUid) {
+        try {
+          const { loadHomeSessionRemote } = await import("@/lib/firebaseHomeSession");
+          const remote = await loadHomeSessionRemote(cloudUid);
+          const remoteAt = typeof remote?.savedAt === "number" ? remote.savedAt : 0;
+          if (remote && remoteAt > localAt) {
+            chosen = {
+              config: remote.config,
+              savedSlideshows: remote.savedSlideshows,
+              currentSlide: remote.currentSlide,
+              activeShowIdx: remote.activeShowIdx,
+              numSlideshows: remote.numSlideshows,
+              batchImageDataUrls: remote.batchImageDataUrls,
+              savedAt: remote.savedAt,
+            };
+          }
+        } catch (e) {
+          console.warn("[reload session media] firebase", e);
+        }
+      }
+
+      if (chosen && typeof chosen === "object") {
+        applyGalleryAndBatchOnly(chosen);
+      }
+    } finally {
+      skipSaveUntilHydrated.current = prevSkip;
+      reloadSessionMediaBusyRef.current = false;
+      setReloadingSessionMedia(false);
+    }
+  }, [applyGalleryAndBatchOnly, cloudUid]);
 
   useEffect(() => {
     void initFirebaseWebAnalytics();
@@ -125,39 +232,12 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false;
 
-    const applySnapshot = (raw) => {
-      let merged = defaultConfig;
-      if (raw?.config && typeof raw.config === "object") {
-        merged = mergePersistedConfig(defaultConfig, emptySlot, raw.config);
-        setConfig(merged);
-      }
-      if (Array.isArray(raw?.savedSlideshows)) {
-        setSavedSlideshows(raw.savedSlideshows);
-      }
-      const maxSlide = Math.max(0, getTotalSlides(merged) - 1);
-      const cs = typeof raw?.currentSlide === "number" ? raw.currentSlide : 0;
-      setCurrentSlide(Math.min(Math.max(0, cs), maxSlide));
-      if (typeof raw?.activeShowIdx === "number" && raw.activeShowIdx >= 0) {
-        const n = Array.isArray(raw.savedSlideshows) ? raw.savedSlideshows.length : 0;
-        setActiveShowIdx(n > 0 ? Math.min(raw.activeShowIdx, n - 1) : null);
-      } else {
-        setActiveShowIdx(null);
-      }
-      if (typeof raw?.numSlideshows === "number" && raw.numSlideshows >= 1 && raw.numSlideshows <= 50) {
-        setNumSlideshows(raw.numSlideshows);
-      }
-      if (Array.isArray(raw?.batchImageDataUrls)) {
-        setBatchImageDataUrls(raw.batchImageDataUrls.map((x) => (typeof x === "string" && x.trim() ? x : null)));
-      }
-      return merged;
-    };
-
     (async () => {
       try {
         const raw = readHomeSession();
         const localSavedAt = typeof raw?.savedAt === "number" ? raw.savedAt : 0;
         if (raw) {
-          applySnapshot(raw);
+          applySessionSnapshot(raw);
         }
 
         if (!isFirebaseConfigured()) {
@@ -192,7 +272,7 @@ export default function Home() {
             batchImageDataUrls: remote.batchImageDataUrls,
             savedAt: remote.savedAt,
           };
-          const mergedRemote = applySnapshot(snap);
+          const mergedRemote = applySessionSnapshot(snap);
           const galleryLen = Array.isArray(remote.savedSlideshows) ? remote.savedSlideshows.length : 0;
           const clampedActive =
             typeof remote.activeShowIdx === "number" && remote.activeShowIdx >= 0 && galleryLen > 0
@@ -201,7 +281,7 @@ export default function Home() {
           const maxSlideRemote = Math.max(0, getTotalSlides(mergedRemote) - 1);
           const clampedSlide = Math.min(
             Math.max(0, typeof remote.currentSlide === "number" ? remote.currentSlide : 0),
-            maxSlideRemote
+            maxSlideRemote,
           );
           writeHomeSession({
             v: 1,
@@ -234,7 +314,7 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [applySessionSnapshot]);
 
   useEffect(() => {
     if (skipSaveUntilHydrated.current) return;
@@ -401,6 +481,29 @@ export default function Home() {
               {cloudStatus}
             </span>
           ) : null}
+          <button
+            type="button"
+            onClick={() => void reloadGalleryAndBatchMedia()}
+            disabled={isGenerating || isExporting || reloadingSessionMedia}
+            title="Clears saved slideshow thumbnails and batch photo rows, then reloads them from your last saved session (Firebase when newer). Does not reset the left editor workspace."
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 text-[11px] font-medium text-white/85 hover:bg-white/10 disabled:pointer-events-none disabled:opacity-35"
+          >
+            <svg
+              className={`h-3.5 w-3.5 shrink-0 ${reloadingSessionMedia ? "animate-spin" : ""}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              aria-hidden
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+            {reloadingSessionMedia ? "Reloading…" : "Reload media"}
+          </button>
           <span className="text-white/30 text-xs">
             Slide {currentSlide + 1} / {totalSlides}
           </span>

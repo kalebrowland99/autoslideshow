@@ -3,6 +3,7 @@ import { runImageGenerationPipeline } from "@/lib/imageGenerationBackend";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
 import { listPublicReferenceImageRelPaths } from "@/lib/referenceImages";
 import { BAD_LABELY_VERDICT, normalizeBadLabelyScore, randomBadLabelyScore } from "@/lib/labelyRating";
+import { extractOpenFoodFactsImage, sniffImageMimeFromBytes } from "@/lib/openFoodFactsProductImage";
 
 export const maxDuration = 300;
 
@@ -449,19 +450,6 @@ async function generateShelfIntroImage({ name, brand }) {
   return null;
 }
 
-function extractOpenFoodFactsImage(product) {
-  if (!product || typeof product !== "object") return "";
-  const selected = product.selected_images?.front?.display || product.selected_images?.front?.small;
-  return (
-    product.image_front_url ||
-    product.image_url ||
-    selected?.en ||
-    selected?.["en-us"] ||
-    selected?.fr ||
-    ""
-  );
-}
-
 async function imageUrlToDataUrl(imageUrl) {
   if (!imageUrl || typeof imageUrl !== "string") return null;
   const res = await fetch(imageUrl, {
@@ -470,11 +458,13 @@ async function imageUrlToDataUrl(imageUrl) {
     },
   });
   if (!res.ok) return null;
-  const contentType = res.headers.get("content-type") || "image/jpeg";
-  if (!contentType.startsWith("image/")) return null;
   const ab = await res.arrayBuffer();
   if (ab.byteLength <= 0 || ab.byteLength > 20 * 1024 * 1024) return null;
-  return `data:${contentType.split(";")[0]};base64,${Buffer.from(ab).toString("base64")}`;
+  const headerMime = (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+  let mime = headerMime.startsWith("image/") ? headerMime : null;
+  if (!mime) mime = sniffImageMimeFromBytes(ab);
+  if (!mime) return null;
+  return `data:${mime};base64,${Buffer.from(ab).toString("base64")}`;
 }
 
 function scoreOpenFoodFactsProduct(product, terms) {
@@ -648,7 +638,10 @@ export async function POST(req) {
       }
     }
     try {
-      if (!outImage && !useFoodDatabasePhoto) {
+      // Always fall back to generated pack art when no usable photo yet — including when
+      // `useFoodDatabasePhoto` is true but OFF fetch / proxy / MIME sniff failed (previously
+      // we incorrectly skipped AI entirely in that case, yielding blank slides).
+      if (!outImage) {
         outImage = await generateProductImage({
           imagePrompt: base.imagePrompt,
           name: base.name,

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { extractOpenFoodFactsImage } from "@/lib/openFoodFactsProductImage";
 
 export const maxDuration = 300;
 
@@ -10,19 +11,6 @@ function normalizeFoodText(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
-}
-
-function extractOpenFoodFactsImage(product) {
-  if (!product || typeof product !== "object") return "";
-  const selected = product.selected_images?.front?.display || product.selected_images?.front?.small;
-  return (
-    product.image_front_url ||
-    product.image_url ||
-    selected?.en ||
-    selected?.["en-us"] ||
-    selected?.fr ||
-    ""
-  );
 }
 
 function productLabel(product) {
