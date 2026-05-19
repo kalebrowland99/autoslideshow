@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { tiktokCaptionTextStyle, tickerBoxCaptionTextStyle, captionWrapperStyle } from "@/lib/captionStyles";
 import { captionFontSize1080 } from "@/lib/captionFontSize";
 import { makeJitter } from "@/lib/jitter";
+import { toDisplayImageUrl } from "@/lib/numistaImageProxy";
 
 export default function CollageSlide({ config, S }) {
   const { captionText, captionPosition, captionBold, captionStyle = "tiktok", captionBg = "#e03030", captionColor = "#ffffff", slots } = config;
@@ -74,7 +75,7 @@ export default function CollageSlide({ config, S }) {
           >
             {slot.imageUrl ? (
               <img
-                src={slot.imageUrl}
+                src={toDisplayImageUrl(slot.imageUrl)}
                 alt={`Slot ${i + 1}`}
                 style={{
                   width: "100%",
