@@ -16,7 +16,6 @@ import {
 } from "@/lib/slideLayout";
 import { buildLabelyScanFrameSequence, captureShelfIntroCanvas } from "@/lib/labelyScanExport";
 import { ensureExportImageUrls, needsExportImageInlining } from "@/lib/ensureExportImageUrls";
-import { inlineRemoteImagesInElement } from "@/lib/exportImagePrepare";
 import { getBrand } from "@/lib/brand";
 import { savedShowMatchesApp } from "@/lib/showAppId";
 import {
@@ -971,9 +970,8 @@ export default function ConfigPanel({
   const getCaptureOptions = (bgColor, fontEmbedCSS) => ({
     backgroundColor: bgColor,
     pixelRatio: EXPORT_CAPTURE_PIXEL_RATIO,
-    // html-to-image re-fetches every http(s) img when cacheBust is on → CORS failures.
-    cacheBust: false,
-    includeQueryParams: false,
+    cacheBust: true,
+    includeQueryParams: true,
     ...(fontEmbedCSS ? { fontEmbedCSS } : {}),
   });
 
@@ -983,9 +981,6 @@ export default function ConfigPanel({
 
     await waitForPreviewPaint();
     await waitForFonts();
-    await inlineRemoteImagesInElement(el, {
-      strict: needsExportImageInlining(config),
-    });
     await waitForImagesDecoded(el);
     return toCanvas(el, getCaptureOptions(bgColor, fontEmbedCSS));
   };
@@ -2647,9 +2642,6 @@ ${SHARED_RULES_OUTRO}`;
       cfg = await ensureExportImageUrls(cfg);
       flushSync(() => setConfig((prev) => ({ ...prev, slots: cfg.slots })));
       await waitForPreviewPaint();
-      await new Promise((r) => {
-        requestAnimationFrame(() => requestAnimationFrame(r));
-      });
       await waitForImagesDecoded(getCaptureNode());
     }
 
@@ -2769,8 +2761,6 @@ ${SHARED_RULES_OUTRO}`;
           allSlideFrames.push([canvas]);
         } catch (err) {
           console.error("Capture error slide", i, err);
-          const msg = err?.message ? String(err.message) : "";
-          if (msg && needsExportImageInlining(cfg)) setExportStatus(msg);
           allSlideFrames.push([]);
         }
       }
