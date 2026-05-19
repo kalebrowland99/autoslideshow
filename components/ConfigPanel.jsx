@@ -10,6 +10,7 @@ import {
   slideIndexToSlotIndex,
   isLabelySingleSlideFormat,
   isLabelyScanTourFormat,
+  isValcoinCollageFormat,
   LABELY_SCAN_TOUR_SLOTS,
 } from "@/lib/slideLayout";
 import { buildLabelyScanFrameSequence } from "@/lib/labelyScanExport";
@@ -22,7 +23,7 @@ import {
   IMAGE_FILE_ACCEPT,
 } from "@/lib/fileToDisplayableDataUrl";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
-import { resolveNumistaCoinResponse } from "@/lib/numistaImageClient";
+import { fetchRandomNumistaCoin } from "@/lib/numistaImageClient";
 import { BAD_LABELY_VERDICT, normalizeBadLabelyScore } from "@/lib/labelyRating";
 import {
   clearGlobalJob,
@@ -290,7 +291,10 @@ function galleryShowToExportConfig(workspace, show) {
     slots: rawSlots.map((s) => ({ ...s })),
     appId,
     outputFormat,
-    captionText: isLabely || isValcoin ? "" : (show.captionText ?? workspace.captionText),
+    captionText:
+      isLabely || (isValcoin && show.outputFormat === "labelyScan")
+        ? ""
+        : (show.captionText ?? workspace.captionText),
     jitterSeed: show.jitterSeed ?? workspace.jitterSeed,
     labelyOutroText: show.labelyOutroText ?? workspace.labelyOutroText,
   };
@@ -1147,23 +1151,9 @@ export default function ConfigPanel({
     try {
       let b64 = null;
 
-      const numistaQuery = isValcoin ? String(brandItem || prompt || "").trim() : "";
-      if (isValcoin && numistaQuery) {
-        try {
-            const res = await fetch("/api/numista-coins", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              signal: abortRef.current?.signal,
-              body: JSON.stringify({ action: "photo", query: numistaQuery }),
-            });
-            const data = await res.json().catch(() => ({}));
-            if (res.ok) {
-              const { dataUrl } = await resolveNumistaCoinResponse(data);
-              if (dataUrl.startsWith("data:") || dataUrl.startsWith("http")) return dataUrl;
-            }
-          } catch {
-            /* fall through to AI */
-          }
+      if (isValcoin) {
+        const numista = await fetchRandomNumistaCoin(abortRef.current?.signal);
+        if (numista?.dataUrl) return numista.dataUrl;
       }
 
       const outFmt = config.outputFormat ?? "standard";
@@ -1863,7 +1853,7 @@ ${SHARED_RULES_OUTRO}`;
     try {
       setConfig((prev) => ({ ...prev, jitterSeed: generationJitterSeed }));
       // Auto-pick a random hook caption for the collage slide
-      if (!isLabely && !(isValcoin && isLabelyScanTourFormat(config)) && hookItems.length > 0) {
+      if (!isLabely && (!isValcoin || isValcoinCollageFormat(config)) && hookItems.length > 0) {
         let pick = hookItems[Math.floor(Math.random() * hookItems.length)];
         pick = await ensureUniqueHookCaption(pick, batchCaptionsRef);
         updateConfig("captionText", pick);
@@ -1887,7 +1877,7 @@ ${SHARED_RULES_OUTRO}`;
             ? config.labelyAiProducts
               ? true
               : Boolean((batchImageDataUrls[i] ?? slot.imageUrl)?.trim())
-            : isValcoin && isLabelyScanTourFormat(config)
+            : isValcoin
               ? true
               : brandItems.length > 0 || slot.prompt?.trim()
         );
@@ -1898,7 +1888,7 @@ ${SHARED_RULES_OUTRO}`;
             ? config.labelyAiProducts
               ? "Could not determine slots to generate."
               : "Upload at least one slot photo under Product photos, then run Generate again."
-            : isValcoin && isLabelyScanTourFormat(config)
+            : isValcoin
               ? "Could not determine slots to generate."
               : "Add items to the Brand Items List or add a prompt to at least one slot."
         );
@@ -2233,7 +2223,7 @@ ${SHARED_RULES_OUTRO}`;
         : null;
 
     let hookCaption = "";
-    if (!isLabely && !(isValcoin && isLabelyScanTourFormat(config))) {
+    if (!isLabely && (!isValcoin || isValcoinCollageFormat(config))) {
       hookCaption =
         hookItems.length > 0
           ? hookItems[Math.floor(Math.random() * hookItems.length)]
@@ -2375,23 +2365,10 @@ ${SHARED_RULES_OUTRO}`;
         let url = pre;
         let coinTitle = "";
         if (!url) {
-          try {
-            const res = await fetch("/api/numista-coins", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              signal: abortRef.current?.signal,
-              body: JSON.stringify({ action: "randomPhoto" }),
-            });
-            const data = await res.json().catch(() => ({}));
-            if (res.ok) {
-              const resolved = await resolveNumistaCoinResponse(data);
-              if (resolved.dataUrl) {
-                url = resolved.dataUrl;
-                coinTitle = resolved.title || coinTitle;
-              }
-            }
-          } catch {
-            /* fall through to AI */
+          const numista = await fetchRandomNumistaCoin(abortRef.current?.signal);
+          if (numista?.dataUrl) {
+            url = numista.dataUrl;
+            coinTitle = numista.title || coinTitle;
           }
         }
         const fallbackHint = pickValuableUSCoin();
@@ -2617,7 +2594,7 @@ ${SHARED_RULES_OUTRO}`;
         alert("Add at least one photo in the image rows above (or use multi-select). Order is slideshow #1 first, then #2, etc.");
         return;
       }
-    } else if (!(isValcoin && isLabelyScanTourFormat(config)) && brandItems.length === 0 && !batchImageDataUrls.some(Boolean)) {
+    } else if (!isValcoin && brandItems.length === 0 && !batchImageDataUrls.some(Boolean)) {
       alert("Add brand items for AI images, or queue batch uploads — or both (uploads fill first, AI fills gaps).");
       return;
     }
@@ -3368,23 +3345,47 @@ ${SHARED_RULES_OUTRO}`;
 
       <div className="space-y-3 -mt-1">
         <span className="text-white/45 text-xs font-semibold uppercase tracking-wider">Output format</span>
-        {isLabely || isValcoin ? (
+        {isLabely ? (
           <div className="rounded-xl border border-violet-500/25 bg-violet-500/10 px-3 py-2.5 text-[11px] text-white/80">
-            <div className="font-semibold text-white">
-              {isLabely ? "Grocery intro + scan (×3)" : "Coin scan (×3)"}
-            </div>
+            <div className="font-semibold text-white">Grocery intro + scan (×3)</div>
             <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-              {isLabely
-                ? `Shelf intro, scan beam, then ${LABELY_SCAN_TOUR_SLOTS} Labely slides. Use AI products + food list, or upload ${LABELY_SCAN_TOUR_SLOTS} pack photos in the rows below.`
-                : `Intro, scan, then ${LABELY_SCAN_TOUR_SLOTS} Valcoin slides. Random Numista obverses (server needs `}
-              {!isLabely ? (
-                <>
-                  <code className="rounded bg-black/40 px-1 text-amber-200/90">NUMISTA_API_KEY</code>
-                  {`). AI only fills a slot if Numista has no photo.`}
-                </>
-              ) : null}
+              {`Shelf intro, scan beam, then ${LABELY_SCAN_TOUR_SLOTS} Labely slides. Use AI products + food list, or upload ${LABELY_SCAN_TOUR_SLOTS} pack photos in the rows below.`}
             </p>
           </div>
+        ) : isValcoin ? (
+        <div className="flex flex-col gap-2">
+          {[
+            {
+              id: "standard",
+              label: "6-coin collage",
+              sub: "Numista obverses in a 2×3 grid, then reveal + Valcoin per coin",
+            },
+            {
+              id: "labelyScan",
+              label: "Scan + slide-up",
+              sub: `Intro, scan beam, then ${LABELY_SCAN_TOUR_SLOTS} Valcoin slides (like Labely)`,
+            },
+          ].map(({ id, label, sub }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => updateConfig("outputFormat", id)}
+              className={`text-left rounded-xl border px-3 py-2 transition-all ${
+                (config.outputFormat ?? "standard") === id
+                  ? "border-violet-500 bg-violet-500/15 text-white"
+                  : "border-white/10 bg-white/4 text-white/50 hover:border-white/20"
+              }`}
+            >
+              <div className="text-xs font-semibold">{label}</div>
+              <div className="text-[10px] text-white/40 mt-0.5">{sub}</div>
+            </button>
+          ))}
+          <p className="text-[10px] leading-relaxed text-white/40 px-0.5">
+            Random Numista catalog photos (
+            <code className="rounded bg-black/40 px-1 text-amber-200/90">NUMISTA_API_KEY</code>
+            ). AI only if a coin photo cannot be loaded.
+          </p>
+        </div>
         ) : (
         <div className="flex flex-col gap-2">
           {[
@@ -3512,7 +3513,7 @@ ${SHARED_RULES_OUTRO}`;
       </div>
 
       {/* ── COLLAGE CAPTION (Thrifty only) ── */}
-      {!isLabely && !isValcoin && (
+      {(!isLabely && !isValcoin) || isValcoinCollageFormat(config) ? (
       <Section title="Collage Caption" icon="💬">
         <div className="flex items-start gap-2">
           <Textarea
@@ -3624,7 +3625,7 @@ ${SHARED_RULES_OUTRO}`;
           <p className="text-white/25 text-[10px] mt-1">One caption per line. A random one is picked each time you generate.</p>
         </div>
       </Section>
-      )}
+      ) : null}
 
       {/* ── AI GENERATION ── */}
       <Section title="AI Generation" icon="✨">
@@ -3637,8 +3638,10 @@ ${SHARED_RULES_OUTRO}`;
             const isMom = (config.outputFormat ?? "standard") === "imessageMom";
             const imgs = isMom
               ? 1
-              : isValcoin && isLabelyScanTourFormat(config)
-                ? LABELY_SCAN_TOUR_SLOTS
+              : isValcoin
+                ? isLabelyScanTourFormat(config)
+                  ? LABELY_SCAN_TOUR_SLOTS
+                  : 6
                 : 6;
             const sub = id === "gpt-image-1"
               ? `$${(0.015 * imgs).toFixed(2)}/slideshow`

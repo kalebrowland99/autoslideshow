@@ -6,7 +6,7 @@ import LabelyScanSequencePreview from "@/components/LabelyScanSequencePreview";
 import ConfigPanel from "@/components/ConfigPanel";
 import GlobalJobBar from "@/components/GlobalJobBar";
 import GalleryRail from "@/components/GalleryRail";
-import { getTotalSlides } from "@/lib/slideLayout";
+import { getTotalSlides, normalizeValcoinOutputFormat } from "@/lib/slideLayout";
 import {
   mergePersistedConfig,
   readHomeSession,
@@ -404,12 +404,21 @@ export default function Home() {
     setConfig((prev) => ({
       ...prev,
       slots: showData.slots,
-      captionText: isLabelyShow || isValcoinShow ? "" : showData.captionText,
-      ...(isLabelyShow || isValcoinShow
+      captionText:
+        isLabelyShow || (isValcoinShow && showData.outputFormat === "labelyScan")
+          ? ""
+          : showData.captionText,
+      ...(isLabelyShow
         ? { outputFormat: "labelyScan" }
-        : showData.outputFormat != null
-          ? { outputFormat: showData.outputFormat }
-          : {}),
+        : isValcoinShow
+          ? {
+              outputFormat: normalizeValcoinOutputFormat(
+                showData.outputFormat ?? prev.outputFormat,
+              ),
+            }
+          : showData.outputFormat != null
+            ? { outputFormat: showData.outputFormat }
+            : {}),
       ...(showData.appId != null ? { appId: showData.appId } : {}),
       ...(showData.jitterSeed != null ? { jitterSeed: showData.jitterSeed } : {}),
       ...(showData.labelyOutroText != null ? { labelyOutroText: showData.labelyOutroText } : {}),
@@ -444,8 +453,12 @@ export default function Home() {
     setConfig((prev) => {
       const next = { ...prev, [key]: value };
       if (key === "appId" && value === "valcoin") {
-        next.outputFormat = "labelyScan";
-        next.captionText = "";
+        next.outputFormat = normalizeValcoinOutputFormat(next.outputFormat);
+        if (next.outputFormat === "labelyScan") next.captionText = "";
+      }
+      if (key === "outputFormat" && next.appId === "valcoin") {
+        next.outputFormat = normalizeValcoinOutputFormat(value);
+        if (next.outputFormat === "labelyScan") next.captionText = "";
       }
       if (key === "appId" && value !== "labely" && prev.appId === "labely") {
         if (["labelyOnly", "labelyScan"].includes(prev.outputFormat ?? "standard")) {
