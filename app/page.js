@@ -53,13 +53,10 @@ export const emptySlot = (i) => ({
 });
 
 export const defaultConfig = {
-  // Slide 1 — collage caption overlay
-  captionText: "My top 6 Most Favorite\nGoodwill Finds",
+  captionText: "",
   captionStyle: "tiktok",      // "tiktok" | "tickerBox"
   captionBg: "#e03030",
   captionColor: "#ffffff",
-  captionPosition: "middle",
-  captionBold: true,
 
   // 6 image slots
   slots: Array.from({ length: 6 }, (_, i) => emptySlot(i)),
@@ -404,10 +401,7 @@ export default function Home() {
     setConfig((prev) => ({
       ...prev,
       slots: showData.slots,
-      captionText:
-        isLabelyShow || (isValcoinShow && showData.outputFormat === "labelyScan")
-          ? ""
-          : showData.captionText,
+      captionText: "",
       ...(isLabelyShow
         ? { outputFormat: "labelyScan" }
         : isValcoinShow
@@ -454,11 +448,9 @@ export default function Home() {
       const next = { ...prev, [key]: value };
       if (key === "appId" && value === "valcoin") {
         next.outputFormat = normalizeValcoinOutputFormat(next.outputFormat);
-        if (next.outputFormat === "labelyScan") next.captionText = "";
       }
       if (key === "outputFormat" && next.appId === "valcoin") {
         next.outputFormat = normalizeValcoinOutputFormat(value);
-        if (next.outputFormat === "labelyScan") next.captionText = "";
       }
       if (key === "appId" && value !== "labely" && prev.appId === "labely") {
         if (["labelyOnly", "labelyScan"].includes(prev.outputFormat ?? "standard")) {
@@ -466,7 +458,6 @@ export default function Home() {
         }
       }
       if (key === "appId" && value === "labely") {
-        next.captionText = "";
         next.outputFormat = "labelyScan";
       }
       if (key === "outputFormat") {

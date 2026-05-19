@@ -10,7 +10,6 @@ import {
   slideIndexToSlotIndex,
   isLabelySingleSlideFormat,
   isLabelyScanTourFormat,
-  isValcoinCollageFormat,
   LABELY_SCAN_TOUR_SLOTS,
 } from "@/lib/slideLayout";
 import { buildLabelyScanFrameSequence, captureShelfIntroCanvas } from "@/lib/labelyScanExport";
@@ -292,10 +291,7 @@ function galleryShowToExportConfig(workspace, show) {
     slots: rawSlots.map((s) => ({ ...s })),
     appId,
     outputFormat,
-    captionText:
-      isLabely || (isValcoin && show.outputFormat === "labelyScan")
-        ? ""
-        : (show.captionText ?? workspace.captionText),
+    captionText: "",
     jitterSeed: show.jitterSeed ?? workspace.jitterSeed,
     labelyOutroText: show.labelyOutroText ?? workspace.labelyOutroText,
   };
@@ -586,28 +582,8 @@ export default function ConfigPanel({
   /** png_slide | png_zip | mp4_current | mp4_gallery */
   const [exportChoice, setExportChoice] = useState("mp4_current");
   const storeKey = (base) => `${base}_${brand.appId}`;
-  const DEFAULT_HOOKS_THRIFTY = [
-    "found at goodwill 👀",
-    "thrift finds that paid off 💰",
-    "you won't believe what i found",
-    "goodwill haul → resell profit 🤑",
-    "thrift flips this week 🔥",
-    "pov: you know how to thrift",
-    "these finds = bag secured 💸",
-  ].join("\n");
-  const DEFAULT_HOOKS_VALCOIN = [
-    "coin check before i list it 🪙",
-    "this coin might be a key date…",
-    "found in a jar and had to scan it",
-    "is this a real error coin?",
-    "grading candidate or nah?",
-    "silver? proof? let’s check 👀",
-    "coin collectors will understand this",
-  ].join("\n");
-
   // Always start with consistent defaults for SSR; sync all persisted values from localStorage after mount
   const [brandItemsRaw, setBrandItemsRaw] = useState(DEFAULT_BRAND_LIST);
-  const [hooksRaw, setHooksRaw] = useState(DEFAULT_HOOKS_THRIFTY);
   useEffect(() => {
     const savedModel = localStorage.getItem("ts_image_model");
     if (savedModel) setImageModelRaw(savedModel);
@@ -617,21 +593,7 @@ export default function ConfigPanel({
     const savedBrands = localStorage.getItem(storeKey("ts_brand_items"));
     if (savedBrands?.trim()) setBrandItemsRaw(savedBrands);
     else setBrandItemsRaw(isValcoin ? VALUABLE_US_COINS.join("\n") : isLabely ? DEFAULT_LABELY_ITEMS : DEFAULT_BRAND_LIST);
-    const savedHooks = localStorage.getItem(storeKey("ts_hooks"));
-    if (savedHooks) setHooksRaw(savedHooks);
-    else setHooksRaw(isValcoin ? DEFAULT_HOOKS_VALCOIN : DEFAULT_HOOKS_THRIFTY);
   }, [brand.appId]); // reload per-brand persisted values
-
-  // Valcoin: coin-centric default hook captions (only if user hasn't customized).
-  useEffect(() => {
-    if (!mounted) return;
-    if (!isValcoin) return;
-    const savedHooks = localStorage.getItem(storeKey("ts_hooks"));
-    if (!savedHooks || savedHooks.trim() === DEFAULT_HOOKS_THRIFTY.trim()) {
-      setHooksRaw(DEFAULT_HOOKS_VALCOIN);
-      localStorage.setItem(storeKey("ts_hooks"), DEFAULT_HOOKS_VALCOIN);
-    }
-  }, [mounted, isValcoin, brand.appId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pickValuableUSCoin = () => {
     const idx = Math.floor(Math.random() * VALUABLE_US_COINS.length);
@@ -959,14 +921,6 @@ export default function ConfigPanel({
     }
   }, [isLabelyFoodDbBatchMode, labelyFoodDbBatches]);
 
-  // Parsed hook captions (non-empty lines). Labely never uses collage hooks.
-  const hookItems = isLabely
-    ? []
-    : hooksRaw
-        .split("\n")
-        .map((l) => l.trim())
-        .filter(Boolean);
-
   const getCaptureNode = () => document.getElementById("video-preview-root");
 
   const getCaptureOptions = (bgColor, fontEmbedCSS) => ({
@@ -1013,12 +967,6 @@ export default function ConfigPanel({
     }
   };
 
-  const pickRandomHook = () => {
-    if (hookItems.length === 0) return;
-    const pick = hookItems[Math.floor(Math.random() * hookItems.length)];
-    updateConfig("captionText", pick);
-  };
-
   // Load reference images (brand-specific) on mount (client only)
   useEffect(() => {
     setMounted(true);
@@ -1036,7 +984,6 @@ export default function ConfigPanel({
 
   const cancelGenRef = useRef(false);
   const jobPausedRef = useRef(false);
-  const batchCaptionsRef = useRef([]);
   const apiKeyWarnedRef = useRef(false);
   const abortRef = useRef(null); // AbortController for force-stopping in-flight requests
 
@@ -1106,47 +1053,6 @@ export default function ConfigPanel({
     });
     writeJobHeartbeat({ percent, phase });
   }, [generatingSlot, genAllProgress, isExporting, exportProgress, exportStatus]);
-
-  const rewordCaptionApi = async (text) => {
-    const res = await fetch("/api/generate-image", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: abortRef.current?.signal,
-      body: JSON.stringify({ action: "rewordCaption", text }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.error || "Reword failed");
-    return data.text;
-  };
-
-  const normalizeCaptionKey = (s) => (s || "").trim().toLowerCase();
-
-  const ensureUniqueHookCaption = async (initial, batchRef) => {
-    const used = new Set([
-      ...batchRef.current.map(normalizeCaptionKey),
-      ...savedSlideshows.map((sh) => normalizeCaptionKey(sh.captionText)),
-    ]);
-    let cap = initial;
-    if (!used.has(normalizeCaptionKey(cap))) {
-      batchRef.current.push(cap);
-      return cap;
-    }
-    for (let attempt = 0; attempt < 6; attempt++) {
-      try {
-        cap = await rewordCaptionApi(cap);
-      } catch {
-        cap = `${initial} ✨`;
-      }
-      if (!used.has(normalizeCaptionKey(cap))) {
-        used.add(normalizeCaptionKey(cap));
-        batchRef.current.push(cap);
-        return cap;
-      }
-    }
-    cap = `${initial} (${Math.random().toString(36).slice(2, 6)})`;
-    batchRef.current.push(cap);
-    return cap;
-  };
 
   const generateImage = async (index, prompt, brandItem) => {
     try {
@@ -1848,17 +1754,10 @@ ${SHARED_RULES_OUTRO}`;
     const generationJitterSeed = (Math.random() * 0xffff) | 0;
     setGeneratingSlot("all");
     setAiErrors({});
-    batchCaptionsRef.current = [];
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     try {
       setConfig((prev) => ({ ...prev, jitterSeed: generationJitterSeed }));
-      // Auto-pick a random hook caption for the collage slide
-      if (!isLabely && (!isValcoin || isValcoinCollageFormat(config)) && hookItems.length > 0) {
-        let pick = hookItems[Math.floor(Math.random() * hookItems.length)];
-        pick = await ensureUniqueHookCaption(pick, batchCaptionsRef);
-        updateConfig("captionText", pick);
-      }
 
       // iMessage mom / Labely single-slide only use slot 0
       const isMomFmt = (config.outputFormat ?? "standard") === "imessageMom";
@@ -2223,17 +2122,6 @@ ${SHARED_RULES_OUTRO}`;
           )
         : null;
 
-    let hookCaption = "";
-    if (!isLabely && (!isValcoin || isValcoinCollageFormat(config))) {
-      hookCaption =
-        hookItems.length > 0
-          ? hookItems[Math.floor(Math.random() * hookItems.length)]
-          : config.captionText;
-      hookCaption = await ensureUniqueHookCaption(hookCaption, batchCaptionsRef);
-      await waitWhilePaused();
-      if (cancelGenRef.current) return null;
-    }
-
     const sourceBrandItems = Array.isArray(options.brandItemsOverride) && options.brandItemsOverride.length > 0
       ? options.brandItemsOverride
       : brandItems;
@@ -2496,13 +2384,12 @@ ${SHARED_RULES_OUTRO}`;
       }
       updateConfig("slots", [...localSlots]);
     }
-    updateConfig("captionText", hookCaption);
     updateConfig("jitterSeed", showJitterSeed);
     await waitForPreviewPaint();
     const previewScreenshot = await captureLivePreviewThumbnail();
     const savedShow = {
       slots: [...localSlots],
-      captionText: hookCaption,
+      captionText: "",
       previewScreenshot,
       outputFormat: config.outputFormat,
       appId: config.appId,
@@ -2537,7 +2424,6 @@ ${SHARED_RULES_OUTRO}`;
       }
       setGeneratingSlot("all");
       setAiErrors({});
-      batchCaptionsRef.current = [];
       cancelGenRef.current = false;
       abortRef.current?.abort();
       abortRef.current = new AbortController();
@@ -2601,7 +2487,6 @@ ${SHARED_RULES_OUTRO}`;
     }
     setGeneratingSlot("all");
     setAiErrors({});
-    batchCaptionsRef.current = [];
     cancelGenRef.current = false;
     abortRef.current?.abort();
     abortRef.current = new AbortController();
@@ -3552,117 +3437,28 @@ ${SHARED_RULES_OUTRO}`;
 
       </div>
 
-      {/* ── COLLAGE CAPTION (Thrifty only) ── */}
-      {(!isLabely && !isValcoin) || isValcoinCollageFormat(config) ? (
-      <Section title="Collage Caption" icon="💬">
-        <div className="flex items-start gap-2">
-          <Textarea
-            value={config.captionText}
-            onChange={(e) => updateConfig("captionText", e.target.value)}
-            placeholder="My top 6 Most Favorite&#10;Goodwill Finds"
-            rows={2}
+      {/* ── iMessage Mom (Thrifty) ── */}
+      {!isLabely && !isValcoin ? (
+      <Section title="iMessage Mom" icon="💬">
+        <div>
+          <label className="text-white/35 text-[10px] block mb-1">TikTok @ watermark</label>
+          <input
+            type="text"
+            value={config.tiktokWatermark ?? ""}
+            onChange={(e) => updateConfig("tiktokWatermark", e.target.value)}
+            placeholder="@mom"
+            className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/20"
           />
-          <button
-            onClick={pickRandomHook}
-            disabled={hookItems.length === 0}
-            title="Pick a random hook"
-            className="shrink-0 w-8 h-8 mt-0.5 rounded-lg bg-white/8 hover:bg-white/15 border border-white/10 text-base flex items-center justify-center transition-colors disabled:opacity-30"
-          >
-            🎲
-          </button>
         </div>
-
-        {/* ── Caption style toggle ── */}
-        <div className="mt-3 flex items-center gap-2">
-          <span className="text-white/40 text-[10px] font-semibold uppercase tracking-wider shrink-0">Style</span>
-          <div className="flex gap-1">
-            {[
-              { id: "tiktok",    label: "TikTok text" },
-              { id: "tickerBox", label: "Ticker box" },
-            ].map(({ id, label }) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => updateConfig("captionStyle", id)}
-                className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-all ${
-                  (config.captionStyle ?? "tiktok") === id
-                    ? "border-violet-500 bg-violet-500/20 text-white"
-                    : "border-white/10 bg-white/5 text-white/40 hover:border-white/20"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Color pickers — only visible when tickerBox is selected */}
-        {(config.captionStyle ?? "tiktok") === "tickerBox" && (
-          <div className="mt-2 flex gap-3">
-            <div className="flex items-center gap-1.5">
-              <input
-                type="color"
-                value={config.captionBg ?? "#e03030"}
-                onChange={(e) => updateConfig("captionBg", e.target.value)}
-                className="w-7 h-7 rounded cursor-pointer border border-white/20 bg-transparent"
-                title="Box background color"
-              />
-              <span className="text-white/35 text-[10px]">Box color</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <input
-                type="color"
-                value={config.captionColor ?? "#ffffff"}
-                onChange={(e) => updateConfig("captionColor", e.target.value)}
-                className="w-7 h-7 rounded cursor-pointer border border-white/20 bg-transparent"
-                title="Text color"
-              />
-              <span className="text-white/35 text-[10px]">Text color</span>
-            </div>
-          </div>
-        )}
-
-        {!isValcoin && (
-          <div className="mt-2">
-            <label className="text-white/35 text-[10px] block mb-1">TikTok @ watermark (iMessage mom slides)</label>
-            <input
-              type="text"
-              value={config.tiktokWatermark ?? ""}
-              onChange={(e) => updateConfig("tiktokWatermark", e.target.value)}
-              placeholder="@mom"
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/20"
-            />
-          </div>
-        )}
-
-        {!isValcoin && (
-          <div className="mt-2">
-            <label className="text-white/35 text-[10px] block mb-1">Voicemail caller ID (iMessage mom)</label>
-            <input
-              type="text"
-              value={config.voicemailDisplayNumber ?? ""}
-              onChange={(e) => updateConfig("voicemailDisplayNumber", e.target.value)}
-              placeholder="+1 (225) 427-8071"
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/20"
-            />
-          </div>
-        )}
-
-        <div className="mt-3 bg-white/4 border border-white/10 rounded-xl p-3">
-          <div className="flex items-center justify-between mb-1">
-            <Label>Hook Captions</Label>
-            {mounted && hookItems.length > 0 && (
-              <span className="text-violet-300 text-[10px] font-medium">{hookItems.length} hook{hookItems.length > 1 ? "s" : ""}</span>
-            )}
-          </div>
-          <textarea
-            value={hooksRaw}
-            onChange={(e) => { setHooksRaw(e.target.value); localStorage.setItem(storeKey("ts_hooks"), e.target.value); }}
-            placeholder={"found at goodwill 👀\nthrift finds that paid off 💰\nyou won't believe what i found"}
-            rows={5}
-            className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/15 resize-none"
+        <div className="mt-2">
+          <label className="text-white/35 text-[10px] block mb-1">Voicemail caller ID</label>
+          <input
+            type="text"
+            value={config.voicemailDisplayNumber ?? ""}
+            onChange={(e) => updateConfig("voicemailDisplayNumber", e.target.value)}
+            placeholder="+1 (225) 427-8071"
+            className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/20"
           />
-          <p className="text-white/25 text-[10px] mt-1">One caption per line. A random one is picked each time you generate.</p>
         </div>
       </Section>
       ) : null}

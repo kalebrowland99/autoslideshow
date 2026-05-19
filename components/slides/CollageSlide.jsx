@@ -1,52 +1,15 @@
 "use client";
 
-import { useMemo } from "react";
-import { tiktokCaptionTextStyle, tickerBoxCaptionTextStyle, captionWrapperStyle } from "@/lib/captionStyles";
-import { captionFontSize1080 } from "@/lib/captionFontSize";
-import { makeJitter } from "@/lib/jitter";
-
 export default function CollageSlide({ config, S }) {
-  const { captionText, captionPosition, captionBold, captionStyle = "tiktok", captionBg = "#e03030", captionColor = "#ffffff", slots } = config;
+  const { slots } = config;
   const isLabely = (config.appId ?? "thrifty") === "labely";
 
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
   const gap = isLabely ? 0 : Math.round(3 * S);
 
-  const J = makeJitter(config.jitterSeed ?? 0);
-
-  const captionTop =
-    (captionPosition === "top"
-      ? Math.round(H * 0.1)
-      : captionPosition === "bottom"
-      ? Math.round(H * 0.74)
-      : Math.round(H * 0.42)) + Math.round(J(80, 4) * S);
-
-  // Jitter + tilt derived from caption text — stable across renders and export
-  // Generation-level jitter (J) is added on top for pixel-uniqueness per export
-  const jitter = useMemo(() => {
-    const str = captionText || "default";
-    let h = 2166136261;
-    for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619) >>> 0;
-    const r1 = ((h & 0xffff) / 0xffff) - 0.5;
-    const r2 = (((h >>> 16) & 0xffff) / 0xffff) - 0.5;
-    const h2 = Math.imul(h ^ 0x9e3779b9, 2654435761) >>> 0;
-    const r3 = (h2 / 0xffffffff) - 0.5;
-    return {
-      x:   Math.round(r1 * 16 * S) + Math.round(J(81, 4) * S),
-      y:   Math.round(r2 * 16 * S) + Math.round(J(82, 4) * S),
-      rot: r3 * 4 + J(83, 1) * 0.3,
-    };
-  }, [captionText, S, config.jitterSeed]);
-
-  const captionSizePx = useMemo(
-    () => captionFontSize1080(captionText || "collage"),
-    [captionText]
-  );
-
   return (
     <div style={{ width: W, height: H, position: "relative", background: "#111", overflow: "hidden" }}>
-      {/* 2×3 grid */}
       <div
         style={{
           width: "100%",
@@ -89,48 +52,6 @@ export default function CollageSlide({ config, S }) {
           </div>
         ))}
       </div>
-
-      {/* Caption overlay — flex-centered wrapper avoids calc() in html2canvas */}
-      {captionText && (
-        <div
-          style={{
-            position: "absolute",
-            left: 0,
-            width: W,
-            top: captionTop + jitter.y,
-            display: "flex",
-            justifyContent: "center",
-            pointerEvents: "none",
-            zIndex: 10,
-          }}
-        >
-          <div
-            style={{
-              marginLeft: captionStyle === "tickerBox" ? 0 : jitter.x,
-              transform: captionStyle === "tickerBox" ? "none" : `rotate(${jitter.rot.toFixed(2)}deg)`,
-              ...captionWrapperStyle(S, { captionStyle, captionBg }),
-              padding: `${Math.round(10 * S)}px ${Math.round(20 * S)}px`,
-              maxWidth: Math.round(W * 0.85),
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: Math.round(4 * S),
-            }}
-          >
-            {captionText.split("\n").map((line, i) => (
-              <span
-                key={i}
-                style={captionStyle === "tickerBox"
-                  ? tickerBoxCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: captionBold ? "800" : "600", color: captionColor })
-                  : tiktokCaptionTextStyle(S, { fontSize: Math.round(captionSizePx * S), fontWeight: captionBold ? "800" : "600" })
-                }
-              >
-                {line}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
