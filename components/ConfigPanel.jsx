@@ -13,7 +13,8 @@ import {
   isValcoinCollageFormat,
   LABELY_SCAN_TOUR_SLOTS,
 } from "@/lib/slideLayout";
-import { buildLabelyScanFrameSequence } from "@/lib/labelyScanExport";
+import { buildLabelyScanFrameSequence, captureShelfIntroCanvas } from "@/lib/labelyScanExport";
+import { ensureExportImageUrls } from "@/lib/ensureExportImageUrls";
 import { getBrand } from "@/lib/brand";
 import { savedShowMatchesApp } from "@/lib/showAppId";
 import {
@@ -2637,19 +2638,29 @@ ${SHARED_RULES_OUTRO}`;
     await waitWhilePaused();
     if (cancelGenRef.current) return null;
 
-    if ((exportCfg.outputFormat ?? "standard") === "starterPack") {
+    let cfg = exportCfg;
+    const aid = cfg.appId ?? "thrifty";
+    if (aid === "valcoin" || aid === "labely") {
+      setExportStatus("Preparing images for export…");
+      cfg = await ensureExportImageUrls(cfg);
+      flushSync(() => setConfig((prev) => ({ ...prev, slots: cfg.slots })));
+      await waitForPreviewPaint();
+      await waitForImagesDecoded(getCaptureNode());
+    }
+
+    if ((cfg.outputFormat ?? "standard") === "starterPack") {
       setExportStatus("Generating starter pack text…");
       const sp = await ensureStarterPackAutofill();
       await waitWhilePaused();
       if (cancelGenRef.current) return null;
       setExportStatus("Generating starter pack images…");
-      await ensureStarterPackImages(sp?.imagePrompts ?? sp?.items, exportCfg);
+      await ensureStarterPackImages(sp?.imagePrompts ?? sp?.items, cfg);
       await waitWhilePaused();
       if (cancelGenRef.current) return null;
       setExportStatus("Capturing slides…");
     }
 
-    const slidesCount = getTotalSlides(exportCfg);
+    const slidesCount = getTotalSlides(cfg);
     const allSlideFrames = [];
     const previewNode = getCaptureNode();
     const fontEmbedCSS = previewNode ? await getFontEmbedCSS(previewNode) : undefined;
@@ -2663,7 +2674,7 @@ ${SHARED_RULES_OUTRO}`;
       });
       await waitForPreviewPaint();
 
-      const info = getSlideInfo(exportCfg, i);
+      const info = getSlideInfo(cfg, i);
       const bg =
         info.type === "collage"
           ? "#111111"
@@ -2694,16 +2705,38 @@ ${SHARED_RULES_OUTRO}`;
         }
         // Reset phase
         setConfig((prev) => ({ ...prev, _spPhase: -1 }));
+      } else if (info.type === "labelyShelfIntro" && isLabelyScanTourFormat(cfg)) {
+        await new Promise((r) => setTimeout(r, 80));
+        try {
+          const slotNow = info.slot ?? cfg.slots?.[0];
+          const productDataUrl = String(
+            slotNow?.labelyShelfImageUrl || slotNow?.imageUrl || "",
+          ).trim();
+          const introCanvas = await captureShelfIntroCanvas(
+            productDataUrl,
+            (cfg.jitterSeed ?? 0) + (info.itemIndex ?? 0) * 9973,
+          );
+          allSlideFrames.push([introCanvas]);
+        } catch (err) {
+          console.error("Capture error scan tour intro", err);
+          try {
+            const fallback = await captureSlideCanvas(bg, fontEmbedCSS);
+            if (fallback) allSlideFrames.push([fallback]);
+            else allSlideFrames.push([]);
+          } catch {
+            allSlideFrames.push([]);
+          }
+        }
       } else if (
-        (exportCfg.outputFormat ?? "standard") === "labelyScan" &&
-        ["labely", "valcoin"].includes(exportCfg.appId ?? "thrifty") &&
-        (info.type === "labely" || (info.type === "thrifty" && (exportCfg.appId ?? "thrifty") === "valcoin"))
+        (cfg.outputFormat ?? "standard") === "labelyScan" &&
+        ["labely", "valcoin"].includes(cfg.appId ?? "thrifty") &&
+        (info.type === "labely" || (info.type === "thrifty" && (cfg.appId ?? "thrifty") === "valcoin"))
       ) {
         await new Promise((r) => setTimeout(r, 80));
         try {
           const labelyCanvas = await captureSlideCanvas(bg, fontEmbedCSS);
           if (!labelyCanvas) throw new Error("Preview node not found");
-          const slotNow = info.slot ?? exportCfg.slots?.[i];
+          const slotNow = info.slot ?? cfg.slots?.[info.itemIndex ?? 0];
           const productDataUrl =
             typeof slotNow?.imageUrl === "string" ? slotNow.imageUrl.trim() : "";
           const seq = await buildLabelyScanFrameSequence({
@@ -2711,14 +2744,21 @@ ${SHARED_RULES_OUTRO}`;
             labelyCanvas,
             scanSec: 1.35,
             revealSec: 0.52,
-            holdSec: exportCfg.slideDuration,
+            holdSec: cfg.slideDuration,
             fps,
-            imageVariationSeed: (exportCfg.jitterSeed ?? 0) + (info.itemIndex ?? i) * 9973,
+            imageVariationSeed: (cfg.jitterSeed ?? 0) + (info.itemIndex ?? i) * 9973,
           });
+          if (!seq?.length) throw new Error("Scan frame sequence empty");
           allSlideFrames.push([labelyCanvas, seq]);
         } catch (err) {
           console.error("Capture error Labely scan intro", err);
-          allSlideFrames.push([]);
+          try {
+            const labelyCanvas = await captureSlideCanvas(bg, fontEmbedCSS);
+            if (labelyCanvas) allSlideFrames.push([labelyCanvas]);
+            else allSlideFrames.push([]);
+          } catch {
+            allSlideFrames.push([]);
+          }
         }
       } else {
         await new Promise((r) => setTimeout(r, 80));
@@ -2761,7 +2801,7 @@ ${SHARED_RULES_OUTRO}`;
 
     const OUT_W = 1080;
     const OUT_H = 1920;
-    const transitionFrames = Math.round((exportCfg.transitionMs / 1000) * fps);
+    const transitionFrames = Math.round((cfg.transitionMs / 1000) * fps);
     const frameDurationUs  = Math.round(1_000_000 / fps); // microseconds per frame
 
     // Per-slide hold duration in frames.
@@ -2772,7 +2812,7 @@ ${SHARED_RULES_OUTRO}`;
         return snapshots[1].length;
       }
       const overrideSec = snapshots[1];
-      const baseSec = typeof overrideSec === "number" ? overrideSec : exportCfg.slideDuration;
+      const baseSec = typeof overrideSec === "number" ? overrideSec : cfg.slideDuration;
       const jitterMs = typeof overrideSec === "number" ? 0 : Math.floor(Math.random() * 500);
       return Math.round((baseSec + jitterMs / 1000) * fps);
     });
@@ -2795,7 +2835,7 @@ ${SHARED_RULES_OUTRO}`;
     let audioSampleRate = 44100;
     let audioChannels = 2;
 
-    if (exportCfg.useRandomAudio && typeof AudioEncoder !== "undefined") {
+    if (cfg.useRandomAudio && typeof AudioEncoder !== "undefined") {
       try {
         setExportStatus("Loading audio…");
         const { files: audioFiles } = await fetch("/api/audio").then((r) => r.json());
