@@ -55,8 +55,8 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
   const slideLabel = () => {
     if (isLabelyScanTourFormat(config)) {
       return currentSlide === 0
-        ? "Grocery shelf intro"
-        : `Labely ${currentSlide} of ${LABELY_SCAN_TOUR_SLOTS} · scan → slide (export)`;
+        ? "Intro (scan source)"
+        : `${(brand.appId === "valcoin" ? "Valcoin" : "Labely")} ${currentSlide} of ${LABELY_SCAN_TOUR_SLOTS} · scan → slide (export)`;
     }
     if (labelySingleSlide) {
       return "Labely";
@@ -225,11 +225,11 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
             </>
           ) : skipsCollageOpening(config) ? (
             <>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>Labely</span>
-              {fmt === "labelyScan" && (
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>{brand.appId === "valcoin" ? "Valcoin" : "Labely"}</span>
+              {(config.outputFormat ?? "standard") === "labelyScan" && (
                 <>
                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-400/90 inline-block"/>Scan × {LABELY_SCAN_TOUR_SLOTS} → slide</span>
-                  <span className="text-white/25">· includes grocery intro</span>
+                  <span className="text-white/25">· includes intro</span>
                 </>
               )}
             </>

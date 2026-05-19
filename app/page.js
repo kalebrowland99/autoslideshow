@@ -94,16 +94,6 @@ export const defaultConfig = {
     slideshowCount: 1,
   })),
 
-  /** Valcoin only: fetch real obverse photos from Numista (requires NUMISTA_API_KEY); falls back to AI if lookup fails. */
-  valcoinUseNumistaPhotos: false,
-  /** Valcoin only: same iPhone multi-pack workflow as Labely food DB — six coin batches × slideshow counts, then 20 ZIPs on export. */
-  valcoinUseIphoneBatchPack: false,
-  valcoinCoinBatches: Array.from({ length: 6 }, (_, i) => ({
-    id: `vcoin-batch-${i + 1}`,
-    name: `Coin batch ${i + 1}`,
-    itemsRaw: "",
-    slideshowCount: 1,
-  })),
 };
 
 export default function Home() {
@@ -379,25 +369,37 @@ export default function Home() {
     });
   }, []);
 
+  const prevAppIdForBatchRef = useRef(null);
+  useEffect(() => {
+    const aid = config.appId ?? "thrifty";
+    const prev = prevAppIdForBatchRef.current;
+    if (prev != null && prev !== aid) {
+      setBatchImageDataUrls([]);
+    }
+    prevAppIdForBatchRef.current = aid;
+  }, [config.appId]);
+
   const loadShow = useCallback((showData, idx) => {
     const isLabelyShow = showData.appId === "labely";
+    const isValcoinShow = showData.appId === "valcoin";
     setConfig((prev) => ({
       ...prev,
       slots: showData.slots,
-      captionText: isLabelyShow ? "" : showData.captionText,
+      captionText: isLabelyShow || isValcoinShow ? "" : showData.captionText,
       ...(showData.outputFormat != null
         ? { outputFormat: showData.outputFormat }
-        : isLabelyShow
+        : isLabelyShow || isValcoinShow
           ? { outputFormat: "labelyScan" }
           : {}),
       ...(showData.appId != null ? { appId: showData.appId } : {}),
       ...(showData.jitterSeed != null ? { jitterSeed: showData.jitterSeed } : {}),
       ...(showData.labelyOutroText != null ? { labelyOutroText: showData.labelyOutroText } : {}),
       ...(showData.labelyFoodDbBatches != null ? { labelyFoodDbBatches: showData.labelyFoodDbBatches } : {}),
-      ...(showData.valcoinCoinBatches != null ? { valcoinCoinBatches: showData.valcoinCoinBatches } : {}),
     }));
     setActiveShowIdx(idx);
     setCurrentSlide(0);
+    // Batch rows are a global queue for the next multi-show run; do not reuse another slideshow's queued URLs.
+    setBatchImageDataUrls([]);
   }, []);
 
   const totalSlides = useMemo(() => getTotalSlides(config), [config]);
@@ -406,10 +408,8 @@ export default function Home() {
     setConfig((prev) => {
       const next = { ...prev, [key]: value };
       if (key === "appId" && value === "valcoin") {
-        // Valcoin supports only standard + app-only.
-        if (!["standard", "appOnly"].includes(next.outputFormat ?? "standard")) {
-          next.outputFormat = "standard";
-        }
+        next.outputFormat = "labelyScan";
+        next.captionText = "";
       }
       if (key === "appId" && value !== "labely" && prev.appId === "labely") {
         if (["labelyOnly", "labelyScan"].includes(prev.outputFormat ?? "standard")) {

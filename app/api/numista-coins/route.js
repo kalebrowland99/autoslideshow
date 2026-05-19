@@ -88,6 +88,52 @@ function unwrapTypePayload(data) {
   return data;
 }
 
+/** Broad catalog searches — random picks walk thousands of distinct Numista types over time. */
+const NUMISTA_RANDOM_SEARCHES = [
+  "gold coin", "silver dollar", "ancient roman denarius", "byzantine solidus", "US morgan dollar",
+  "peace dollar", "walking liberty half", "mercury dime", "standing liberty quarter", "buffalo nickel",
+  "lincoln wheat cent", "indian head cent", "trade dollar", "seated liberty dollar", "capped bust half",
+  "krugerrand", "maple leaf gold", "panda gold", "sovereign victoria", "florin", "crown silver",
+  "reichsmark", "reichspfennig", "napoleon 20 francs", "swiss 20 francs", "peso plata mexico",
+  "8 reales", "columnario", "ducato venice", "taler", "thaler", "polish zloty", "ruble silver",
+  "kopeck empire", "ottoman akce", "islamic dirham", "umayyad dinar", "celtic stater", "greek owl tetradrachm",
+  "athens owl", "alexander tetradrachm", "seleucid", "ptolemy coin", "carthage shekel", "sicily tetradrachm",
+  "britannia silver", "canadian silver dollar", "australian florin", "new zealand crown", "south africa penny",
+  "japanese yen silver", "korean yang", "chinese dragon dollar", "tibet tangka", "india rupee silver",
+  "philippine peso", "brazil 960 reis", "chile peso", "peru sol", "colombia 8 escudos", "argentina peso",
+  "austria philharmonic", "german mark silver", "italian lira", "spain escudo", "portugal escudo",
+  "netherlands gulden", "belgium franc", "sweden krona silver", "norway speciedaler", "denmark rigsdaler",
+  "finland markka", "iceland crown", "hungary forint gold", "romania lei", "bulgaria lev", "serbia dinar",
+  "israel lira", "egypt piastre", "ethiopia birr", "morocco dirham", "tunisia franc", "south africa krugerrand",
+  "rhodesia crown", "zimbabwe dollar", "kenya shilling", "nigeria pound", "commemorative euro silver",
+  "euro gold", "monaco franc", "vatican lira", "san marino coin", "andorra diner", "proof set silver",
+  "mint set unc", "error coin", "pattern coin", "medal numismatic", "jeton", "token trade",
+];
+
+function pickRandomSearchQuery() {
+  return NUMISTA_RANDOM_SEARCHES[Math.floor(Math.random() * NUMISTA_RANDOM_SEARCHES.length)];
+}
+
+/**
+ * @param {string} apiKey
+ * @returns {Promise<object | null>}
+ */
+async function pickRandomCatalogType(apiKey) {
+  for (let attempt = 0; attempt < 16; attempt++) {
+    const r = await searchTypesList(pickRandomSearchQuery(), apiKey);
+    if (!r.ok) continue;
+    const types = (Array.isArray(r.data?.types) ? r.data.types : []).filter((t) => obverseUrlFromType(t));
+    if (types.length === 0) continue;
+    const pick = types[Math.floor(Math.random() * types.length)];
+    const id = pick?.id;
+    if (!Number.isFinite(Number(id))) continue;
+    const d = await numistaJson(`/types/${Math.floor(Number(id))}`, apiKey);
+    const chosen = d.ok && d.data ? unwrapTypePayload(d.data) || pick : pick;
+    if (obverseUrlFromType(chosen)) return chosen;
+  }
+  return null;
+}
+
 export async function POST(req) {
   const apiKey = process.env.NUMISTA_API_KEY?.trim();
   if (!apiKey) {
@@ -181,5 +227,25 @@ export async function POST(req) {
     });
   }
 
-  return NextResponse.json({ error: "Unknown action. Use \"search\" or \"photo\"." }, { status: 400 });
+  if (action === "randomPhoto") {
+    const chosen = await pickRandomCatalogType(apiKey);
+    if (!chosen) {
+      return NextResponse.json(
+        { error: "Could not pick a random catalog coin with an obverse image. Try again or check Numista API access." },
+        { status: 502 },
+      );
+    }
+    const thumb = obverseUrlFromType(chosen);
+    const imageDataUrl = await fetchRemoteImageDataUrl(thumb, "AutoSlideshow Valcoin/1.0 (Numista random)");
+    if (!imageDataUrl) {
+      return NextResponse.json({ error: "Could not download coin image from Numista." }, { status: 502 });
+    }
+    return NextResponse.json({
+      imageDataUrl,
+      title: String(chosen?.title || "").trim(),
+      typeId: chosen?.id != null ? Number(chosen.id) : null,
+    });
+  }
+
+  return NextResponse.json({ error: "Unknown action. Use \"search\", \"photo\", or \"randomPhoto\"." }, { status: 400 });
 }

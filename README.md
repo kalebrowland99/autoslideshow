@@ -35,6 +35,6 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
-### Valcoin: Numista photos (production)
+### Valcoin: Numista + scan tour (production)
 
-Add **`NUMISTA_API_KEY`** under the Vercel project **Settings → Environment Variables** (scope at least **Production**), then trigger a redeploy. Do not commit real keys to GitHub; `.env*` files are gitignored except `.env.example`.
+Valcoin uses the **Labely-style scan export** (intro → beam → three slides) with **random catalog coins** from the Numista API (`POST` action `randomPhoto`). Add **`NUMISTA_API_KEY`** under Vercel **Settings → Environment Variables** (at least **Production**), then redeploy. Do not commit keys to GitHub; `.env*` files are gitignored except `.env.example`.

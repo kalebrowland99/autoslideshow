@@ -46,6 +46,12 @@ function getCaptureNode() {
   return document.getElementById("video-preview-root");
 }
 
+function scanTourSlideShowsAppComposite(info, config) {
+  if (info?.type === "labely") return true;
+  if ((config?.appId ?? "thrifty") === "valcoin" && info?.type === "thrifty") return true;
+  return false;
+}
+
 export default function LabelyScanSequencePreview({ config, currentSlide, setCurrentSlide, totalSlides }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -54,7 +60,7 @@ export default function LabelyScanSequencePreview({ config, currentSlide, setCur
 
   const canPreview =
     isLabelyScanTourFormat(config) &&
-    (config?.appId ?? "thrifty") === "labely" &&
+    ["labely", "valcoin"].includes(config?.appId ?? "thrifty") &&
     totalSlides >= 2;
 
   const stopPlayback = useCallback(() => {
@@ -80,14 +86,14 @@ export default function LabelyScanSequencePreview({ config, currentSlide, setCur
     const prevSlide = currentSlide;
     let targetIdx = currentSlide;
     const curInfo = getSlideInfo(config, currentSlide);
-    if (curInfo.type !== "labely") {
+    if (!scanTourSlideShowsAppComposite(curInfo, config)) {
       targetIdx = 1;
     }
     if (targetIdx < 1) targetIdx = 1;
     if (targetIdx > totalSlides - 1) targetIdx = 1;
 
     const info = getSlideInfo(config, targetIdx);
-    if (info.type !== "labely") {
+    if (!scanTourSlideShowsAppComposite(info, config)) {
       return;
     }
 
@@ -102,8 +108,9 @@ export default function LabelyScanSequencePreview({ config, currentSlide, setCur
       await waitForImagesDecoded(root);
 
       const fontEmbedCSS = await getFontEmbedCSS(root).catch(() => undefined);
+      const canvasBg = (config?.appId ?? "thrifty") === "valcoin" ? "#000000" : "#ffffff";
       const labelyCanvas = await toCanvas(root, {
-        backgroundColor: "#ffffff",
+        backgroundColor: canvasBg,
         pixelRatio: EXPORT_CAPTURE_PIXEL_RATIO,
         cacheBust: true,
         includeQueryParams: true,
@@ -165,11 +172,11 @@ export default function LabelyScanSequencePreview({ config, currentSlide, setCur
         disabled={!canPreview || loading || open}
         title={
           canPreview
-            ? "Play scan → slide-up → hold (matches downloaded Labely scan export)"
-            : "Switch to Labely + grocery scan format with at least 2 slides"
+            ? "Play scan → slide-up → hold (matches Labely / Valcoin scan export)"
+            : "Switch to Labely or Valcoin scan tour with at least 2 slides"
         }
         className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-white/10 hover:bg-white/18 disabled:opacity-35 disabled:cursor-not-allowed border border-white/15 text-white transition-colors"
-        aria-label="Play Labely scan export preview"
+        aria-label="Play scan tour export preview"
       >
         {loading ? (
           <span className="w-4 h-4 border-2 border-white/35 border-t-white rounded-full animate-spin" />
@@ -183,7 +190,7 @@ export default function LabelyScanSequencePreview({ config, currentSlide, setCur
           className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
-          aria-label="Labely scan export preview"
+          aria-label="Scan tour export preview"
         >
           <div className="relative flex flex-col items-center gap-3 max-w-[min(96vw,520px)]">
             <div className="flex items-center justify-between gap-3 w-full text-white/80 text-xs">
@@ -213,7 +220,7 @@ export default function LabelyScanSequencePreview({ config, currentSlide, setCur
               ) : null}
             </div>
             <p className="text-white/35 text-[10px] text-center leading-relaxed max-w-sm">
-              Same sequence as video export — static Labely frame for the hold segment.
+              Same sequence as video export — static app frame for the hold segment.
             </p>
           </div>
         </div>

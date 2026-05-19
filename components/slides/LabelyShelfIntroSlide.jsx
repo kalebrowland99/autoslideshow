@@ -3,14 +3,15 @@
 export default function LabelyShelfIntroSlide({ slot, S }) {
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
+  const heroUrl = String(slot?.labelyShelfImageUrl || slot?.imageUrl || "").trim();
 
   return (
     <div style={{ width: W, height: H, position: "relative", background: "#000", overflow: "hidden" }}>
-      {slot?.labelyShelfImageUrl ? (
+      {heroUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={slot.labelyShelfImageUrl}
-          alt={slot.itemName || "Grocery shelf scene"}
+          src={heroUrl}
+          alt={slot.itemName || "Product intro"}
           style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center", display: "block" }}
         />
       ) : (
@@ -27,7 +28,7 @@ export default function LabelyShelfIntroSlide({ slot, S }) {
             fontFamily: "Arial, sans-serif",
           }}
         >
-          Grocery aisle scene
+          Intro scene
         </div>
       )}
     </div>
