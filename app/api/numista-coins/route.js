@@ -75,13 +75,12 @@ async function searchTypesList(query, apiKey) {
   return { ok: true, data: { types: [] } };
 }
 
-function pickBestType(types, query) {
+function scoreTypesRanked(types, query) {
   const qNorm = normalizeCoinText(query);
-  if (!Array.isArray(types) || types.length === 0) return null;
-  const ranked = types
+  if (!Array.isArray(types) || types.length === 0) return [];
+  return types
     .map((t) => ({ t, score: scoreTypeAgainstQuery(t, qNorm) }))
     .sort((a, b) => b.score - a.score);
-  return ranked[0]?.t || types[0];
 }
 
 /** Resolve catalogue image hrefs (API sometimes returns site-relative paths). */
@@ -115,6 +114,27 @@ function unwrapTypePayload(data) {
   if (data.type && typeof data.type === "object" && data.type.id != null) return data.type;
   if (data.id != null) return data;
   return data;
+}
+
+const NUMISTA_IMAGE_FIELDS = ["obverse_picture", "obverse_thumbnail", "reverse_picture", "reverse_thumbnail"];
+
+/**
+ * Search rows often include thumbnails; GET /types/{id} sometimes omits image URLs.
+ * Prefer non-empty image fields from either payload so we do not drop usable URLs.
+ * @param {object | null} listRow
+ * @param {object | null} detailRow
+ */
+function mergeNumistaTypeRow(listRow, detailRow) {
+  if (!listRow && !detailRow) return null;
+  if (!detailRow) return listRow && typeof listRow === "object" ? { ...listRow } : listRow;
+  if (!listRow) return detailRow && typeof detailRow === "object" ? { ...detailRow } : detailRow;
+  const out = { ...listRow, ...detailRow };
+  for (const k of NUMISTA_IMAGE_FIELDS) {
+    const dt = typeof detailRow[k] === "string" ? detailRow[k].trim() : "";
+    const lt = typeof listRow[k] === "string" ? listRow[k].trim() : "";
+    out[k] = dt || lt || "";
+  }
+  return out;
 }
 
 /** Broad catalog searches — random picks walk thousands of distinct Numista types over time. */
@@ -157,10 +177,21 @@ async function pickRandomCatalogType(apiKey) {
     const id = pick?.id;
     if (!Number.isFinite(Number(id))) continue;
     const d = await numistaJson(`/types/${Math.floor(Number(id))}`, apiKey);
-    const chosen = d.ok && d.data ? unwrapTypePayload(d.data) || pick : pick;
+    const detail = d.ok && d.data ? unwrapTypePayload(d.data) : null;
+    const chosen = mergeNumistaTypeRow(pick, detail);
     if (obverseUrlFromType(chosen)) return chosen;
   }
   return null;
+}
+
+export async function GET() {
+  const hasKey = Boolean(process.env.NUMISTA_API_KEY?.trim());
+  return NextResponse.json({
+    ok: true,
+    route: "/api/numista-coins",
+    numistaApiKeyConfigured: hasKey,
+    usage: 'POST JSON { action: "search" | "photo" | "randomPhoto", ... }',
+  });
 }
 
 export async function POST(req) {
@@ -228,11 +259,16 @@ export async function POST(req) {
         );
       }
       const types = Array.isArray(r.data?.types) ? r.data.types : [];
-      const best = pickBestType(types, query);
-      if (best?.id) {
+      const ranked = scoreTypesRanked(types, query);
+      for (const { t: best } of ranked) {
+        if (!best?.id) continue;
         const d = await numistaJson(`/types/${best.id}`, apiKey);
-        if (d.ok && d.data) chosen = unwrapTypePayload(d.data) || best;
-        else chosen = best;
+        const detail = d.ok && d.data ? unwrapTypePayload(d.data) : null;
+        const merged = mergeNumistaTypeRow(best, detail);
+        if (obverseUrlsFromType(merged).length > 0) {
+          chosen = merged;
+          break;
+        }
       }
     }
 
@@ -240,7 +276,7 @@ export async function POST(req) {
     if (urls.length === 0) {
       return NextResponse.json(
         { error: "No Numista obverse image found for that coin. Try a different name or disable Numista photos to use AI." },
-        { status: 404 },
+        { status: 422 },
       );
     }
 
