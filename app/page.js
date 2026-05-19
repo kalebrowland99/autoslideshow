@@ -93,6 +93,17 @@ export const defaultConfig = {
     itemsRaw: "",
     slideshowCount: 1,
   })),
+
+  /** Valcoin only: fetch real obverse photos from Numista (requires NUMISTA_API_KEY); falls back to AI if lookup fails. */
+  valcoinUseNumistaPhotos: false,
+  /** Valcoin only: same iPhone multi-pack workflow as Labely food DB — six coin batches × slideshow counts, then 20 ZIPs on export. */
+  valcoinUseIphoneBatchPack: false,
+  valcoinCoinBatches: Array.from({ length: 6 }, (_, i) => ({
+    id: `vcoin-batch-${i + 1}`,
+    name: `Coin batch ${i + 1}`,
+    itemsRaw: "",
+    slideshowCount: 1,
+  })),
 };
 
 export default function Home() {
@@ -383,6 +394,7 @@ export default function Home() {
       ...(showData.jitterSeed != null ? { jitterSeed: showData.jitterSeed } : {}),
       ...(showData.labelyOutroText != null ? { labelyOutroText: showData.labelyOutroText } : {}),
       ...(showData.labelyFoodDbBatches != null ? { labelyFoodDbBatches: showData.labelyFoodDbBatches } : {}),
+      ...(showData.valcoinCoinBatches != null ? { valcoinCoinBatches: showData.valcoinCoinBatches } : {}),
     }));
     setActiveShowIdx(idx);
     setCurrentSlide(0);

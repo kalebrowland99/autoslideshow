@@ -327,7 +327,14 @@ const DEFAULT_LABELY_DB_BATCHES = Array.from({ length: LABELY_DB_BATCH_COUNT }, 
   slideshowCount: 1,
 }));
 
-/** One folder per physical phone; each folder gets one unique video per food DB batch (clips not reused across folders). */
+const DEFAULT_VALCOIN_COIN_BATCHES = Array.from({ length: LABELY_DB_BATCH_COUNT }, (_, i) => ({
+  id: `vcoin-batch-${i + 1}`,
+  name: `Coin batch ${i + 1}`,
+  itemsRaw: "",
+  slideshowCount: 1,
+}));
+
+/** One folder per physical phone; each folder gets one unique video per batch 1–6 (Labely food DB or Valcoin coin pack; clips not reused across folders). */
 const GALLERY_IPHONE_DEVICE_COUNT = 20;
 
 /**
@@ -358,6 +365,14 @@ function tryBuildIphoneBatchZipPlan(savedSlideshows) {
     };
   }
   if (!allBatch) return null;
+
+  const appIds = new Set(rows.map((r) => String(r.show?.appId || "").trim()).filter(Boolean));
+  if (appIds.size > 1) {
+    return {
+      error:
+        "This gallery mixes different apps. iPhone pack export needs every item from the same app (all Labely batch runs or all Valcoin batch runs).",
+    };
+  }
 
   /** @type {Map<number, typeof rows>} */
   const groups = new Map();
@@ -470,6 +485,7 @@ export default function ConfigPanel({
   const isValcoin = brand.appId === "valcoin";
   const isLabely = brand.appId === "labely";
   const isLabelyFoodDbBatchMode = isLabely && !!config.labelyAiProducts && !!config.labelyUseFoodDatabasePhotos;
+  const isValcoinCoinBatchMode = isValcoin && !!config.valcoinUseIphoneBatchPack;
   const hasSavedLabelySlideshows = savedSlideshows.some((show) => show?.appId === "labely");
   const labelyUploadsLocked = isLabely && !!config.labelyAiProducts;
   const labelyFoodDbBatches = useMemo(() => {
@@ -485,9 +501,35 @@ export default function ConfigPanel({
       };
     });
   }, [config.labelyFoodDbBatches]);
+  const valcoinCoinBatches = useMemo(() => {
+    const raw = Array.isArray(config.valcoinCoinBatches) ? config.valcoinCoinBatches : [];
+    return DEFAULT_VALCOIN_COIN_BATCHES.map((base, i) => {
+      const row = raw[i] || {};
+      return {
+        ...base,
+        ...(typeof row.name === "string" ? { name: row.name } : {}),
+        ...(typeof row.itemsRaw === "string" ? { itemsRaw: row.itemsRaw } : {}),
+        slideshowCount: Math.max(0, Math.min(200, Number(row.slideshowCount) || 0)),
+      };
+    });
+  }, [config.valcoinCoinBatches]);
+  const totalValcoinBatchSlideshows = useMemo(
+    () => valcoinCoinBatches.reduce((sum, b) => sum + (Number(b.slideshowCount) || 0), 0),
+    [valcoinCoinBatches],
+  );
+  const updateValcoinCoinBatch = (batchIndex, patch) => {
+    setConfig((prev) => {
+      const current = Array.isArray(prev.valcoinCoinBatches)
+        ? prev.valcoinCoinBatches
+        : DEFAULT_VALCOIN_COIN_BATCHES;
+      const next = DEFAULT_VALCOIN_COIN_BATCHES.map((base, i) => ({ ...base, ...(current[i] || {}) }));
+      next[batchIndex] = { ...next[batchIndex], ...patch };
+      return { ...prev, valcoinCoinBatches: next };
+    });
+  };
   const totalBatchSlideshows = useMemo(
     () => labelyFoodDbBatches.reduce((sum, b) => sum + (Number(b.slideshowCount) || 0), 0),
-    [labelyFoodDbBatches]
+    [labelyFoodDbBatches],
   );
   const updateLabelyFoodDbBatch = (batchIndex, patch) => {
     setConfig((prev) => {
@@ -1123,6 +1165,26 @@ export default function ConfigPanel({
   const generateImage = async (index, prompt, brandItem) => {
     try {
       let b64 = null;
+
+      if (isValcoin && config.valcoinUseNumistaPhotos) {
+        const q = String(brandItem || prompt || "").trim();
+        if (q) {
+          try {
+            const res = await fetch("/api/numista-coins", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              signal: abortRef.current?.signal,
+              body: JSON.stringify({ action: "photo", query: q }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && typeof data.imageDataUrl === "string" && data.imageDataUrl.startsWith("data:")) {
+              return data.imageDataUrl;
+            }
+          } catch {
+            /* fall through to AI */
+          }
+        }
+      }
 
       const outFmt = config.outputFormat ?? "standard";
 
@@ -2046,7 +2108,11 @@ ${SHARED_RULES_OUTRO}`;
         : isLabelySingleSlideFormat(config)
           ? 1
           : 6;
-  const effectiveNumSlideshows = isLabelyFoodDbBatchMode ? totalBatchSlideshows : numSlideshows;
+  const effectiveNumSlideshows = isLabelyFoodDbBatchMode
+    ? totalBatchSlideshows
+    : isValcoinCoinBatchMode
+      ? totalValcoinBatchSlideshows
+      : numSlideshows;
   const batchImagesNeeded = effectiveNumSlideshows * batchSlotCount;
 
   const hasWorkspacePhotos = useMemo(
@@ -2324,7 +2390,7 @@ ${SHARED_RULES_OUTRO}`;
           : `Show ${showIndex + 1}/${totalShows} · Image ${si + 1}/${slotCount}${brandItem ? ` — "${brandItem}"` : ""}…`,
         slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
       });
-      const hintGen = isValcoin ? pickValuableUSCoin() : brandItem;
+      const hintGen = isValcoin ? (brandItem ?? pickValuableUSCoin()) : brandItem;
       const p = hintGen ? `${globalPrompt}\n\nSpecific item to depict: ${hintGen}.` : globalPrompt;
       let url = pre;
       if (!url) url = await generateImage(si, p, hintGen);
@@ -2379,6 +2445,9 @@ ${SHARED_RULES_OUTRO}`;
       jitterSeed: showJitterSeed,
       ...(config.labelyOutroText ? { labelyOutroText: config.labelyOutroText } : {}),
       ...(config.labelyFoodDbBatches ? { labelyFoodDbBatches: config.labelyFoodDbBatches } : {}),
+      ...(Array.isArray(config.valcoinCoinBatches) && config.valcoinCoinBatches.length
+        ? { valcoinCoinBatches: config.valcoinCoinBatches }
+        : {}),
       ...(options.batchMeta || {}),
     };
     onSlideshowSaved?.(savedShow);
@@ -2386,6 +2455,79 @@ ${SHARED_RULES_OUTRO}`;
   };
 
   const handleGenerateBatch = async () => {
+    if (isValcoinCoinBatchMode) {
+      const plans = valcoinCoinBatches
+        .map((b, idx) => ({
+          batchNumber: idx + 1,
+          batchName: String(b.name || "").trim(),
+          items: String(b.itemsRaw || "").split("\n").map((x) => x.trim()).filter(Boolean),
+          slideshowCount: Math.max(0, Math.min(200, Number(b.slideshowCount) || 0)),
+        }))
+        .filter((b) => b.slideshowCount > 0);
+      const totalShows = plans.reduce((sum, p) => sum + p.slideshowCount, 0);
+      if (totalShows <= 0) {
+        alert("Set at least one batch slideshow count above 0.");
+        return;
+      }
+      if (plans.some((p) => p.items.length === 0)) {
+        alert("Each batch with a non-zero slideshow count needs at least one coin name (one per line).");
+        return;
+      }
+      setGeneratingSlot("all");
+      setAiErrors({});
+      batchCaptionsRef.current = [];
+      cancelGenRef.current = false;
+      abortRef.current?.abort();
+      abortRef.current = new AbortController();
+      try {
+        let globalShowIdx = 0;
+        const generatedShows = [];
+        for (const plan of plans) {
+          for (let i = 0; i < plan.slideshowCount; i++) {
+            await waitWhilePaused();
+            if (cancelGenRef.current) break;
+            const savedShow = await generateOneSlideshow(globalShowIdx, totalShows, {
+              brandItemsOverride: plan.items,
+              foodDbMatchesOverride: {},
+              batchMeta: {
+                batchNumber: plan.batchNumber,
+                batchSlideshowIndex: i + 1,
+                batchFoodName: plan.batchName || plan.items[0] || "coins",
+              },
+            });
+            if (savedShow) generatedShows.push(savedShow);
+            globalShowIdx++;
+          }
+          if (cancelGenRef.current) break;
+        }
+        if (!cancelGenRef.current) {
+          setGenAllProgress((p) => p
+            ? { ...p, phase: `✓ ${generatedShows.length} slideshow${generatedShows.length > 1 ? "s" : ""} saved. Auto-exporting iPhone ZIPs…`, done: 6 }
+            : null
+          );
+          const restoreConfig = {
+            ...config,
+            slots: (config.slots ?? []).map((s) => ({ ...s })),
+          };
+          await exportIphoneZipPlans(generatedShows, restoreConfig, { auto: true });
+        } else {
+          setGenAllProgress((p) => p
+            ? { ...p, phase: `Stopped after ${generatedShows.length} slideshow${generatedShows.length === 1 ? "" : "s"}.`, done: 6 }
+            : null
+          );
+        }
+        setTimeout(() => setGenAllProgress(null), 4000);
+      } catch (err) {
+        console.error("Generate batch failed:", err);
+        setGenAllProgress((p) => p ? { ...p, phase: "Batch failed — check console for details." } : null);
+        setTimeout(() => setGenAllProgress(null), 5000);
+      } finally {
+        setGeneratingSlot(null);
+        abortRef.current = null;
+      }
+      return;
+    }
+
     if (isLabelyFoodDbBatchMode) {
       const plans = labelyFoodDbBatches
         .map((b, idx) => ({
@@ -2915,6 +3057,8 @@ ${SHARED_RULES_OUTRO}`;
 
     if (zipPlan?.zipPlans?.length) {
       const zipPlans = zipPlan.zipPlans;
+      const zipFilePrefix =
+        String(shows[0]?.appId || "").trim() === "valcoin" ? "valcoin-iphone-" : "labely-iphone-";
       const totalJobs = zipPlans.reduce((sum, plan) => sum + plan.jobs.length, 0);
       let completedJobs = 0;
       cancelGenRef.current = false;
@@ -2955,7 +3099,7 @@ ${SHARED_RULES_OUTRO}`;
           setExportStatus(`${auto ? "Auto-export: " : ""}Building ZIP ${plan.iphoneNumber} / ${zipPlans.length}…`);
           const zipData = zipSync(zipEntries, { level: 1 });
           const blob = new Blob([zipData], { type: "application/zip" });
-          triggerZipDownload(blob, `labely-iphone-${String(plan.iphoneNumber).padStart(2, "0")}-${randomExportHex(10)}.zip`);
+          triggerZipDownload(blob, `${zipFilePrefix}${String(plan.iphoneNumber).padStart(2, "0")}-${randomExportHex(10)}.zip`);
           downloadedZipCount++;
           await new Promise((r) => setTimeout(r, 650));
         }
@@ -4149,25 +4293,117 @@ ${SHARED_RULES_OUTRO}`;
                   <span className="text-violet-300 text-[10px] font-medium">{brandItems.length} item{brandItems.length > 1 ? "s" : ""}</span>
                 )}
               </div>
-              <textarea
-                value={brandItemsRaw}
-                onChange={(e) => {
-                  setBrandItemsRaw(e.target.value);
-                  localStorage.setItem(storeKey("ts_brand_items"), e.target.value);
-                }}
-                placeholder={
-                  isValcoin
-                    ? VALUABLE_US_COINS.slice(0, 8).join("\n")
-                    : "vintage Carhartt double-knee pants\nSupreme box logo hoodie\nvintage Levi's 501\nKapital boro jacket\nvintage Nike windbreaker"
-                }
-                rows={5}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/15 resize-none"
-              />
-              <p className="text-white/25 text-[10px] mt-1">
-                {isValcoin
-                  ? "Coins — one per line. Each AI slot picks a different valuable US coin (or your custom list)."
-                  : "Clothing only — one garment per line. Each AI slot gets a different piece from this list."}
-              </p>
+              {isValcoin ? (
+                <label className="mb-2 flex cursor-pointer items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/8 px-2.5 py-2">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={!!config.valcoinUseIphoneBatchPack}
+                    onChange={(e) => updateConfig("valcoinUseIphoneBatchPack", e.target.checked)}
+                  />
+                  <span className="text-[11px] leading-snug text-white/75">
+                    <span className="font-semibold text-amber-100/95">iPhone multi-pack (same as Labely food DB)</span>
+                    {" — "}
+                    six coin batches with slideshow counts each; after batch generate + auto-export you get{" "}
+                    {GALLERY_IPHONE_DEVICE_COUNT} ZIPs (iPhone 1–{GALLERY_IPHONE_DEVICE_COUNT}), each with {LABELY_DB_BATCH_COUNT} videos (batch 1–{LABELY_DB_BATCH_COUNT}). Needs at least {GALLERY_IPHONE_DEVICE_COUNT} slideshows per batch.
+                  </span>
+                </label>
+              ) : null}
+              {isValcoin ? (
+                <label className="mb-2 flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-2">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={!!config.valcoinUseNumistaPhotos}
+                    onChange={(e) => updateConfig("valcoinUseNumistaPhotos", e.target.checked)}
+                  />
+                  <span className="text-[11px] leading-snug text-white/70">
+                    <span className="font-semibold text-white/85">Use Numista catalog photos</span>
+                    {" — "}
+                    real coin obverse images from the{" "}
+                    <a
+                      href="https://en.numista.com/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-violet-300 underline decoration-violet-500/40 hover:text-violet-200"
+                    >
+                      Numista
+                    </a>{" "}
+                    database instead of AI renders when a row is empty. Requires{" "}
+                    <code className="rounded bg-black/40 px-1 text-[10px] text-amber-200/90">NUMISTA_API_KEY</code> in{" "}
+                    <code className="rounded bg-black/40 px-1 text-[10px]">.env.local</code>. If a coin is not found, generation falls back to the usual AI + reference look.
+                  </span>
+                </label>
+              ) : null}
+              {isValcoin && config.valcoinUseIphoneBatchPack ? (
+                <div className="mb-3 space-y-2 rounded-xl border border-amber-500/25 bg-amber-500/6 p-2.5">
+                  <p className="text-[10px] leading-snug text-white/45">
+                    Each batch: coin names (one per line) + how many slideshows to generate for that batch. The global coin list below is hidden while pack mode is on.
+                  </p>
+                  {valcoinCoinBatches.map((batch, idx) => (
+                    <div key={batch.id} className="rounded-lg border border-amber-500/20 bg-black/20 p-2">
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <input
+                          type="text"
+                          value={batch.name}
+                          onChange={(e) => updateValcoinCoinBatch(idx, { name: e.target.value.slice(0, 42) })}
+                          placeholder={`Coin batch ${idx + 1}`}
+                          className="min-w-0 flex-1 rounded-md border border-white/10 bg-black/25 px-2 py-1 text-[11px] font-semibold text-amber-100 outline-none placeholder-amber-200/35 focus:border-amber-400/60"
+                        />
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-white/35">slideshows</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={200}
+                            value={batch.slideshowCount}
+                            onChange={(e) =>
+                              updateValcoinCoinBatch(idx, {
+                                slideshowCount: Math.max(0, Math.min(200, Number(e.target.value) || 0)),
+                              })
+                            }
+                            className="w-16 rounded-md border border-white/15 bg-black/30 px-2 py-1 text-center text-[11px] text-white outline-none focus:border-amber-400/60"
+                          />
+                        </div>
+                      </div>
+                      <textarea
+                        value={batch.itemsRaw}
+                        onChange={(e) => updateValcoinCoinBatch(idx, { itemsRaw: e.target.value })}
+                        placeholder={"1916-D Mercury dime\n1932-D Washington quarter\n…"}
+                        rows={4}
+                        className="w-full rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-white outline-none placeholder-white/20 focus:border-amber-400/60"
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {!(isValcoin && config.valcoinUseIphoneBatchPack) ? (
+                <>
+                  <textarea
+                    value={brandItemsRaw}
+                    onChange={(e) => {
+                      setBrandItemsRaw(e.target.value);
+                      localStorage.setItem(storeKey("ts_brand_items"), e.target.value);
+                    }}
+                    placeholder={
+                      isValcoin
+                        ? VALUABLE_US_COINS.slice(0, 8).join("\n")
+                        : "vintage Carhartt double-knee pants\nSupreme box logo hoodie\nvintage Levi's 501\nKapital boro jacket\nvintage Nike windbreaker"
+                    }
+                    rows={5}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/15 resize-none"
+                  />
+                  <p className="text-white/25 text-[10px] mt-1">
+                    {isValcoin
+                      ? "Coins — one per line. Each empty slot uses your list: Numista photo when enabled, otherwise AI + Valcoin references."
+                      : "Clothing only — one garment per line. Each AI slot gets a different piece from this list."}
+                  </p>
+                </>
+              ) : (
+                <p className="text-white/25 text-[10px] mt-1">
+                  Pack mode uses the six batch textareas above. Hooks still use the Hook Captions list.
+                </p>
+              )}
             </>
           ) : null}
         </div>
@@ -4198,7 +4434,7 @@ ${SHARED_RULES_OUTRO}`;
         <div className="mt-3 pt-3 border-t border-white/8">
           <div className="flex items-center gap-2 mb-2">
             <span className="text-white/45 text-xs flex-1">Generate multiple slideshows</span>
-            {!isLabelyFoodDbBatchMode ? (
+            {!isLabelyFoodDbBatchMode && !isValcoinCoinBatchMode ? (
             <div className="flex items-center gap-1.5">
               <span className="text-white/30 text-[11px]">qty</span>
               <input
@@ -4254,8 +4490,9 @@ ${SHARED_RULES_OUTRO}`;
             disabled={
               generatingSlot !== null
               || (isLabelyFoodDbBatchMode && effectiveNumSlideshows <= 0)
+              || (isValcoinCoinBatchMode && totalValcoinBatchSlideshows <= 0)
               || (isLabely && !config.labelyAiProducts && !batchImageDataUrls.some(Boolean))
-              || (!isLabely && brandItems.length === 0 && !batchImageDataUrls.some(Boolean))
+              || (!isLabely && !isValcoinCoinBatchMode && brandItems.length === 0 && !batchImageDataUrls.some(Boolean))
             }
             className="w-full py-2.5 rounded-xl bg-fuchsia-700 hover:bg-fuchsia-600 disabled:opacity-40 text-white text-sm font-bold transition-colors"
           >
@@ -4267,7 +4504,7 @@ ${SHARED_RULES_OUTRO}`;
               const isMom = (config.outputFormat ?? "standard") === "imessageMom";
               const imgs = isMom ? 1 : 6;
               const cost = imageModel === "gpt-image-1" ? 0.015 * imgs : 0.07 * imgs;
-              return `est. $${(numSlideshows * cost).toFixed(2)} if all slots are AI · less when uploads fill the queue · each goes to gallery on the right`;
+              return `est. $${(effectiveNumSlideshows * cost).toFixed(2)} if all slots are AI · less when uploads fill the queue · each goes to gallery on the right`;
             })()}
           </p>
           )}
@@ -4395,7 +4632,7 @@ ${SHARED_RULES_OUTRO}`;
               Export current workspace only
             </button>
             <p className="text-white/25 text-[10px] text-center leading-relaxed">
-              {`Batch galleries (food DB mode): downloads ${GALLERY_IPHONE_DEVICE_COUNT} iPhone ZIPs, each with ${LABELY_DB_BATCH_COUNT} unique videos (one per batch). Needs at least ${GALLERY_IPHONE_DEVICE_COUNT} videos per batch. Other galleries download separate .mp4 files.`}
+              {`When every item is from the same ${GALLERY_IPHONE_DEVICE_COUNT}-phone batch pack (Labely food DB batches or Valcoin iPhone multi-pack), "Export all gallery videos" downloads ${GALLERY_IPHONE_DEVICE_COUNT} ZIPs—each with ${LABELY_DB_BATCH_COUNT} unique videos (batches 1–${LABELY_DB_BATCH_COUNT}). You need at least ${GALLERY_IPHONE_DEVICE_COUNT} videos per batch. Otherwise each thumbnail exports as its own .mp4.`}
             </p>
           </>
         ) : (
