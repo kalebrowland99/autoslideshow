@@ -129,7 +129,6 @@ export default function LabelyScanSequencePreview({ config, currentSlide, setCur
         holdSec: config.slideDuration,
         fps: 30,
         imageVariationSeed: (config.jitterSeed ?? 0) + (info.itemIndex ?? targetIdx) * 9973,
-        productLayout: (config?.appId ?? "thrifty") === "valcoin" ? "coin" : "fullscreen",
       });
 
       flushSync(() => setCurrentSlide(prevSlide));

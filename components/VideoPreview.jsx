@@ -36,6 +36,7 @@ function SlideRenderer({ config, info, S }) {
           slot={info.slot}
           S={S}
           hidePlaceholder={config.appId === "valcoin"}
+          objectFit={config.appId === "valcoin" ? "contain" : "cover"}
         />
       )}
       {info.type === "fullBleed" && <FullBleedSlide slot={info.slot} S={S} />}
