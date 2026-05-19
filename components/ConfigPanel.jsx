@@ -3220,8 +3220,9 @@ ${SHARED_RULES_OUTRO}`;
     try {
       let cfg = config;
       if (needsExportImageInlining(cfg)) {
-        setExportStatus("Preparing images for export…");
+        setExportStatus("Activating image proxy…");
         cfg = await ensureExportImageUrls(cfg);
+        setExportStatus("Preparing images for export…");
         flushSync(() => setConfig((prev) => ({ ...prev, slots: cfg.slots })));
         await waitForPreviewPaint();
         await waitForImagesDecoded(el);
