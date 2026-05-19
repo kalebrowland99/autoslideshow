@@ -14,7 +14,7 @@ import {
   LABELY_SCAN_TOUR_SLOTS,
 } from "@/lib/slideLayout";
 import { buildLabelyScanFrameSequence, captureShelfIntroCanvas } from "@/lib/labelyScanExport";
-import { ensureScanTourExportImages } from "@/lib/scanTourExportPrep";
+import { ensureScanTourExportImages, ensureValcoinSlotImages } from "@/lib/scanTourExportPrep";
 import { getBrand } from "@/lib/brand";
 import { savedShowMatchesApp } from "@/lib/showAppId";
 import {
@@ -1154,7 +1154,7 @@ export default function ConfigPanel({
 
       if (isValcoin) {
         const numista = await fetchRandomNumistaCoin(abortRef.current?.signal);
-        if (numista?.dataUrl) return numista.dataUrl;
+        if (numista?.dataUrl?.startsWith("data:image/")) return numista.dataUrl;
       }
 
       const outFmt = config.outputFormat ?? "standard";
@@ -1852,7 +1852,13 @@ ${SHARED_RULES_OUTRO}`;
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     try {
-      setConfig((prev) => ({ ...prev, jitterSeed: generationJitterSeed }));
+      if (isValcoin) {
+        setGenAllProgress({ total: 1, done: 0, current: 0, phase: "Loading Numista coin photos…", slotsDone: new Set() });
+        const prepared = await ensureValcoinSlotImages(config);
+        flushSync(() => setConfig((prev) => ({ ...prev, ...prepared, jitterSeed: generationJitterSeed })));
+      } else {
+        setConfig((prev) => ({ ...prev, jitterSeed: generationJitterSeed }));
+      }
       // Auto-pick a random hook caption for the collage slide
       if (!isLabely && (!isValcoin || isValcoinCollageFormat(config)) && hookItems.length > 0) {
         let pick = hookItems[Math.floor(Math.random() * hookItems.length)];
@@ -2367,7 +2373,7 @@ ${SHARED_RULES_OUTRO}`;
         let coinTitle = "";
         if (!url) {
           const numista = await fetchRandomNumistaCoin(abortRef.current?.signal);
-          if (numista?.dataUrl) {
+          if (numista?.dataUrl?.startsWith("data:image/")) {
             url = numista.dataUrl;
             coinTitle = numista.title || coinTitle;
           }
@@ -2606,6 +2612,11 @@ ${SHARED_RULES_OUTRO}`;
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     try {
+      if (isValcoin) {
+        setGenAllProgress({ total: 1, done: 0, current: 0, phase: "Loading Numista coin photos…", slotsDone: new Set() });
+        const prepared = await ensureValcoinSlotImages(config);
+        flushSync(() => setConfig((prev) => ({ ...prev, slots: prepared.slots })));
+      }
       let savedCount = 0;
       for (let i = 0; i < numSlideshows; i++) {
         await waitWhilePaused();
@@ -2642,6 +2653,11 @@ ${SHARED_RULES_OUTRO}`;
     if (isLabelyScanTourFormat(exportCfg)) {
       setExportStatus("Preparing scan tour images…");
       cfg = await ensureScanTourExportImages(exportCfg);
+    } else if ((exportCfg.appId ?? "thrifty") === "valcoin") {
+      setExportStatus("Preparing Numista coin photos…");
+      cfg = await ensureValcoinSlotImages(exportCfg);
+    }
+    if (cfg !== exportCfg) {
       flushSync(() => setConfig((prev) => ({ ...prev, slots: cfg.slots })));
       await waitForPreviewPaint();
       await waitForImagesDecoded(getCaptureNode());

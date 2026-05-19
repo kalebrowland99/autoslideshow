@@ -6,6 +6,7 @@ import { tiktokCaptionTextStyle, tickerBoxCaptionTextStyle, captionWrapperStyle 
 import { captionFontSize1080 } from "@/lib/captionFontSize";
 import { getBrand } from "@/lib/brand";
 import { isLabelyScanTourFormat } from "@/lib/slideLayout";
+import { displayImageSrc } from "@/lib/numistaImageClient";
 
 /**
  * ThriftySlide — pixel-faithful recreation of SongEditView.
@@ -148,7 +149,7 @@ export default function ThriftySlide({ slot, S, config = {} }) {
 
   const valcoinScanTourSlide = brand.appId === "valcoin" && isLabelyScanTourFormat(config);
   if (valcoinScanTourSlide) {
-    const heroUrl = String(slot?.imageUrl || slot?.labelyShelfImageUrl || "").trim();
+    const heroUrl = displayImageSrc(String(slot?.imageUrl || slot?.labelyShelfImageUrl || "").trim());
     return (
       <div
         style={{
@@ -248,7 +249,7 @@ export default function ThriftySlide({ slot, S, config = {} }) {
             flexShrink: 0, background: "#e8e8e8",
             boxShadow: `0 ${px(2)}px ${px(4)}px rgba(0,0,0,0.1)` }}>
             {slot.imageUrl ? (
-              <img src={slot.imageUrl} alt={itemName}
+              <img src={displayImageSrc(slot.imageUrl)} alt={itemName}
                 style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "center", display: "block" }} />
             ) : (
               <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column",
