@@ -146,7 +146,9 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
               ? "Generating…"
               : brand.appId === "labely"
                 ? "Re-analyze this slot (uses uploaded photo)"
-                : "Regenerate with AI"
+                : brand.appId === "valcoin"
+                  ? "Load another Numista coin"
+                  : "Regenerate with AI"
           }
           style={{
             position: "absolute",

@@ -25,6 +25,7 @@ import {
 } from "@/lib/fileToDisplayableDataUrl";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
 import { fetchRandomNumistaCoin } from "@/lib/numistaImageClient";
+import { patchSlotFromNumista, valcoinDemoPrices, valcoinSoldListings } from "@/lib/valcoinSlots";
 import { BAD_LABELY_VERDICT, normalizeBadLabelyScore } from "@/lib/labelyRating";
 import {
   clearGlobalJob,
@@ -565,7 +566,7 @@ export default function ConfigPanel({
   ];
 
   const DEFAULT_PROMPT = isValcoin
-    ? "A single valuable US quarter coin on a wooden table, photographed like a real iPhone photo shot on 0.5× (ultra-wide). The coin should be a real existing valuable variety (random pick), natural room lighting, no hands, no text overlays, no other coins, no props. Composition: the coin should appear smaller in the frame (not filling the shot) with lots of surrounding table visible. Lens/look: subtle ultra-wide edge stretch and mild barrel distortion like iPhone 0.5×. Quality: intentionally a bit worse/rough — slightly blurry/soft focus like a quick snap, less sharp, mild motion blur or missed focus is okay. Color: iPhone-like but a bit bland/flat (slightly desaturated, lower contrast), not cinematic. Texture: visible sensor grain and minor compression artifacts. Include realistic imperfections: light dust, tiny lint specks, faint fingerprints/smudges, small nicks, micro-scratches, slight wear/toning, and minor surface blemishes."
+    ? "Valcoin uses Numista catalog photos only — this prompt is not used."
     : isLabely
     ? "Labely uses your uploaded photos only — this prompt is not used to generate images. You can leave it or add notes for yourself."
     : "POV into a blue thrift shopping cart (buggy) full of tossed secondhand clothes — garments may lie upside-down or sideways; bottom hems/waistbands should look softly folded or cuffed (no people, no hands). XXL hero piece: faded washed-out colors only, cotton lint balls, stray dog hair, slight print/color imperfections. Concrete floor and aisles behind, fluorescent light, shallow DOF, no overlays.";
@@ -630,29 +631,6 @@ export default function ConfigPanel({
     if (!savedHooks || savedHooks.trim() === DEFAULT_HOOKS_THRIFTY.trim()) {
       setHooksRaw(DEFAULT_HOOKS_VALCOIN);
       localStorage.setItem(storeKey("ts_hooks"), DEFAULT_HOOKS_VALCOIN);
-    }
-  }, [mounted, isValcoin, brand.appId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const pickValuableUSCoin = () => {
-    const idx = Math.floor(Math.random() * VALUABLE_US_COINS.length);
-    return VALUABLE_US_COINS[idx];
-  };
-
-  // When switching to Valcoin, make the default prompt/list coin-appropriate
-  // (only if the user hasn't already customized them in localStorage).
-  useEffect(() => {
-    if (!mounted) return;
-    if (!isValcoin) return;
-    const savedPrompt = localStorage.getItem(storeKey("ts_global_prompt"));
-    const savedBrands = localStorage.getItem(storeKey("ts_brand_items"));
-    if (!savedPrompt) {
-      setGlobalPrompt(DEFAULT_PROMPT);
-      localStorage.setItem(storeKey("ts_global_prompt"), DEFAULT_PROMPT);
-    }
-    if (!savedBrands) {
-      const list = VALUABLE_US_COINS.join("\n");
-      setBrandItemsRaw(list);
-      localStorage.setItem(storeKey("ts_brand_items"), list);
     }
   }, [mounted, isValcoin, brand.appId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1148,6 +1126,20 @@ export default function ConfigPanel({
     return cap;
   };
 
+  const applyNumistaToSlot = async (index, opts = {}) => {
+    const numista = await fetchRandomNumistaCoin(abortRef.current?.signal);
+    if (!numista?.dataUrl?.startsWith("data:image/")) {
+      setAiErrors((p) => ({
+        ...p,
+        [index]: numista?.error || "Numista coin photo unavailable. Check NUMISTA_API_KEY.",
+      }));
+      return false;
+    }
+    const patch = patchSlotFromNumista(config.slots[index], numista, opts);
+    updateSlot(index, patch);
+    return true;
+  };
+
   const generateImage = async (index, prompt, brandItem) => {
     try {
       let b64 = null;
@@ -1155,11 +1147,16 @@ export default function ConfigPanel({
       if (isValcoin) {
         const numista = await fetchRandomNumistaCoin(abortRef.current?.signal);
         if (numista?.dataUrl?.startsWith("data:image/")) return numista.dataUrl;
+        setAiErrors((p) => ({
+          ...p,
+          [index]: numista?.error || "Numista coin photo unavailable. Check NUMISTA_API_KEY.",
+        }));
+        return null;
       }
 
       const outFmt = config.outputFormat ?? "standard";
 
-      const isNonApparelScene = outFmt === "starterPack" || isValcoin;
+      const isNonApparelScene = outFmt === "starterPack";
 
       const brandName = brandItem || prompt?.trim() || "a clothing brand";
 
@@ -1186,11 +1183,6 @@ export default function ConfigPanel({
 ${iphoneRetailPhotoImperfectionPrompt()}
 
 No text overlays, no captions, no watermarks.
-
-${isValcoin
-  ? `Reference-image rule (CRITICAL): Make the photo EXACT 1:1 as the reference image, just swap out the coin with the chosen coin.`
-  : ""
-}
 
 Subject: ${scenePrompt}
 
@@ -1515,21 +1507,31 @@ ${SHARED_RULES_OUTRO}`;
         return;
       }
       const slot = config.slots[globalIdx];
+      if (isValcoin) {
+        const priceUpdates = !slot.spentPrice && !slot.soldPrice ? valcoinDemoPrices() : {};
+        const title = (slot.itemName ?? "").trim() || "Uploaded coin";
+        updateSlot(globalIdx, {
+          imageUrl: dataUrl,
+          ...priceUpdates,
+          itemName: title,
+          matchItems: valcoinSoldListings(title, priceUpdates.soldPrice ?? slot.soldPrice),
+        });
+        setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
+        return;
+      }
+      {
       const weightedPool = buildWeightedPool(brandItems);
       const randomBrand = weightedPool.length > 0
         ? weightedPool[Math.floor(Math.random() * weightedPool.length)]
         : null;
-      const coinPick = isValcoin ? pickValuableUSCoin() : null;
-      const hint = isValcoin ? coinPick : randomBrand;
+      const hint = randomBrand;
       const priceUpdates =
-        !slot.spentPrice && !slot.soldPrice
-          ? (isValcoin && hint ? (await coinPrices(hint)) : null) ?? autoRandomPrices()
-          : {};
+        !slot.spentPrice && !slot.soldPrice ? autoRandomPrices() : {};
       const isPlaceholderName = /^item\s+\d+$/i.test((slot.itemName ?? "").trim());
       updateSlot(globalIdx, {
         imageUrl: dataUrl,
         ...priceUpdates,
-        ...(isValcoin && hint && (isPlaceholderName || !(slot.itemName ?? "").trim()) ? { itemName: hint } : {}),
+        ...(hint && (isPlaceholderName || !(slot.itemName ?? "").trim()) ? { itemName: hint } : {}),
       });
       const grail = await autoTitleFromImage(dataUrl);
       let resolvedName = slot.itemName;
@@ -1548,6 +1550,7 @@ ${SHARED_RULES_OUTRO}`;
         if (thread) updateSlot(globalIdx, { imessageThread: thread });
       }
       setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
+      }
     } catch (e) {
       setAiErrors((p) => ({ ...p, [globalIdx]: e?.message || "Upload failed" }));
     } finally {
@@ -1627,27 +1630,34 @@ ${SHARED_RULES_OUTRO}`;
       }
       return;
     }
+    if (isValcoin) {
+      try {
+        const includeShelfIntro = index === 0 && isLabelyScanTourFormat(config);
+        const ok = await applyNumistaToSlot(index, { shelfIntro: includeShelfIntro });
+        if (ok) setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
+      } finally {
+        setGeneratingSlot(null);
+        abortRef.current = null;
+      }
+      return;
+    }
     const weightedPool = buildWeightedPool(brandItems);
     const randomBrand = weightedPool.length > 0
       ? weightedPool[Math.floor(Math.random() * weightedPool.length)]
       : null;
-    const coinPick = isValcoin ? pickValuableUSCoin() : null;
-    const hint = isValcoin ? coinPick : randomBrand;
+    const hint = randomBrand;
     const basePrompt = config.slots[index].prompt || globalPrompt;
     const prompt = hint ? `${basePrompt}\n\nSpecific item to depict: ${hint}.` : basePrompt;
     const url = await generateImage(index, prompt, hint);
     if (url) {
       const slot = config.slots[index];
-      const priceUpdates = (!slot.spentPrice && !slot.soldPrice)
-        ? (isValcoin && hint ? (await coinPrices(hint)) : null) ?? autoRandomPrices()
-        : {};
+      const priceUpdates = (!slot.spentPrice && !slot.soldPrice) ? autoRandomPrices() : {};
       const isPlaceholderName = /^item\s+\d+$/i.test((slot.itemName ?? "").trim());
       updateSlot(index, {
         imageUrl: url,
         ...priceUpdates,
-        ...(isValcoin && hint && (isPlaceholderName || !(slot.itemName ?? "").trim()) ? { itemName: hint } : {}),
+        ...(hint && (isPlaceholderName || !(slot.itemName ?? "").trim()) ? { itemName: hint } : {}),
       });
-      // Auto-title from the new image
       const grail = await autoTitleFromImage(url);
       let resolvedName  = slot.itemName;
       let resolvedPrice = priceUpdates.soldPrice ?? slot.soldPrice;
@@ -1660,7 +1670,6 @@ ${SHARED_RULES_OUTRO}`;
           matchItems: autoSoldListings(resolvedName, resolvedPrice),
         });
       }
-      // For iMessage mom format, generate AI text thread
       if ((config.outputFormat ?? "standard") === "imessageMom") {
         const thread = await generateImessageThread(resolvedName, resolvedPrice);
         if (thread) updateSlot(index, { imessageThread: thread });
@@ -1726,16 +1735,14 @@ ${SHARED_RULES_OUTRO}`;
   // Falls back to cfgForSlots.slots (defaults to live config) when prompts are incomplete.
   const ensureStarterPackImages = async (prompts, cfgForSlots = null) => {
     const slotCfg = cfgForSlots ?? config;
-    const valcoinSlots = getBrand(slotCfg).appId === "valcoin";
+    if (getBrand(slotCfg).appId === "valcoin") return;
     for (let i = 0; i < 3; i++) {
       const p = (prompts?.[i] ?? "").trim()
         || (slotCfg.slots?.[i]?.prompt ?? "").trim()
         || (slotCfg.slots?.[i]?.itemName ?? "").trim();
       if (!p) continue;
       setExportStatus(`Generating starter pack image ${i + 1}/3…`);
-      const hint = valcoinSlots ? pickValuableUSCoin() : null;
-      const prompt = hint ? `${p}\n\nSpecific item to depict: ${hint}.` : p;
-      const url = await generateImage(i, prompt, hint);
+      const url = await generateImage(i, p, null);
       if (url) updateSlot(i, { imageUrl: url });
     }
   };
@@ -1771,25 +1778,6 @@ ${SHARED_RULES_OUTRO}`;
     const multiplier = 1.40 + Math.random() * 0.10; // 40-50% more
     const sold = Math.round(spent * multiplier);
     return { spentPrice: String(spent), soldPrice: String(sold) };
-  };
-
-  const coinPrices = async (coinName) => {
-    const name = String(coinName ?? "").trim();
-    if (!name) return null;
-    try {
-      const res = await fetch("/api/generate-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: abortRef.current?.signal,
-        body: JSON.stringify({ action: "coinPrices", text: name }),
-      });
-      if (!res.ok) return null;
-      const data = await res.json();
-      if (!data?.buy || !data?.sell) return null;
-      return { spentPrice: String(data.buy), soldPrice: String(data.sell) };
-    } catch {
-      return null;
-    }
   };
 
   // ── Auto-generate 2 slightly-varied sold listing rows ──
@@ -1828,6 +1816,8 @@ ${SHARED_RULES_OUTRO}`;
       } else {
         setAiErrors((p) => ({ ...p, [`title_${index}`]: "Could not analyze packaging." }));
       }
+    } else if (isValcoin) {
+      setAiErrors((p) => ({ ...p, [`title_${index}`]: "Titles come from the Numista catalog when you generate a coin." }));
     } else {
       const grail = await autoTitleFromImage(slot.imageUrl);
       if (grail?.title) {
@@ -1949,8 +1939,7 @@ ${SHARED_RULES_OUTRO}`;
         const brandItem = shuffledUnique.length > 0 ? shuffledUnique[idx] : null;
         const brandLabel = brandItem ? ` — "${brandItem}"` : "";
 
-        const hint = isValcoin ? pickValuableUSCoin() : brandItem;
-        const p = hint ? `${prompt}\n\nSpecific item to depict: ${hint}.` : prompt;
+        const p = brandItem ? `${prompt}\n\nSpecific item to depict: ${brandItem}.` : prompt;
 
         if (isLabely) {
           setGenAllProgress({
@@ -2002,20 +1991,37 @@ ${SHARED_RULES_OUTRO}`;
             setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Slot ${stepLabel} failed: ${errMsg}`, slotsDone: new Set(slotsDone) });
             await new Promise((r) => setTimeout(r, 2500));
           }
+        } else if (isValcoin) {
+          setGenAllProgress({
+            total,
+            done: slotsDone.size,
+            current: i,
+            phase: `Numista coin ${stepLabel}…`,
+            slotsDone: new Set(slotsDone),
+          });
+          const includeShelfIntro = i === 0 && isLabelyScanTourFormat(config);
+          const ok = await applyNumistaToSlot(i, { shelfIntro: includeShelfIntro });
+          if (ok) {
+            slotsDone.add(i);
+            setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Coin ${stepLabel} complete`, slotsDone: new Set(slotsDone) });
+          } else {
+            failedCount++;
+            const errMsg = aiErrors[i] || "Numista unavailable";
+            setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Slot ${stepLabel} failed: ${errMsg}`, slotsDone: new Set(slotsDone) });
+            await new Promise((r) => setTimeout(r, 2500));
+          }
         } else {
           setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Generating image ${stepLabel}${brandLabel}…`, slotsDone: new Set(slotsDone) });
-          const url = await generateImage(i, p, hint);
+          const url = await generateImage(i, p, brandItem);
 
           if (url) {
             const slot = config.slots[i];
-            const priceUpdates = (!slot.spentPrice && !slot.soldPrice)
-              ? (isValcoin && hint ? (await coinPrices(hint)) : null) ?? autoRandomPrices()
-              : {};
+            const priceUpdates = (!slot.spentPrice && !slot.soldPrice) ? autoRandomPrices() : {};
             const isPlaceholderName = /^item\s+\d+$/i.test((slot.itemName ?? "").trim());
             updateSlot(i, {
               imageUrl: url,
               ...priceUpdates,
-              ...(isValcoin && hint && (isPlaceholderName || !(slot.itemName ?? "").trim()) ? { itemName: hint } : {}),
+              ...(brandItem && (isPlaceholderName || !(slot.itemName ?? "").trim()) ? { itemName: brandItem } : {}),
             });
 
             setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Analyzing item ${stepLabel}…`, slotsDone: new Set(slotsDone) });
@@ -2355,7 +2361,7 @@ ${SHARED_RULES_OUTRO}`;
       return savedShow;
     }
 
-    if (isValcoin && isLabelyScanTourFormat(config)) {
+    if (isValcoin) {
       for (let si = 0; si < slotCount; si++) {
         await waitWhilePaused();
         if (cancelGenRef.current) break;
@@ -2369,54 +2375,29 @@ ${SHARED_RULES_OUTRO}`;
             : `Show ${showIndex + 1}/${totalShows} · Random Numista ${si + 1}/${slotCount}…`,
           slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
         });
-        let url = pre;
-        let coinTitle = "";
-        if (!url) {
+        if (pre) {
+          const prices = !localSlots[si].spentPrice && !localSlots[si].soldPrice
+            ? valcoinDemoPrices()
+            : {};
+          const title = (localSlots[si].itemName ?? "").trim() || "Uploaded coin";
+          localSlots[si] = {
+            ...localSlots[si],
+            imageUrl: pre,
+            ...prices,
+            itemName: title,
+            matchItems: valcoinSoldListings(title, prices.soldPrice ?? localSlots[si].soldPrice),
+            ...(si === 0 && isLabelyScanTourFormat(config) ? { labelyShelfImageUrl: pre } : {}),
+          };
+        } else {
           const numista = await fetchRandomNumistaCoin(abortRef.current?.signal);
           if (numista?.dataUrl?.startsWith("data:image/")) {
-            url = numista.dataUrl;
-            coinTitle = numista.title || coinTitle;
+            localSlots[si] = {
+              ...localSlots[si],
+              ...patchSlotFromNumista(localSlots[si], numista, {
+                shelfIntro: si === 0 && isLabelyScanTourFormat(config),
+              }),
+            };
           }
-        }
-        const fallbackHint = pickValuableUSCoin();
-        if (!url) {
-          const p = `${globalPrompt}\n\nSpecific item to depict: ${fallbackHint}.`;
-          url = await generateImage(si, p, fallbackHint);
-          if (!coinTitle) coinTitle = fallbackHint;
-        }
-        if (url) {
-          const prices = pre
-            ? autoRandomPrices()
-            : (coinTitle ? await coinPrices(coinTitle) : null) ?? autoRandomPrices();
-          let nextSlot = {
-            ...localSlots[si],
-            imageUrl: url,
-            ...prices,
-          };
-          if (si === 0) nextSlot.labelyShelfImageUrl = url;
-          if (coinTitle.trim()) {
-            nextSlot.itemName = coinTitle;
-            nextSlot.matchItems = autoSoldListings(coinTitle, prices.soldPrice);
-          } else {
-            setGenAllProgress({
-              total: slotCount,
-              done: si,
-              current: si,
-              phase: `Show ${showIndex + 1}/${totalShows} · Analyzing item ${si + 1}/${slotCount}…`,
-              slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
-            });
-            const grail = await autoTitleFromImage(url);
-            if (grail?.title) {
-              const rp = grail.price ?? prices.soldPrice;
-              nextSlot = {
-                ...nextSlot,
-                itemName: grail.title,
-                ...(grail.price ? { soldPrice: grail.price } : {}),
-                matchItems: autoSoldListings(grail.title, rp),
-              };
-            }
-          }
-          localSlots[si] = nextSlot;
         }
         updateConfig("slots", [...localSlots]);
       }
@@ -2460,21 +2441,18 @@ ${SHARED_RULES_OUTRO}`;
           : `Show ${showIndex + 1}/${totalShows} · Image ${si + 1}/${slotCount}${brandItem ? ` — "${brandItem}"` : ""}…`,
         slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
       });
-      const hintGen = isValcoin ? (brandItem ?? pickValuableUSCoin()) : brandItem;
-      const p = hintGen ? `${globalPrompt}\n\nSpecific item to depict: ${hintGen}.` : globalPrompt;
+      const p = brandItem ? `${globalPrompt}\n\nSpecific item to depict: ${brandItem}.` : globalPrompt;
       let url = pre;
-      if (!url) url = await generateImage(si, p, hintGen);
+      if (!url) url = await generateImage(si, p, brandItem);
       if (url) {
-        const prices = pre
-          ? autoRandomPrices()
-          : (isValcoin && hintGen ? (await coinPrices(hintGen)) : null) ?? autoRandomPrices();
+        const prices = pre ? autoRandomPrices() : autoRandomPrices();
         const isPlaceholderName = /^item\s+\d+$/i.test((localSlots[si]?.itemName ?? "").trim());
         localSlots[si] = {
           ...localSlots[si],
           imageUrl: url,
           ...prices,
-          ...(isValcoin && hintGen && !pre && (isPlaceholderName || !(localSlots[si]?.itemName ?? "").trim())
-            ? { itemName: hintGen }
+          ...(brandItem && !pre && (isPlaceholderName || !(localSlots[si]?.itemName ?? "").trim())
+            ? { itemName: brandItem }
             : {}),
         };
         setGenAllProgress({
@@ -2629,8 +2607,8 @@ ${SHARED_RULES_OUTRO}`;
         : savedCount === numSlideshows
           ? `✓ ${savedCount} slideshow${savedCount > 1 ? "s" : ""} saved to gallery!`
           : savedCount > 0
-            ? `⚠ Saved ${savedCount}/${numSlideshows}. Others had no images (check NUMISTA_API_KEY, AI keys, or console).`
-            : "✗ Nothing saved — no slot images were produced. Check NUMISTA_API_KEY and OPENAI_API_KEY (or Gemini) on the server.";
+            ? `⚠ Saved ${savedCount}/${numSlideshows}. Others had no images (check NUMISTA_API_KEY or console).`
+            : "✗ Nothing saved — no slot images were produced. Check NUMISTA_API_KEY on the server.";
       setGenAllProgress((p) => (p ? { ...p, phase, done: 6 } : null));
       setTimeout(() => setGenAllProgress(null), savedCount === numSlideshows ? 4000 : 8000);
     } catch (err) {
@@ -3446,9 +3424,9 @@ ${SHARED_RULES_OUTRO}`;
             </button>
           ))}
           <p className="text-[10px] leading-relaxed text-white/40 px-0.5">
-            Random Numista catalog photos (
+            Random Numista catalog photos only — requires{" "}
             <code className="rounded bg-black/40 px-1 text-amber-200/90">NUMISTA_API_KEY</code>
-            ). AI only if a coin photo cannot be loaded.
+            {" "}on the server.
           </p>
         </div>
         ) : (
@@ -3692,8 +3670,8 @@ ${SHARED_RULES_OUTRO}`;
       </Section>
       ) : null}
 
-      {/* ── AI GENERATION ── */}
-      <Section title="AI Generation" icon="✨">
+      {/* ── AI GENERATION / Valcoin Numista ── */}
+      <Section title={isValcoin ? "Numista catalog" : "AI Generation"} icon={isValcoin ? "🪙" : "✨"}>
         {!isLabely && !isValcoin && (
         <div className="flex gap-2 mb-3">
           {[
@@ -3730,6 +3708,15 @@ ${SHARED_RULES_OUTRO}`;
         </div>
         )}
 
+        {isValcoin ? (
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-100">
+          <div className="font-semibold">Numista catalog only</div>
+          <div className="mt-1 text-amber-100/75">
+            Coin photos, titles, and demo prices come from the Numista API. Set{" "}
+            <code className="rounded bg-black/30 px-1">NUMISTA_API_KEY</code> on the server — no OpenAI or Gemini keys are used for Valcoin.
+          </div>
+        </div>
+        ) : (
         <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/8 px-3 py-2.5 text-xs text-emerald-200">
           <div className="font-semibold">AI keys are managed on the server.</div>
           <div className="mt-1 text-emerald-100/70">
@@ -3739,11 +3726,10 @@ ${SHARED_RULES_OUTRO}`;
                   ? "Open Food Facts pack photos when possible; no AI image gen in that mode."
                   : "AI pack shots from your food list; scanner readout stays fictional."
                 : "Vision reads your uploaded pack photos."
-              : isValcoin
-                ? "Random Numista coins; AI only if there is no catalog photo."
-                : "This deployment uses the Vercel environment variables for image generation and auto-title, so teammates can use the app without entering API keys here."}
+              : "This deployment uses the Vercel environment variables for image generation and auto-title, so teammates can use the app without entering API keys here."}
           </div>
         </div>
+        )}
 
         {isLabely ? (
           <div className="mt-3 space-y-2">
