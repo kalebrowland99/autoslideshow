@@ -31,7 +31,13 @@ function SlideRenderer({ config, info, S }) {
       {info.type === "reveal" && <ItemRevealSlide slot={info.slot} S={S} config={config} />}
       {info.type === "thrifty" && <ThriftySlide slot={info.slot} S={S} config={config} />}
       {info.type === "labely" && <LabelySlide slot={info.slot} S={S} config={config} itemIndex={info.itemIndex ?? 0} />}
-      {info.type === "labelyShelfIntro" && <LabelyShelfIntroSlide slot={info.slot} S={S} />}
+      {info.type === "labelyShelfIntro" && (
+        <LabelyShelfIntroSlide
+          slot={info.slot}
+          S={S}
+          hidePlaceholder={config.appId === "valcoin"}
+        />
+      )}
       {info.type === "fullBleed" && <FullBleedSlide slot={info.slot} S={S} />}
       {info.type === "imessage"     && <IMessageMomSlide  slot={info.slot} S={S} config={config} />}
       {info.type === "voicemail"    && <VoicemailMomSlide slot={info.slot} S={S} config={config} />}
@@ -51,6 +57,7 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
   const fmt = config.outputFormat ?? "standard";
   const brand = getBrand(config);
   const labelySingleSlide = isLabelySingleSlideFormat(config);
+  const valcoinScanTour = brand.appId === "valcoin" && isLabelyScanTourFormat(config);
 
   const slideLabel = () => {
     if (isLabelyScanTourFormat(config)) {
@@ -84,7 +91,12 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
       {/* Slide label */}
-      <div className="flex items-center gap-3">
+      <div
+        className="flex items-center gap-3"
+        aria-label={
+          valcoinScanTour ? `Slide ${currentSlide + 1} of ${totalSlides}` : undefined
+        }
+      >
         <button
           onClick={() => setCurrentSlide((s) => Math.max(0, s - 1))}
           disabled={currentSlide === 0}
@@ -92,7 +104,11 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
         >
           ←
         </button>
-        <span className="text-white/50 text-xs min-w-[140px] text-center">{slideLabel()}</span>
+        {!valcoinScanTour ? (
+          <span className="text-white/50 text-xs min-w-[140px] text-center">{slideLabel()}</span>
+        ) : (
+          <span className="min-w-[140px]" aria-hidden />
+        )}
         <button
           onClick={() => setCurrentSlide((s) => Math.min(totalSlides - 1, s + 1))}
           disabled={currentSlide === totalSlides - 1}
@@ -224,15 +240,17 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>{brand.appId === "labely" ? "Labely" : brand.appName}</span>
             </>
           ) : skipsCollageOpening(config) ? (
-            <>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>{brand.appId === "valcoin" ? "Valcoin" : "Labely"}</span>
-              {(config.outputFormat ?? "standard") === "labelyScan" && (
-                <>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-400/90 inline-block"/>Scan × {LABELY_SCAN_TOUR_SLOTS} → slide</span>
-                  <span className="text-white/25">· includes intro</span>
-                </>
-              )}
-            </>
+            !valcoinScanTour ? (
+              <>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>{brand.appId === "valcoin" ? "Valcoin" : "Labely"}</span>
+                {(config.outputFormat ?? "standard") === "labelyScan" && (
+                  <>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-400/90 inline-block"/>Scan × {LABELY_SCAN_TOUR_SLOTS} → slide</span>
+                    <span className="text-white/25">· includes intro</span>
+                  </>
+                )}
+              </>
+            ) : null
           ) : (
             <>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-violet-500 inline-block"/>Collage</span>

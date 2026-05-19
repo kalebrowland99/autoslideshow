@@ -27,12 +27,15 @@ function scoreTypeAgainstQuery(type, qNorm) {
   return score;
 }
 
+const NUMISTA_FETCH_MS = 22_000;
+
 async function numistaJson(path, apiKey) {
   const res = await fetch(`${NUMISTA_API}${path}`, {
     headers: {
       Accept: "application/json",
       "Numista-API-Key": apiKey,
     },
+    signal: AbortSignal.timeout(NUMISTA_FETCH_MS),
   });
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
@@ -71,13 +74,19 @@ function pickBestType(types, query) {
   return ranked[0]?.t || types[0];
 }
 
+/** Prefer full picture, then thumbnail; try each URL if download fails. */
+function obverseUrlsFromType(t) {
+  if (!t || typeof t !== "object") return [];
+  const pic = String(t.obverse_picture || "").trim();
+  const thumb = String(t.obverse_thumbnail || "").trim();
+  const out = [];
+  if (pic) out.push(pic);
+  if (thumb && thumb !== pic) out.push(thumb);
+  return out;
+}
+
 function obverseUrlFromType(t) {
-  if (!t || typeof t !== "object") return "";
-  return (
-    String(t.obverse_picture || "").trim() ||
-    String(t.obverse_thumbnail || "").trim() ||
-    ""
-  );
+  return obverseUrlsFromType(t)[0] || "";
 }
 
 /** GET /types/{id} may return the type at root or under `type`. */
@@ -119,10 +128,10 @@ function pickRandomSearchQuery() {
  * @returns {Promise<object | null>}
  */
 async function pickRandomCatalogType(apiKey) {
-  for (let attempt = 0; attempt < 16; attempt++) {
+  for (let attempt = 0; attempt < 24; attempt++) {
     const r = await searchTypesList(pickRandomSearchQuery(), apiKey);
     if (!r.ok) continue;
-    const types = (Array.isArray(r.data?.types) ? r.data.types : []).filter((t) => obverseUrlFromType(t));
+    const types = (Array.isArray(r.data?.types) ? r.data.types : []).filter((t) => obverseUrlsFromType(t).length > 0);
     if (types.length === 0) continue;
     const pick = types[Math.floor(Math.random() * types.length)];
     const id = pick?.id;
@@ -207,15 +216,19 @@ export async function POST(req) {
       }
     }
 
-    const thumb = obverseUrlFromType(chosen);
-    if (!thumb) {
+    const urls = obverseUrlsFromType(chosen);
+    if (urls.length === 0) {
       return NextResponse.json(
         { error: "No Numista obverse image found for that coin. Try a different name or disable Numista photos to use AI." },
         { status: 404 },
       );
     }
 
-    const imageDataUrl = await fetchRemoteImageDataUrl(thumb, "AutoSlideshow Valcoin/1.0 (Numista)");
+    let imageDataUrl = null;
+    for (const u of urls) {
+      imageDataUrl = await fetchRemoteImageDataUrl(u, "AutoSlideshow Valcoin/1.0 (Numista)");
+      if (imageDataUrl) break;
+    }
     if (!imageDataUrl) {
       return NextResponse.json({ error: "Could not download coin image from Numista." }, { status: 502 });
     }
@@ -228,23 +241,31 @@ export async function POST(req) {
   }
 
   if (action === "randomPhoto") {
-    const chosen = await pickRandomCatalogType(apiKey);
-    if (!chosen) {
-      return NextResponse.json(
-        { error: "Could not pick a random catalog coin with an obverse image. Try again or check Numista API access." },
-        { status: 502 },
-      );
+    const ua = "AutoSlideshow Valcoin/1.0 (Numista random)";
+    for (let round = 0; round < 3; round++) {
+      const chosen = await pickRandomCatalogType(apiKey);
+      if (!chosen) break;
+      const urls = obverseUrlsFromType(chosen);
+      let imageDataUrl = null;
+      for (const u of urls) {
+        imageDataUrl = await fetchRemoteImageDataUrl(u, ua);
+        if (imageDataUrl) {
+          return NextResponse.json({
+            imageDataUrl,
+            title: String(chosen?.title || "").trim(),
+            typeId: chosen?.id != null ? Number(chosen.id) : null,
+          });
+        }
+      }
+      await new Promise((r) => setTimeout(r, 80 * (round + 1)));
     }
-    const thumb = obverseUrlFromType(chosen);
-    const imageDataUrl = await fetchRemoteImageDataUrl(thumb, "AutoSlideshow Valcoin/1.0 (Numista random)");
-    if (!imageDataUrl) {
-      return NextResponse.json({ error: "Could not download coin image from Numista." }, { status: 502 });
-    }
-    return NextResponse.json({
-      imageDataUrl,
-      title: String(chosen?.title || "").trim(),
-      typeId: chosen?.id != null ? Number(chosen.id) : null,
-    });
+    return NextResponse.json(
+      {
+        error:
+          "Could not pick a random catalog coin with a downloadable obverse image. Try again or check Numista API access.",
+      },
+      { status: 502 },
+    );
   }
 
   return NextResponse.json({ error: "Unknown action. Use \"search\", \"photo\", or \"randomPhoto\"." }, { status: 400 });
