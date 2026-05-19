@@ -30,19 +30,29 @@ function scoreTypeAgainstQuery(type, qNorm) {
 const NUMISTA_FETCH_MS = 22_000;
 
 async function numistaJson(path, apiKey) {
-  const res = await fetch(`${NUMISTA_API}${path}`, {
-    headers: {
-      Accept: "application/json",
-      "Numista-API-Key": apiKey,
-    },
-    signal: AbortSignal.timeout(NUMISTA_FETCH_MS),
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    return { ok: false, status: res.status, error: errText.slice(0, 200) || `HTTP ${res.status}` };
+  try {
+    const res = await fetch(`${NUMISTA_API}${path}`, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "AutoSlideshow/1.0 (Numista)",
+        "Numista-API-Key": apiKey,
+      },
+      signal: AbortSignal.timeout(NUMISTA_FETCH_MS),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      return { ok: false, status: res.status, error: errText.slice(0, 200) || `HTTP ${res.status}` };
+    }
+    const data = await res.json().catch(() => null);
+    return { ok: true, data };
+  } catch (e) {
+    const name = e?.name || "";
+    const msg =
+      name === "TimeoutError" || name === "AbortError"
+        ? "Numista API request timed out"
+        : String(e?.message || e || "Numista request failed");
+    return { ok: false, status: 502, error: msg };
   }
-  const data = await res.json().catch(() => null);
-  return { ok: true, data };
 }
 
 /** Try coin-only search first, then unrestricted (Numista catalog varies by account/API version). */
@@ -74,14 +84,24 @@ function pickBestType(types, query) {
   return ranked[0]?.t || types[0];
 }
 
-/** Prefer full picture, then thumbnail; try each URL if download fails. */
+/** Resolve catalogue image hrefs (API sometimes returns site-relative paths). */
+function resolveNumistaImageUrl(u) {
+  const s = String(u || "").trim();
+  if (!s) return "";
+  if (/^https?:\/\//i.test(s)) return s;
+  if (s.startsWith("//")) return `https:${s}`;
+  if (s.startsWith("/")) return `https://en.numista.com${s}`;
+  return s;
+}
+
+/** Prefer thumbnail first (smaller, more reliable), then full picture. */
 function obverseUrlsFromType(t) {
   if (!t || typeof t !== "object") return [];
-  const pic = String(t.obverse_picture || "").trim();
-  const thumb = String(t.obverse_thumbnail || "").trim();
+  const pic = resolveNumistaImageUrl(t.obverse_picture);
+  const thumb = resolveNumistaImageUrl(t.obverse_thumbnail);
   const out = [];
-  if (pic) out.push(pic);
-  if (thumb && thumb !== pic) out.push(thumb);
+  if (thumb) out.push(thumb);
+  if (pic && pic !== thumb) out.push(pic);
   return out;
 }
 
