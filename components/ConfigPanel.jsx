@@ -14,6 +14,7 @@ import {
 } from "@/lib/slideLayout";
 import { buildLabelyScanFrameSequence } from "@/lib/labelyScanExport";
 import { getBrand } from "@/lib/brand";
+import { savedShowMatchesApp } from "@/lib/showAppId";
 import {
   fileToDisplayableDataUrl,
   tryFileToDisplayableDataUrl,
@@ -480,6 +481,10 @@ export default function ConfigPanel({
   const isLabely = brand.appId === "labely";
   const isLabelyFoodDbBatchMode = isLabely && !!config.labelyAiProducts && !!config.labelyUseFoodDatabasePhotos;
   const labelyUploadsLocked = isLabely && !!config.labelyAiProducts;
+  const savedForCurrentApp = useMemo(() => {
+    const aid = config.appId ?? "thrifty";
+    return savedSlideshows.filter((s) => savedShowMatchesApp(s, aid));
+  }, [savedSlideshows, config.appId]);
   const labelyFoodDbBatches = useMemo(() => {
     const raw = Array.isArray(config.labelyFoodDbBatches) ? config.labelyFoodDbBatches : [];
     return DEFAULT_LABELY_DB_BATCHES.map((base, i) => {
@@ -1018,10 +1023,10 @@ export default function ConfigPanel({
   }, [brand.appId]);
 
   useEffect(() => {
-    if (savedSlideshows.length < 2 && exportChoice === "mp4_gallery") {
+    if (savedForCurrentApp.length < 2 && exportChoice === "mp4_gallery") {
       setExportChoice("mp4_current");
     }
-  }, [savedSlideshows.length, exportChoice]);
+  }, [savedForCurrentApp.length, exportChoice]);
 
   const cancelGenRef = useRef(false);
   const jobPausedRef = useRef(false);
@@ -1141,15 +1146,14 @@ export default function ConfigPanel({
     try {
       let b64 = null;
 
-      if (isValcoin && q) {
-        const q = String(brandItem || prompt || "").trim();
-        if (q) {
-          try {
+      const numistaQuery = isValcoin ? String(brandItem || prompt || "").trim() : "";
+      if (isValcoin && numistaQuery) {
+        try {
             const res = await fetch("/api/numista-coins", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               signal: abortRef.current?.signal,
-              body: JSON.stringify({ action: "photo", query: q }),
+              body: JSON.stringify({ action: "photo", query: numistaQuery }),
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok && typeof data.imageDataUrl === "string" && data.imageDataUrl.startsWith("data:")) {
@@ -1158,7 +1162,6 @@ export default function ConfigPanel({
           } catch {
             /* fall through to AI */
           }
-        }
       }
 
       const outFmt = config.outputFormat ?? "standard";
@@ -1327,7 +1330,7 @@ ${SHARED_RULES_OUTRO}`;
         apiKeyWarnedRef.current = true;
         alert("AI generation needs an API key. Add OPENAI_API_KEY (or GEMINI_API_KEY) to a .env.local file, restart `npm run dev`, then try again.");
       }
-      setAiErrors((p) => ({ ...p, [index]: err.message }));
+      setAiErrors((p) => ({ ...p, [index]: msg }));
       return null;
     }
   };
@@ -2620,16 +2623,22 @@ ${SHARED_RULES_OUTRO}`;
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     try {
+      let savedCount = 0;
       for (let i = 0; i < numSlideshows; i++) {
         await waitWhilePaused();
         if (cancelGenRef.current) break;
-        await generateOneSlideshow(i, numSlideshows);
+        const saved = await generateOneSlideshow(i, numSlideshows);
+        if (saved) savedCount++;
       }
-      setGenAllProgress((p) => p
-        ? { ...p, phase: `✓ ${numSlideshows} slideshow${numSlideshows > 1 ? "s" : ""} saved to gallery!`, done: 6 }
-        : null
-      );
-      setTimeout(() => setGenAllProgress(null), 4000);
+      const phase = cancelGenRef.current
+        ? `Stopped — ${savedCount} saved before cancel.`
+        : savedCount === numSlideshows
+          ? `✓ ${savedCount} slideshow${savedCount > 1 ? "s" : ""} saved to gallery!`
+          : savedCount > 0
+            ? `⚠ Saved ${savedCount}/${numSlideshows}. Others had no images (check NUMISTA_API_KEY, AI keys, or console).`
+            : "✗ Nothing saved — no slot images were produced. Check NUMISTA_API_KEY and OPENAI_API_KEY (or Gemini) on the server.";
+      setGenAllProgress((p) => (p ? { ...p, phase, done: 6 } : null));
+      setTimeout(() => setGenAllProgress(null), savedCount === numSlideshows ? 4000 : 8000);
     } catch (err) {
       console.error("Generate batch failed:", err);
       setGenAllProgress((p) => p ? { ...p, phase: "Batch failed — check console for details." } : null);
@@ -3136,20 +3145,25 @@ ${SHARED_RULES_OUTRO}`;
       slots: (config.slots ?? []).map((s) => ({ ...s })),
     };
 
-    if (await exportIphoneZipPlans(savedSlideshows, restoreConfig)) return;
+    const aid = config.appId ?? "thrifty";
+    if (aid === "labely") {
+      const labelyGallery = savedSlideshows.filter((s) => savedShowMatchesApp(s, "labely"));
+      if (await exportIphoneZipPlans(labelyGallery, restoreConfig)) return;
+    }
 
-    if (savedSlideshows.length < 2) return;
+    const videos = savedSlideshows.filter((s) => savedShowMatchesApp(s, aid));
+    if (videos.length < 2) return;
 
     cancelGenRef.current = false;
     setIsExporting(true);
     setExportProgress(0);
     setExportStatus("Preparing batch export…");
     try {
-      for (let i = 0; i < savedSlideshows.length; i++) {
+      for (let i = 0; i < videos.length; i++) {
         await waitWhilePaused();
         if (cancelGenRef.current) break;
-        const show = savedSlideshows[i];
-        setExportStatus(`Exporting video ${i + 1} of ${savedSlideshows.length}…`);
+        const show = videos[i];
+        setExportStatus(`Exporting video ${i + 1} of ${videos.length}…`);
         const exportCfg = galleryShowToExportConfig(restoreConfig, show);
         flushSync(() => setConfig(exportCfg));
         flushSync(() => setCurrentSlide(0));
@@ -3160,13 +3174,13 @@ ${SHARED_RULES_OUTRO}`;
           triggerMp4Download(blob, sequentialRandomMp4Name(i, show));
           await new Promise((r) => setTimeout(r, 400));
         }
-        setExportProgress(Math.round(((i + 1) / savedSlideshows.length) * 100));
+        setExportProgress(Math.round(((i + 1) / videos.length) * 100));
       }
       if (cancelGenRef.current) {
         setExportStatus("Export cancelled.");
       } else {
         setExportProgress(100);
-        setExportStatus(`Done! ${savedSlideshows.length} videos downloaded.`);
+        setExportStatus(`Done! ${videos.length} videos downloaded.`);
       }
     } catch (e) {
       console.error(e);
@@ -4419,7 +4433,7 @@ ${SHARED_RULES_OUTRO}`;
             <option value="png_slide">Current slide → PNG</option>
             <option value="png_zip">All slides → ZIP (PNG)</option>
             <option value="mp4_current">This workspace → MP4</option>
-            {savedSlideshows.length >= 2 ? (
+            {savedForCurrentApp.length >= 2 ? (
               <option value="mp4_gallery">All gallery items → MP4 (each)</option>
             ) : null}
           </select>
@@ -4433,9 +4447,9 @@ ${SHARED_RULES_OUTRO}`;
           </button>
         </div>
 
-        {savedSlideshows.length >= 2 ? (
+        {savedForCurrentApp.length >= 2 ? (
           <p className="text-white/25 text-[10px] text-center leading-relaxed">
-            Gallery export runs each saved thumbnail as its own video, unless your Labely food-DB batch layout triggers the multi-ZIP iPhone pack (same rules as before).
+            Gallery export runs each saved thumbnail for <span className="text-white/45">{brand.appName}</span> as its own video, unless your Labely food-DB batch layout triggers the multi-ZIP iPhone pack (same rules as before).
           </p>
         ) : null}
 

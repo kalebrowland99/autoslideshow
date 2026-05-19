@@ -19,23 +19,25 @@ function galleryThumbUrl(show) {
 /**
  * Right-rail gallery: stays within viewport height; compact rows for large batches;
  * jump-to-index for 120+ slideshows.
+ *
+ * @param {{ show: object, origIdx: number }[]} entries — shows for the current app only; `origIdx` indexes the full `savedSlideshows` array in parent state.
  */
-export default function GalleryRail({ savedSlideshows, activeShowIdx, loadShow }) {
+export default function GalleryRail({ entries, activeShowIdx, loadShow }) {
   const scrollRef = useRef(null);
   const [jump, setJump] = useState("");
-  const compact = savedSlideshows.length > COMPACT_THRESHOLD;
+  const compact = entries.length > COMPACT_THRESHOLD;
 
   const counts = useMemo(() => {
     let withThumb = 0;
-    for (const sh of savedSlideshows) {
-      if (galleryThumbUrl(sh)) withThumb += 1;
+    for (const { show } of entries) {
+      if (galleryThumbUrl(show)) withThumb += 1;
     }
-    return { withThumb, total: savedSlideshows.length };
-  }, [savedSlideshows]);
+    return { withThumb, total: entries.length };
+  }, [entries]);
 
   const runJump = () => {
     const n = Number.parseInt(String(jump).trim(), 10);
-    if (!Number.isFinite(n) || n < 1 || n > savedSlideshows.length) return;
+    if (!Number.isFinite(n) || n < 1 || n > entries.length) return;
     const el = document.querySelector(`[data-gallery-idx="${n - 1}"]`);
     el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     setJump("");
@@ -53,15 +55,15 @@ export default function GalleryRail({ savedSlideshows, activeShowIdx, loadShow }
           </span>
         </div>
 
-        {savedSlideshows.length > 12 ? (
+        {entries.length > 12 ? (
           <div className="mb-2 flex shrink-0 items-center gap-1.5">
             <label className="sr-only" htmlFor="gallery-jump">Jump to slideshow number</label>
             <input
               id="gallery-jump"
               type="number"
               min={1}
-              max={savedSlideshows.length}
-              placeholder={`1–${savedSlideshows.length}`}
+              max={entries.length}
+              placeholder={`1–${entries.length}`}
               value={jump}
               onChange={(e) => setJump(e.target.value)}
               onKeyDown={(e) => {
@@ -92,18 +94,18 @@ export default function GalleryRail({ savedSlideshows, activeShowIdx, loadShow }
           ref={scrollRef}
           className={`min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5 ${compact ? "space-y-1" : "space-y-2.5"}`}
         >
-          {savedSlideshows.map((show, idx) => {
+          {entries.map(({ show, origIdx }, listIdx) => {
             const thumb = galleryThumbUrl(show);
-            const caption = show.captionText || `Slideshow ${idx + 1}`;
-            const active = activeShowIdx === idx;
+            const caption = show.captionText || `Slideshow ${listIdx + 1}`;
+            const active = activeShowIdx === origIdx;
 
             if (compact) {
               return (
                 <button
-                  key={idx}
+                  key={origIdx}
                   type="button"
-                  data-gallery-idx={idx}
-                  onClick={() => loadShow(show, idx)}
+                  data-gallery-idx={listIdx}
+                  onClick={() => loadShow(show, origIdx)}
                   className={`flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-all ${
                     active
                       ? "border-violet-500 bg-violet-500/10 ring-1 ring-violet-500/30"
@@ -115,14 +117,14 @@ export default function GalleryRail({ savedSlideshows, activeShowIdx, loadShow }
                       <img src={thumb} alt="" className="h-full w-full object-cover object-center" />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-[10px] font-bold text-white/20">
-                        {idx + 1}
+                        {listIdx + 1}
                       </div>
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-1">
                       <span className={`text-[10px] font-semibold tabular-nums ${active ? "text-violet-400" : "text-white/35"}`}>
-                        #{idx + 1}
+                        #{listIdx + 1}
                       </span>
                       {active ? <span className="text-[9px] text-violet-400">●</span> : null}
                     </div>
@@ -134,10 +136,10 @@ export default function GalleryRail({ savedSlideshows, activeShowIdx, loadShow }
 
             return (
               <button
-                key={idx}
+                key={origIdx}
                 type="button"
-                data-gallery-idx={idx}
-                onClick={() => loadShow(show, idx)}
+                data-gallery-idx={listIdx}
+                onClick={() => loadShow(show, origIdx)}
                 className={`w-full overflow-hidden rounded-xl border text-left transition-all ${
                   active
                     ? "border-violet-500 ring-1 ring-violet-500/40"
@@ -149,14 +151,14 @@ export default function GalleryRail({ savedSlideshows, activeShowIdx, loadShow }
                     <div className="relative max-h-[min(52vh,380px)] bg-black" style={{ aspectRatio: "9 / 16" }}>
                       <img
                         src={show.previewScreenshot}
-                        alt={caption ? `Preview of ${caption}` : `Preview of slideshow ${idx + 1}`}
+                        alt={caption ? `Preview of ${caption}` : `Preview of slideshow ${listIdx + 1}`}
                         className="h-full w-full max-h-[min(52vh,380px)] object-contain object-center"
                       />
                     </div>
                   </div>
                 ) : (
                   <div className="grid max-h-[min(52vh,380px)] grid-cols-2 gap-px bg-black/60">
-                    {show.slots.map((slot, i) => (
+                    {(Array.isArray(show.slots) ? show.slots : []).map((slot, i) => (
                       <div key={i} className="relative overflow-hidden bg-zinc-900" style={{ aspectRatio: "3/4" }}>
                         {slot.imageUrl ? (
                           <img src={slot.imageUrl} alt="" className="h-full w-full object-contain object-center" />
@@ -172,7 +174,7 @@ export default function GalleryRail({ savedSlideshows, activeShowIdx, loadShow }
                 <div className="bg-zinc-900/80 px-2.5 py-2">
                   <div className="flex items-center justify-between">
                     <span className={`text-[10px] font-semibold ${active ? "text-violet-400" : "text-white/30"}`}>
-                      #{idx + 1}
+                      #{listIdx + 1}
                     </span>
                     {active ? (
                       <span className="text-[9px] font-medium text-violet-400">● active</span>

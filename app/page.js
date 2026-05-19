@@ -14,6 +14,7 @@ import {
 } from "@/lib/homeSessionStorage";
 import { initFirebaseWebAnalytics, isFirebaseConfigured } from "@/lib/firebaseClient";
 import { firebaseFriendlyError } from "@/lib/firebaseFriendlyError";
+import { savedShowMatchesApp } from "@/lib/showAppId";
 export const emptySlot = (i) => ({
   imageUrl: null,
   prompt: "",
@@ -106,6 +107,8 @@ export default function Home() {
   const refreshHandlerRef = useRef(null);
   /** Skip persisting until the first restore from localStorage has finished (avoids overwriting with defaults). */
   const skipSaveUntilHydrated = useRef(true);
+  /** Serialize Firestore+Storage saves so rapid updates cannot exhaust the client write queue. */
+  const firebaseRemoteSaveChainRef = useRef(Promise.resolve());
 
   // ── Batch slideshow gallery ──────────────────────────────────────────────────
   const [savedSlideshows, setSavedSlideshows] = useState([]);
@@ -337,29 +340,45 @@ export default function Home() {
 
   useEffect(() => {
     if (skipSaveUntilHydrated.current || !cloudUid || !isFirebaseConfigured()) return;
-    const t = window.setTimeout(async () => {
-      try {
-        const { saveHomeSessionRemote } = await import("@/lib/firebaseHomeSession");
-        await saveHomeSessionRemote(cloudUid, {
-          config,
-          savedSlideshows,
-          activeShowIdx,
-          currentSlide,
-          numSlideshows,
-          batchImageDataUrls,
-          savedAt: Date.now(),
+    if (isGenerating || isExporting) return;
+
+    const t = window.setTimeout(() => {
+      firebaseRemoteSaveChainRef.current = firebaseRemoteSaveChainRef.current
+        .catch(() => {})
+        .then(async () => {
+          try {
+            const { saveHomeSessionRemote } = await import("@/lib/firebaseHomeSession");
+            await saveHomeSessionRemote(cloudUid, {
+              config,
+              savedSlideshows,
+              activeShowIdx,
+              currentSlide,
+              numSlideshows,
+              batchImageDataUrls,
+              savedAt: Date.now(),
+            });
+            setCloudStatus("Backed up to Firebase");
+            setCloudStatusDetail("");
+          } catch (e) {
+            console.warn("[firebase] save", e);
+            const h = firebaseFriendlyError(e);
+            setCloudStatus(h.short);
+            setCloudStatusDetail(h.detail);
+          }
         });
-        setCloudStatus("Backed up to Firebase");
-        setCloudStatusDetail("");
-      } catch (e) {
-        console.warn("[firebase] save", e);
-        const h = firebaseFriendlyError(e);
-        setCloudStatus(h.short);
-        setCloudStatusDetail(h.detail);
-      }
-    }, 2000);
+    }, 4500);
     return () => window.clearTimeout(t);
-  }, [config, savedSlideshows, activeShowIdx, currentSlide, numSlideshows, batchImageDataUrls, cloudUid]);
+  }, [
+    config,
+    savedSlideshows,
+    activeShowIdx,
+    currentSlide,
+    numSlideshows,
+    batchImageDataUrls,
+    cloudUid,
+    isGenerating,
+    isExporting,
+  ]);
 
   const handleSlideshowSaved = useCallback((showData) => {
     setSavedSlideshows((prev) => {
@@ -403,6 +422,23 @@ export default function Home() {
   }, []);
 
   const totalSlides = useMemo(() => getTotalSlides(config), [config]);
+
+  const galleryEntries = useMemo(() => {
+    const aid = config.appId ?? "thrifty";
+    return savedSlideshows
+      .map((show, origIdx) => ({ show, origIdx }))
+      .filter(({ show }) => savedShowMatchesApp(show, aid));
+  }, [savedSlideshows, config.appId]);
+
+  useEffect(() => {
+    const aid = config.appId ?? "thrifty";
+    setActiveShowIdx((idx) => {
+      if (idx == null || idx < 0) return null;
+      const show = savedSlideshows[idx];
+      if (!show || !savedShowMatchesApp(show, aid)) return null;
+      return idx;
+    });
+  }, [config.appId, savedSlideshows]);
 
   const updateConfig = useCallback((key, value) => {
     setConfig((prev) => {
@@ -576,9 +612,9 @@ export default function Home() {
         </main>
 
         {/* ── Slideshow gallery panel (scrolls inside viewport; compact when many) ─ */}
-        {savedSlideshows.length > 0 && (
+        {galleryEntries.length > 0 && (
           <GalleryRail
-            savedSlideshows={savedSlideshows}
+            entries={galleryEntries}
             activeShowIdx={activeShowIdx}
             loadShow={loadShow}
           />
