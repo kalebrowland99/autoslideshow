@@ -3,7 +3,6 @@
 import { useMemo } from "react";
 import { tickerBoxCaptionTextStyle, captionWrapperStyle } from "@/lib/captionStyles";
 import { captionFontSize1080 } from "@/lib/captionFontSize";
-import { displayImageSrc } from "@/lib/numistaImageClient";
 import { getBrand } from "@/lib/brand";
 
 // Stable seeded PRNG — same output for same seed, no re-randomisation on re-render
@@ -67,7 +66,7 @@ export default function ItemRevealSlide({ slot, S, config = {} }) {
       {slot.imageUrl ? (
         <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
           <img
-            src={displayImageSrc(slot.imageUrl)}
+            src={slot.imageUrl}
             alt={slot.itemName || "Item"}
             style={{
               width: "100%",

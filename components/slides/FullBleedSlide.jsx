@@ -1,7 +1,5 @@
 "use client";
 
-import { displayImageSrc } from "@/lib/numistaImageClient";
-
 /** Pose-person format: full-frame image only (no overlays). */
 
 export default function FullBleedSlide({ slot, S }) {
@@ -12,7 +10,7 @@ export default function FullBleedSlide({ slot, S }) {
     <div style={{ width: W, height: H, position: "relative", background: "#000", overflow: "hidden" }}>
       {slot.imageUrl ? (
         <img
-          src={displayImageSrc(slot.imageUrl)}
+          src={slot.imageUrl}
           alt={slot.itemName || "Item"}
           style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "center", display: "block" }}
         />
