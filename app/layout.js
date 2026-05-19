@@ -1,7 +1,6 @@
 import "./globals.css";
 import "@fontsource/tiktok-sans/latin-700.css";
 import "@fontsource/tiktok-sans/latin-400.css";
-import NumistaProxyBootstrap from "@/components/NumistaProxyBootstrap";
 
 export const metadata = {
   title: "Slideshows – Video Generator",
@@ -11,10 +10,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body>
-        <NumistaProxyBootstrap />
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

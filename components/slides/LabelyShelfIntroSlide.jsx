@@ -1,13 +1,9 @@
 "use client";
 
-import { toDisplayImageUrl } from "@/lib/numistaImageProxy";
-
 export default function LabelyShelfIntroSlide({ slot, S, hidePlaceholder = false }) {
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
-  const heroUrl = toDisplayImageUrl(
-    String(slot?.labelyShelfImageUrl || slot?.imageUrl || "").trim(),
-  );
+  const heroUrl = String(slot?.labelyShelfImageUrl || slot?.imageUrl || "").trim();
 
   return (
     <div style={{ width: W, height: H, position: "relative", background: "#000", overflow: "hidden" }}>

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { getFontEmbedCSS, toCanvas } from "html-to-image";
 import { buildLabelyScanFrameSequence } from "@/lib/labelyScanExport";
+import { inlineRemoteImagesInElement } from "@/lib/exportImagePrepare";
+import { needsExportImageInlining } from "@/lib/ensureExportImageUrls";
 import { getSlideInfo, isLabelyScanTourFormat } from "@/lib/slideLayout";
 import { DISPLAY_SCALE } from "./VideoPreview";
 import { waitForPreviewPaint } from "@/lib/waitForPreviewPaint";
@@ -105,6 +107,9 @@ export default function LabelyScanSequencePreview({ config, currentSlide, setCur
       await waitForPreviewPaint();
       await new Promise((r) => setTimeout(r, 100));
       await waitForFonts();
+      await inlineRemoteImagesInElement(root, {
+        strict: needsExportImageInlining(config),
+      });
       await waitForImagesDecoded(root);
 
       const fontEmbedCSS = await getFontEmbedCSS(root).catch(() => undefined);
@@ -112,8 +117,8 @@ export default function LabelyScanSequencePreview({ config, currentSlide, setCur
       const labelyCanvas = await toCanvas(root, {
         backgroundColor: canvasBg,
         pixelRatio: EXPORT_CAPTURE_PIXEL_RATIO,
-        cacheBust: true,
-        includeQueryParams: true,
+        cacheBust: false,
+        includeQueryParams: false,
         ...(fontEmbedCSS ? { fontEmbedCSS } : {}),
       });
 
