@@ -14,6 +14,7 @@ import {
   getSlideInfo,
   isLabelySingleSlideFormat,
   isLabelyScanTourFormat,
+  isValcoinCollageFormat,
   skipsCollageOpening,
   LABELY_SCAN_TOUR_SLOTS,
 } from "@/lib/slideLayout";
@@ -57,7 +58,7 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
   const fmt = config.outputFormat ?? "standard";
   const brand = getBrand(config);
   const labelySingleSlide = isLabelySingleSlideFormat(config);
-  const valcoinScanTour = brand.appId === "valcoin" && isLabelyScanTourFormat(config);
+  const valcoinMinimalNav = brand.appId === "valcoin";
 
   const slideLabel = () => {
     if (isLabelyScanTourFormat(config)) {
@@ -72,6 +73,9 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
       return `Pose ${currentSlide + 1}`;
     }
     if (currentSlide === 0) return "Collage";
+    if (isValcoinCollageFormat(config)) {
+      return `Coin ${currentSlide} — scan → Valcoin`;
+    }
     if (fmt === "appOnly") {
       return `Item ${currentSlide} — App`;
     }
@@ -94,7 +98,7 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
       <div
         className="flex items-center gap-3"
         aria-label={
-          valcoinScanTour ? `Slide ${currentSlide + 1} of ${totalSlides}` : undefined
+          valcoinMinimalNav ? `Slide ${currentSlide + 1} of ${totalSlides}` : undefined
         }
       >
         <button
@@ -104,7 +108,7 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
         >
           ←
         </button>
-        {!valcoinScanTour ? (
+        {!valcoinMinimalNav ? (
           <span className="text-white/50 text-xs min-w-[140px] text-center">{slideLabel()}</span>
         ) : (
           <span className="min-w-[140px]" aria-hidden />
@@ -189,7 +193,7 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
             fmt !== "imessageMom" &&
             i === 0;
           const isReveal =
-            fmt === "standard" && i > 0 && (i - 1) % 2 === 0;
+            fmt === "standard" && !isValcoinCollageFormat(config) && i > 0 && (i - 1) % 2 === 0;
           const momPhoto = false;
           const momMsg     = fmt === "imessageMom" && i === 0;
           const momVm      = fmt === "imessageMom" && i === 1;
@@ -240,9 +244,9 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>{brand.appId === "labely" ? "Labely" : brand.appName}</span>
             </>
           ) : skipsCollageOpening(config) ? (
-            !valcoinScanTour ? (
+            !valcoinMinimalNav ? (
               <>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>{brand.appId === "valcoin" ? "Valcoin" : "Labely"}</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>Labely</span>
                 {(config.outputFormat ?? "standard") === "labelyScan" && (
                   <>
                     <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-400/90 inline-block"/>Scan × {LABELY_SCAN_TOUR_SLOTS} → slide</span>
@@ -251,6 +255,11 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
                 )}
               </>
             ) : null
+          ) : isValcoinCollageFormat(config) ? (
+            <>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-violet-500 inline-block"/>Collage</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-400/90 inline-block"/>Scan → Valcoin</span>
+            </>
           ) : (
             <>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-violet-500 inline-block"/>Collage</span>

@@ -5,7 +5,6 @@ import { makeJitter } from "@/lib/jitter";
 import { tiktokCaptionTextStyle, tickerBoxCaptionTextStyle, captionWrapperStyle } from "@/lib/captionStyles";
 import { captionFontSize1080 } from "@/lib/captionFontSize";
 import { getBrand } from "@/lib/brand";
-import { isLabelyScanTourFormat } from "@/lib/slideLayout";
 
 /**
  * ThriftySlide — pixel-faithful recreation of SongEditView.
@@ -65,7 +64,8 @@ export default function ThriftySlide({ slot, S, config = {} }) {
   const brand = getBrand(config);
   const captionStyle = config.captionStyle ?? "tiktok";
   const captionBg    = config.captionBg    ?? "#e03030";
-  const hideCaption  = (config.outputFormat ?? "standard") === "imessageMom";
+  const hideCaption =
+    (config.outputFormat ?? "standard") === "imessageMom" || brand.appId === "valcoin";
   const captionColor = config.captionColor ?? "#ffffff";
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
@@ -146,36 +146,6 @@ export default function ThriftySlide({ slot, S, config = {} }) {
 
   const soldRows = buildSoldRows(slot, src1, src2);
 
-  const valcoinScanTourSlide = brand.appId === "valcoin" && isLabelyScanTourFormat(config);
-  if (valcoinScanTourSlide) {
-    const heroUrl = String(slot?.imageUrl || slot?.labelyShelfImageUrl || "").trim();
-    return (
-      <div
-        style={{
-          width: W,
-          height: H,
-          background: "#000",
-          overflow: "hidden",
-          position: "relative",
-        }}
-      >
-        {heroUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={heroUrl}
-            alt=""
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "contain",
-              objectPosition: "center",
-              display: "block",
-            }}
-          />
-        ) : null}
-      </div>
-    );
-  }
 
   return (
     <div style={{ width: W, height: H, background: "#ffffff", overflow: "hidden",

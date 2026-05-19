@@ -8,6 +8,7 @@ import { makeJitter } from "@/lib/jitter";
 export default function CollageSlide({ config, S }) {
   const { captionText, captionPosition, captionBold, captionStyle = "tiktok", captionBg = "#e03030", captionColor = "#ffffff", slots } = config;
   const isLabely = (config.appId ?? "thrifty") === "labely";
+  const isValcoin = (config.appId ?? "thrifty") === "valcoin";
 
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
@@ -91,7 +92,7 @@ export default function CollageSlide({ config, S }) {
       </div>
 
       {/* Caption overlay — flex-centered wrapper avoids calc() in html2canvas */}
-      {captionText && (
+      {!isValcoin && captionText && (
         <div
           style={{
             position: "absolute",
