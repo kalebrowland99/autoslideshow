@@ -32,18 +32,5 @@ export async function GET(req) {
     );
   }
 
-  if (mode === "raw") {
-    const m = /^data:([^;]+);base64,(.+)$/i.exec(imageDataUrl);
-    if (!m) {
-      return NextResponse.json({ error: "Invalid image payload." }, { status: 502 });
-    }
-    return new NextResponse(Buffer.from(m[2], "base64"), {
-      headers: {
-        "Content-Type": m[1],
-        "Cache-Control": "public, max-age=86400",
-      },
-    });
-  }
-
   return NextResponse.json({ imageDataUrl, imageUrl: url });
 }

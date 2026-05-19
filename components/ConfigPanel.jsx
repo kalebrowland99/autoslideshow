@@ -11,11 +11,10 @@ import {
   isLabelySingleSlideFormat,
   isLabelyScanTourFormat,
   isValcoinCollageFormat,
-  usesScanFrameSequenceExport,
   LABELY_SCAN_TOUR_SLOTS,
 } from "@/lib/slideLayout";
 import { buildLabelyScanFrameSequence, captureShelfIntroCanvas } from "@/lib/labelyScanExport";
-import { ensureExportImageUrls, needsExportImageInlining } from "@/lib/ensureExportImageUrls";
+import { ensureExportImageUrls } from "@/lib/ensureExportImageUrls";
 import { getBrand } from "@/lib/brand";
 import { savedShowMatchesApp } from "@/lib/showAppId";
 import {
@@ -293,7 +292,10 @@ function galleryShowToExportConfig(workspace, show) {
     slots: rawSlots.map((s) => ({ ...s })),
     appId,
     outputFormat,
-    captionText: isLabely || isValcoin ? "" : (show.captionText ?? workspace.captionText),
+    captionText:
+      isLabely || (isValcoin && show.outputFormat === "labelyScan")
+        ? ""
+        : (show.captionText ?? workspace.captionText),
     jitterSeed: show.jitterSeed ?? workspace.jitterSeed,
     labelyOutroText: show.labelyOutroText ?? workspace.labelyOutroText,
   };
@@ -1852,7 +1854,7 @@ ${SHARED_RULES_OUTRO}`;
     try {
       setConfig((prev) => ({ ...prev, jitterSeed: generationJitterSeed }));
       // Auto-pick a random hook caption for the collage slide
-      if (!isLabely && !isValcoin && hookItems.length > 0) {
+      if (!isLabely && (!isValcoin || isValcoinCollageFormat(config)) && hookItems.length > 0) {
         let pick = hookItems[Math.floor(Math.random() * hookItems.length)];
         pick = await ensureUniqueHookCaption(pick, batchCaptionsRef);
         updateConfig("captionText", pick);
@@ -2222,7 +2224,7 @@ ${SHARED_RULES_OUTRO}`;
         : null;
 
     let hookCaption = "";
-    if (!isLabely && !isValcoin) {
+    if (!isLabely && (!isValcoin || isValcoinCollageFormat(config))) {
       hookCaption =
         hookItems.length > 0
           ? hookItems[Math.floor(Math.random() * hookItems.length)]
@@ -2637,7 +2639,8 @@ ${SHARED_RULES_OUTRO}`;
     if (cancelGenRef.current) return null;
 
     let cfg = exportCfg;
-    if (needsExportImageInlining(cfg)) {
+    const aid = cfg.appId ?? "thrifty";
+    if (aid === "valcoin" || aid === "labely") {
       setExportStatus("Preparing images for export…");
       cfg = await ensureExportImageUrls(cfg);
       flushSync(() => setConfig((prev) => ({ ...prev, slots: cfg.slots })));
@@ -2724,7 +2727,11 @@ ${SHARED_RULES_OUTRO}`;
             allSlideFrames.push([]);
           }
         }
-      } else if (usesScanFrameSequenceExport(cfg, info)) {
+      } else if (
+        (cfg.outputFormat ?? "standard") === "labelyScan" &&
+        ["labely", "valcoin"].includes(cfg.appId ?? "thrifty") &&
+        (info.type === "labely" || (info.type === "thrifty" && (cfg.appId ?? "thrifty") === "valcoin"))
+      ) {
         await new Promise((r) => setTimeout(r, 80));
         try {
           const labelyCanvas = await captureSlideCanvas(bg, fontEmbedCSS);
@@ -3217,22 +3224,14 @@ ${SHARED_RULES_OUTRO}`;
     setIsExporting(true);
     setExportProgress(20);
     try {
-      let cfg = config;
-      if (needsExportImageInlining(cfg)) {
-        setExportStatus("Preparing images for export…");
-        cfg = await ensureExportImageUrls(cfg);
-        flushSync(() => setConfig((prev) => ({ ...prev, slots: cfg.slots })));
-        await waitForPreviewPaint();
-        await waitForImagesDecoded(el);
-      }
-      if ((cfg.outputFormat ?? "standard") === "starterPack") {
+      if ((config.outputFormat ?? "standard") === "starterPack") {
         setExportStatus("Generating starter pack text…");
         const sp = await ensureStarterPackAutofill();
         setExportStatus("Generating starter pack images…");
         await ensureStarterPackImages(sp?.imagePrompts ?? sp?.items);
       }
       const fontEmbedCSS = await getFontEmbedCSS(el);
-      const capInfo = getSlideInfo(cfg, currentSlide);
+      const capInfo = getSlideInfo(config, currentSlide);
       const capBg =
         capInfo.type === "collage"
           ? "#111111"
@@ -3270,17 +3269,7 @@ ${SHARED_RULES_OUTRO}`;
     setExportProgress(0);
     setExportStatus("Capturing slides…");
 
-    let cfg = config;
-    if (needsExportImageInlining(cfg)) {
-      setExportStatus("Preparing images for export…");
-      cfg = await ensureExportImageUrls(cfg);
-      flushSync(() => setConfig((prev) => ({ ...prev, slots: cfg.slots })));
-      await waitForPreviewPaint();
-      await waitForImagesDecoded(getCaptureNode());
-      setExportStatus("Capturing slides…");
-    }
-
-    if ((cfg.outputFormat ?? "standard") === "starterPack") {
+    if ((config.outputFormat ?? "standard") === "starterPack") {
       setExportStatus("Generating starter pack text…");
       const sp = await ensureStarterPackAutofill();
       setExportStatus("Generating starter pack images…");
@@ -3294,15 +3283,14 @@ ${SHARED_RULES_OUTRO}`;
     const pngEntries = {};
     const usedZipEntryNames = new Set();
 
-    const slidesCount = getTotalSlides(cfg);
-    for (let i = 0; i < slidesCount; i++) {
+    for (let i = 0; i < totalSlides; i++) {
       flushSync(() => {
         setCurrentSlide(i);
       });
       await waitForPreviewPaint();
       await new Promise((r) => setTimeout(r, 80));
 
-      const info = getSlideInfo(cfg, i);
+      const info = getSlideInfo(config, i);
       const bg =
         info.type === "collage"    ? "#111111"
         : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "labelyShelfIntro" ? "#000000"
@@ -3332,8 +3320,8 @@ ${SHARED_RULES_OUTRO}`;
         }
       }
 
-      setExportProgress(Math.round(((i + 1) / slidesCount) * 85));
-      setExportStatus(`Captured ${i + 1} / ${slidesCount}…`);
+      setExportProgress(Math.round(((i + 1) / totalSlides) * 85));
+      setExportStatus(`Captured ${i + 1} / ${totalSlides}…`);
     }
 
     if (Object.keys(pngEntries).length === 0) {
@@ -3410,7 +3398,7 @@ ${SHARED_RULES_OUTRO}`;
             {
               id: "standard",
               label: "6-coin collage",
-              sub: "6-coin collage, then scan beam + Valcoin UI slide-up per coin",
+              sub: "Numista obverses in a 2×3 grid, then reveal + Valcoin per coin",
             },
             {
               id: "labelyScan",
@@ -3565,7 +3553,7 @@ ${SHARED_RULES_OUTRO}`;
       </div>
 
       {/* ── COLLAGE CAPTION (Thrifty only) ── */}
-      {!isLabely && !isValcoin ? (
+      {(!isLabely && !isValcoin) || isValcoinCollageFormat(config) ? (
       <Section title="Collage Caption" icon="💬">
         <div className="flex items-start gap-2">
           <Textarea
