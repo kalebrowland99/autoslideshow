@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { fetchRemoteImageDataUrl } from "@/lib/fetchRemoteImageDataUrl";
 
+export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const NUMISTA_API = "https://api.numista.com/api/v3";
@@ -106,6 +107,29 @@ function obverseUrlsFromType(t) {
 
 function obverseUrlFromType(t) {
   return obverseUrlsFromType(t)[0] || "";
+}
+
+/**
+ * @param {object} chosen
+ * @param {string} userAgent
+ * @returns {Promise<{ imageDataUrl: string | null, imageUrl: string, title: string, typeId: number | null } | null>}
+ */
+async function coinImagePayload(chosen, userAgent) {
+  const urls = obverseUrlsFromType(chosen);
+  if (urls.length === 0) return null;
+
+  let imageDataUrl = null;
+  for (const u of urls) {
+    imageDataUrl = await fetchRemoteImageDataUrl(u, userAgent);
+    if (imageDataUrl) break;
+  }
+
+  return {
+    imageDataUrl,
+    imageUrl: urls[0],
+    title: String(chosen?.title || "").trim(),
+    typeId: chosen?.id != null ? Number(chosen.id) : null,
+  };
 }
 
 /** GET /types/{id} may return the type at root or under `type`. */
@@ -272,55 +296,39 @@ export async function POST(req) {
       }
     }
 
-    const urls = obverseUrlsFromType(chosen);
-    if (urls.length === 0) {
+    const payload = await coinImagePayload(chosen, "AutoSlideshow Valcoin/1.0 (Numista)");
+    if (!payload) {
       return NextResponse.json(
         { error: "No Numista obverse image found for that coin. Try a different name or disable Numista photos to use AI." },
         { status: 422 },
       );
     }
 
-    let imageDataUrl = null;
-    for (const u of urls) {
-      imageDataUrl = await fetchRemoteImageDataUrl(u, "AutoSlideshow Valcoin/1.0 (Numista)");
-      if (imageDataUrl) break;
-    }
-    if (!imageDataUrl) {
-      return NextResponse.json({ error: "Could not download coin image from Numista." }, { status: 502 });
-    }
-
-    return NextResponse.json({
-      imageDataUrl,
-      title: String(chosen?.title || "").trim(),
-      typeId: chosen?.id != null ? Number(chosen.id) : null,
-    });
+    return NextResponse.json(payload);
   }
 
   if (action === "randomPhoto") {
     const ua = "AutoSlideshow Valcoin/1.0 (Numista random)";
-    for (let round = 0; round < 3; round++) {
+    for (let round = 0; round < 6; round++) {
       const chosen = await pickRandomCatalogType(apiKey);
-      if (!chosen) break;
-      const urls = obverseUrlsFromType(chosen);
-      let imageDataUrl = null;
-      for (const u of urls) {
-        imageDataUrl = await fetchRemoteImageDataUrl(u, ua);
-        if (imageDataUrl) {
-          return NextResponse.json({
-            imageDataUrl,
-            title: String(chosen?.title || "").trim(),
-            typeId: chosen?.id != null ? Number(chosen.id) : null,
-          });
-        }
+      if (!chosen) continue;
+      const payload = await coinImagePayload(chosen, ua);
+      if (!payload) continue;
+      if (payload.imageDataUrl) return NextResponse.json(payload);
+      if (payload.imageUrl) {
+        return NextResponse.json({
+          ...payload,
+          clientFetch: true,
+        });
       }
-      await new Promise((r) => setTimeout(r, 80 * (round + 1)));
+      await new Promise((r) => setTimeout(r, 60 * (round + 1)));
     }
     return NextResponse.json(
       {
         error:
-          "Could not pick a random catalog coin with a downloadable obverse image. Try again or check Numista API access.",
+          "Could not pick a random catalog coin with an obverse image. Try again or check Numista API access.",
       },
-      { status: 502 },
+      { status: 422 },
     );
   }
 

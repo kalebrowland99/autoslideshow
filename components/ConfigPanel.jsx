@@ -22,6 +22,7 @@ import {
   IMAGE_FILE_ACCEPT,
 } from "@/lib/fileToDisplayableDataUrl";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
+import { resolveNumistaCoinResponse } from "@/lib/numistaImageClient";
 import { BAD_LABELY_VERDICT, normalizeBadLabelyScore } from "@/lib/labelyRating";
 import {
   clearGlobalJob,
@@ -1156,8 +1157,9 @@ export default function ConfigPanel({
               body: JSON.stringify({ action: "photo", query: numistaQuery }),
             });
             const data = await res.json().catch(() => ({}));
-            if (res.ok && typeof data.imageDataUrl === "string" && data.imageDataUrl.startsWith("data:")) {
-              return data.imageDataUrl;
+            if (res.ok) {
+              const { dataUrl } = await resolveNumistaCoinResponse(data);
+              if (dataUrl.startsWith("data:") || dataUrl.startsWith("http")) return dataUrl;
             }
           } catch {
             /* fall through to AI */
@@ -2381,9 +2383,12 @@ ${SHARED_RULES_OUTRO}`;
               body: JSON.stringify({ action: "randomPhoto" }),
             });
             const data = await res.json().catch(() => ({}));
-            if (res.ok && typeof data.imageDataUrl === "string" && data.imageDataUrl.startsWith("data:")) {
-              url = data.imageDataUrl;
-              coinTitle = String(data.title || "").trim();
+            if (res.ok) {
+              const resolved = await resolveNumistaCoinResponse(data);
+              if (resolved.dataUrl) {
+                url = resolved.dataUrl;
+                coinTitle = resolved.title || coinTitle;
+              }
             }
           } catch {
             /* fall through to AI */
