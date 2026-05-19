@@ -386,10 +386,10 @@ export default function Home() {
       ...prev,
       slots: showData.slots,
       captionText: isLabelyShow || isValcoinShow ? "" : showData.captionText,
-      ...(showData.outputFormat != null
-        ? { outputFormat: showData.outputFormat }
-        : isLabelyShow || isValcoinShow
-          ? { outputFormat: "labelyScan" }
+      ...(isLabelyShow || isValcoinShow
+        ? { outputFormat: "labelyScan" }
+        : showData.outputFormat != null
+          ? { outputFormat: showData.outputFormat }
           : {}),
       ...(showData.appId != null ? { appId: showData.appId } : {}),
       ...(showData.jitterSeed != null ? { jitterSeed: showData.jitterSeed } : {}),
@@ -418,10 +418,7 @@ export default function Home() {
       }
       if (key === "appId" && value === "labely") {
         next.captionText = "";
-        const fmt = next.outputFormat ?? "standard";
-        if (!["labelyOnly", "labelyScan"].includes(fmt)) {
-          next.outputFormat = "labelyScan";
-        }
+        next.outputFormat = "labelyScan";
       }
       if (key === "outputFormat") {
         const maxSlide = Math.max(0, getTotalSlides(next) - 1);

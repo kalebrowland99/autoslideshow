@@ -479,7 +479,6 @@ export default function ConfigPanel({
   const isValcoin = brand.appId === "valcoin";
   const isLabely = brand.appId === "labely";
   const isLabelyFoodDbBatchMode = isLabely && !!config.labelyAiProducts && !!config.labelyUseFoodDatabasePhotos;
-  const hasSavedLabelySlideshows = savedSlideshows.some((show) => show?.appId === "labely");
   const labelyUploadsLocked = isLabely && !!config.labelyAiProducts;
   const labelyFoodDbBatches = useMemo(() => {
     const raw = Array.isArray(config.labelyFoodDbBatches) ? config.labelyFoodDbBatches : [];
@@ -573,6 +572,8 @@ export default function ConfigPanel({
   // genAllProgress shape: { total: 6, done: number, current: number, phase: string, slotsDone: Set }
   const [referenceImages, setReferenceImages] = useState(null);
   const [mounted, setMounted] = useState(false);
+  /** png_slide | png_zip | mp4_current | mp4_gallery */
+  const [exportChoice, setExportChoice] = useState("mp4_current");
   const storeKey = (base) => `${base}_${brand.appId}`;
   const DEFAULT_HOOKS_THRIFTY = [
     "found at goodwill 👀",
@@ -1015,6 +1016,13 @@ export default function ConfigPanel({
       .then((d) => setReferenceImages(d.images || []))
       .catch(() => setReferenceImages([]));
   }, [brand.appId]);
+
+  useEffect(() => {
+    if (savedSlideshows.length < 2 && exportChoice === "mp4_gallery") {
+      setExportChoice("mp4_current");
+    }
+  }, [savedSlideshows.length, exportChoice]);
+
   const cancelGenRef = useRef(false);
   const jobPausedRef = useRef(false);
   const batchCaptionsRef = useRef([]);
@@ -3174,91 +3182,6 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
-  const handleFixBlankLabelyPhotos = async () => {
-    if (!Array.isArray(savedSlideshows) || savedSlideshows.length === 0 || typeof onSavedSlideshowsChange !== "function") return;
-    const labelyShows = savedSlideshows.filter((show) => show?.appId === "labely");
-    const blankSlots = labelyShows.reduce(
-      (sum, show) => sum + (Array.isArray(show?.slots) ? show.slots.filter((slot) => !String(slot?.imageUrl || "").trim()).length : 0),
-      0,
-    );
-    if (blankSlots === 0) {
-      setExportStatus("No blank Labely photos found.");
-      setExportProgress(100);
-      setTimeout(() => {
-        setExportStatus("");
-        setExportProgress(0);
-      }, 2500);
-      return;
-    }
-
-    setIsExporting(true);
-    setExportProgress(0);
-    setExportStatus(`Fixing ${blankSlots} blank Labely photo${blankSlots === 1 ? "" : "s"}…`);
-    abortRef.current?.abort();
-    abortRef.current = new AbortController();
-    try {
-      const repaired = savedSlideshows.map((show) => ({
-        ...show,
-        slots: Array.isArray(show?.slots) ? show.slots.map((slot) => ({ ...slot })) : show?.slots,
-      }));
-      let checked = 0;
-      let fixed = 0;
-
-      for (let showIndex = 0; showIndex < repaired.length; showIndex++) {
-        const show = repaired[showIndex];
-        if (show?.appId !== "labely" || !Array.isArray(show.slots)) continue;
-        const batchIndex = Number(show.batchNumber) - 1;
-        const showBatches = Array.isArray(show.labelyFoodDbBatches) ? show.labelyFoodDbBatches : [];
-        const sourceBatch =
-          (batchIndex >= 0 ? showBatches[batchIndex] : null)
-          || (batchIndex >= 0 ? labelyFoodDbBatches[batchIndex] : null)
-          || null;
-        const matches = sourceBatch?.foodDbMatches && typeof sourceBatch.foodDbMatches === "object" ? sourceBatch.foodDbMatches : {};
-
-        for (let slotIndex = 0; slotIndex < show.slots.length; slotIndex++) {
-          const slot = show.slots[slotIndex];
-          if (String(slot?.imageUrl || "").trim()) continue;
-          checked++;
-          setExportStatus(`Fixing blank photo ${checked} / ${blankSlots}…`);
-          const exactImageUrl = String(slot?.labelyDbImageUrl || "").trim() || foodDbImageUrlForSlot(slot, matches);
-          const imageDataUrl = await fetchLabelyDatabaseImage({ slot, exactImageUrl });
-          if (imageDataUrl) {
-            show.slots[slotIndex] = {
-              ...slot,
-              imageUrl: imageDataUrl,
-              ...(exactImageUrl ? { labelyDbImageUrl: exactImageUrl } : {}),
-            };
-            fixed++;
-          }
-          setExportProgress(Math.round((checked / blankSlots) * 100));
-          await new Promise((r) => setTimeout(r, 80));
-        }
-      }
-
-      onSavedSlideshowsChange(repaired);
-      if (activeShowIdx != null && repaired[activeShowIdx]) {
-        const active = repaired[activeShowIdx];
-        setConfig((prev) => ({
-          ...prev,
-          slots: Array.isArray(active.slots) ? active.slots : prev.slots,
-          ...(active.jitterSeed != null ? { jitterSeed: active.jitterSeed } : {}),
-        }));
-      }
-      setExportProgress(100);
-      setExportStatus(`Done! Fixed ${fixed} / ${blankSlots} blank Labely photo${blankSlots === 1 ? "" : "s"}.`);
-    } catch (e) {
-      console.error("Fix blank Labely photos failed:", e);
-      setExportStatus("Fix blank photos failed — see console.");
-    } finally {
-      abortRef.current = null;
-      setIsExporting(false);
-      setTimeout(() => {
-        setExportStatus("");
-        setExportProgress(0);
-      }, 5000);
-    }
-  };
-
   const handleExportPNG = async () => {
     const el = getCaptureNode();
     if (!el) return;
@@ -3390,6 +3313,13 @@ ${SHARED_RULES_OUTRO}`;
     setTimeout(() => { setExportStatus(""); setExportProgress(0); }, 3000);
   };
 
+  const runChosenExport = async () => {
+    if (exportChoice === "png_slide") await handleExportPNG();
+    else if (exportChoice === "png_zip") await handleExportAllPNGs();
+    else if (exportChoice === "mp4_gallery") await handleExportAllVideos();
+    else await handleExportVideo();
+  };
+
   // Register the per-slide refresh handler so VideoPreview can trigger generation
   // No deps — runs after every render to keep the latest closure registered
   useEffect(() => {
@@ -3419,36 +3349,31 @@ ${SHARED_RULES_OUTRO}`;
 
       <div className="space-y-3 -mt-1">
         <span className="text-white/45 text-xs font-semibold uppercase tracking-wider">Output format</span>
-        {isValcoin ? (
+        {isLabely || isValcoin ? (
           <div className="rounded-xl border border-violet-500/25 bg-violet-500/10 px-3 py-2.5 text-[11px] text-white/80">
-            <div className="font-semibold text-white">Scan tour (×3)</div>
+            <div className="font-semibold text-white">
+              {isLabely ? "Grocery intro + scan (×3)" : "Coin scan (×3)"}
+            </div>
             <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-              Same pipeline as Labely grocery scan: fullscreen intro, scan beam, then three Valcoin slides. Coins are chosen at random from the Numista catalog (requires{" "}
-              <code className="rounded bg-black/40 px-1 text-amber-200/90">NUMISTA_API_KEY</code> on the server). Upload optional photos in batch rows #1·1–#1·3 to override random picks per slot.
+              {isLabely
+                ? `Shelf intro, scan beam, then ${LABELY_SCAN_TOUR_SLOTS} Labely slides. Use AI products + food list, or upload ${LABELY_SCAN_TOUR_SLOTS} pack photos in the rows below.`
+                : `Intro, scan, then ${LABELY_SCAN_TOUR_SLOTS} Valcoin slides. Random Numista obverses (server needs `}
+              {!isLabely ? (
+                <>
+                  <code className="rounded bg-black/40 px-1 text-amber-200/90">NUMISTA_API_KEY</code>
+                  {`). AI only fills a slot if Numista has no photo.`}
+                </>
+              ) : null}
             </p>
           </div>
         ) : (
         <div className="flex flex-col gap-2">
           {[
-            ...(isLabely
-              ? [
-                  {
-                    id: "labelyScan",
-                    label: "Labely grocery intro + scan (×3)",
-                    sub: `Opening grocery shelf/fridge scene, then three Labely slides (slots 1–${LABELY_SCAN_TOUR_SLOTS}). Export = shelf intro, scan over each image, Labely slides up, then transitions to the next.`,
-                  },
-                  {
-                    id: "labelyOnly",
-                    label: "Labely (single slide)",
-                    sub: "One Labely slide only — upload a packaging photo below (slot 1), then Generate.",
-                  },
-                ]
-              : []),
             { id: "standard", label: "Standard", sub: "Collage, then reveal + app per item" },
             { id: "appOnly", label: "App only", sub: "Collage, then app screenshots only (no reveal)" },
-            ...(!isValcoin ? [{ id: "imessageMom", label: "iMessage mom", sub: `iMessage → Voicemail → ${brand.appName} (3 slides, slot 1 only)` }] : []),
-            ...(!isValcoin ? [{ id: "posePerson", label: "Pose person", sub: "Six full-frame shots; hands OK on slide 1 only" }] : []),
-            ...(!isValcoin ? [{ id: "starterPack", label: "Starter pack", sub: `POV: you thrift full time — 3 struggles + ${brand.appName} (5 sec)` }] : []),
+            { id: "imessageMom", label: "iMessage mom", sub: `iMessage → Voicemail → ${brand.appName} (3 slides, slot 1 only)` },
+            { id: "posePerson", label: "Pose person", sub: "Six full-frame shots; hands OK on slide 1 only" },
+            { id: "starterPack", label: "Starter pack", sub: `POV: you thrift full time — 3 struggles + ${brand.appName} (5 sec)` },
           ].map(({ id, label, sub }) => (
             <button
               key={id}
@@ -3468,7 +3393,7 @@ ${SHARED_RULES_OUTRO}`;
         )}
 
         {/* ── Starter Pack config ───────────────────────────────────────── */}
-        {(config.outputFormat ?? "standard") === "starterPack" && (
+        {!isLabely && !isValcoin && (config.outputFormat ?? "standard") === "starterPack" && (
           <div className="bg-white/4 border border-violet-500/30 rounded-xl p-3 flex flex-col gap-2">
             <div className="text-white/55 text-xs font-semibold">Starter Pack</div>
             <p className="text-white/35 text-[10px] leading-relaxed">
@@ -3520,6 +3445,7 @@ ${SHARED_RULES_OUTRO}`;
           </div>
         )}
 
+        {!isLabely && !isValcoin && (
         <div className="bg-white/4 border border-white/10 rounded-xl p-3">
           <div className="text-white/55 text-xs font-semibold mb-1">Pose format (optional)</div>
           <p className="text-white/35 text-[10px] mb-2 leading-relaxed">
@@ -3562,14 +3488,13 @@ ${SHARED_RULES_OUTRO}`;
             </div>
           )}
         </div>
+        )}
+
       </div>
 
-      <div className="border-b border-white/5" />
-
-      {/* ── COLLAGE CAPTION (hooks + collage text — Labely has none) ── */}
-      {(isLabely || !isValcoin) && (
-      <Section title={isLabely ? "Reveal captions" : "Collage Caption"} icon="💬">
-        {!isLabely && (
+      {/* ── COLLAGE CAPTION (Thrifty only) ── */}
+      {!isLabely && !isValcoin && (
+      <Section title="Collage Caption" icon="💬">
         <div className="flex items-start gap-2">
           <Textarea
             value={config.captionText}
@@ -3586,7 +3511,6 @@ ${SHARED_RULES_OUTRO}`;
             🎲
           </button>
         </div>
-        )}
 
         {/* ── Caption style toggle ── */}
         <div className="mt-3 flex items-center gap-2">
@@ -3664,7 +3588,6 @@ ${SHARED_RULES_OUTRO}`;
           </div>
         )}
 
-        {!isLabely && (
         <div className="mt-3 bg-white/4 border border-white/10 rounded-xl p-3">
           <div className="flex items-center justify-between mb-1">
             <Label>Hook Captions</Label>
@@ -3681,13 +3604,12 @@ ${SHARED_RULES_OUTRO}`;
           />
           <p className="text-white/25 text-[10px] mt-1">One caption per line. A random one is picked each time you generate.</p>
         </div>
-        )}
       </Section>
       )}
 
       {/* ── AI GENERATION ── */}
       <Section title="AI Generation" icon="✨">
-        {!isLabely && (
+        {!isLabely && !isValcoin && (
         <div className="flex gap-2 mb-3">
           {[
             { id: "gpt-image-1", label: "GPT-Image-1.5", color: "border-emerald-500 bg-emerald-500/15 text-emerald-200" },
@@ -3727,11 +3649,11 @@ ${SHARED_RULES_OUTRO}`;
             {isLabely
               ? config.labelyAiProducts
                 ? config.labelyUseFoodDatabasePhotos
-                  ? "AI Labely: GPT picks and scores the SKU, then Open Food Facts is searched for a real package photo. No AI photo generation is attempted while database photos are on."
-                  : "AI Labely: GPT picks real retail products (your list seeds the SKU — e.g. Oreo → real Oreo packaging), writes fictional chemical hits in the analysis, scores, and generates a pack image (no uploads). Toggle off to use real photos + vision instead."
-                : "Labely analyzes your uploaded photos with vision (OpenAI). Toggle “AI-generated products” below for the older all-AI grocery flow."
+                  ? "Open Food Facts pack photos when possible; no AI image gen in that mode."
+                  : "AI pack shots from your food list; scanner readout stays fictional."
+                : "Vision reads your uploaded pack photos."
               : isValcoin
-                ? "Valcoin: random Numista catalog coins (needs NUMISTA_API_KEY); AI image model is only used when Numista cannot supply a photo."
+                ? "Random Numista coins; AI only if there is no catalog photo."
                 : "This deployment uses the Vercel environment variables for image generation and auto-title, so teammates can use the app without entering API keys here."}
           </div>
         </div>
@@ -3785,7 +3707,7 @@ ${SHARED_RULES_OUTRO}`;
                   <div className="text-xs font-semibold text-white/90">Use food database photos</div>
                   <p className="mt-1 text-[10px] leading-relaxed text-white/45">
                     Searches Open Food Facts for a real package photo from the chosen food name. If there is no usable match, the image is left blank and a similar database item is recommended below.
-                </p>
+                  </p>
               </div>
             </div>
             </div>
@@ -3794,7 +3716,8 @@ ${SHARED_RULES_OUTRO}`;
         ) : null}
 
         {/* Reference images status — only rendered client-side to avoid hydration mismatch */}
-        {mounted && <div className={`mt-2 flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
+        {mounted && !isLabely && !isValcoin && (
+        <div className={`mt-2 flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
           referenceImages === null ? "bg-white/4 border border-white/8 text-white/35"
           : referenceImages.length > 0 ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"
           : "bg-white/4 border border-white/8 text-white/35"
@@ -3812,14 +3735,11 @@ ${SHARED_RULES_OUTRO}`;
             <span>
               Add a PNG/JPEG to{" "}
               <code className="text-white/50">{referencesDirLabel}</code>
-              {brand.appId === "valcoin"
-                ? " (e.g. a coin-on-table macro style reference) to lock the Valcoin look."
-                : brand.appId === "labely"
-                ? " (e.g. shelf lighting / pack styling you like) so AI pack shots echo that look."
-                : " (e.g. messy clothes in a blue cart) to lock the buggy aesthetic."}
+              {" "}(e.g. messy clothes in a blue cart) to lock the buggy aesthetic.
             </span>
           )}
-        </div>}
+        </div>
+        )}
         {/* Labely AI: same role as Thrifty “Brand Items List” — seeds packaged-food generations */}
         {isLabely && config.labelyAiProducts ? (
           <div className="mt-3 bg-white/4 border border-white/10 rounded-xl p-3">
@@ -4122,7 +4042,9 @@ ${SHARED_RULES_OUTRO}`;
             ) : null}
           </div>
         ) : null}
-        {/* Image slots (all brands): qty × slots per show rows + brand list for Thrifty / Valcoin AI */}
+        {!isValcoin && (
+        <>
+        {/* Image slots: batch rows + Thrifty brand list */}
         <div className="mt-3 bg-white/4 border border-white/10 rounded-xl p-3">
           {/* SSR + first paint: plain Label only (matches Hook Captions / reference-status hydration pattern). */}
           {mounted ? (
@@ -4150,15 +4072,7 @@ ${SHARED_RULES_OUTRO}`;
             {labelyUploadsLocked
               ? " AI mode is on — uploads are disabled; run Generate to fill slots."
               : isLabely
-              ? isLabelyScanTourFormat(config)
-                ? ` Scan tour uses the first ${LABELY_SCAN_TOUR_SLOTS} rows as slides 1–${LABELY_SCAN_TOUR_SLOTS} (export: scan → Labely per slide). Enable AI-generated products for auto packshots, or upload three photos.`
-                : isLabelySingleSlideFormat(config)
-                ? " One row = one photo for your single Labely slide (preview analyzes slot 1). Toggle AI-generated products off if you want uploads only."
-                : " Labely analyzes rows 1–6 (live preview); rows 7+ are analyzed when you run batch. Upload photos per row or use AI-generated products."
-              : isValcoin
-              ? isLabelyScanTourFormat(config)
-                ? ` Scan tour uses the first ${LABELY_SCAN_TOUR_SLOTS} rows as slides 1–${LABELY_SCAN_TOUR_SLOTS} (export: intro → scan → Valcoin per slide). Leave rows empty for random Numista coins, or upload to override.`
-                : " Valcoin uses the scan tour format."
+              ? ` First ${LABELY_SCAN_TOUR_SLOTS} rows are your slides. Use AI products + food list, or upload ${LABELY_SCAN_TOUR_SLOTS} photos.`
               : " Rows 1–6 match the live preview. AI uses the brand list for any row left empty when generating."}
           </p>
 
@@ -4324,15 +4238,9 @@ ${SHARED_RULES_OUTRO}`;
               </p>
             </>
           ) : null}
-          {isValcoin ? (
-            <p className="mt-4 border-t border-white/10 pt-3 text-[10px] leading-relaxed text-white/40">
-              <span className="font-semibold text-white/60">Valcoin scan tour</span> — same export as Labely (intro → scan beam → three app slides). Each slot uses a{" "}
-              <strong className="text-white/70">random Numista catalog coin</strong> with an obverse photo (server{" "}
-              <code className="rounded bg-black/40 px-1 text-amber-200/90">NUMISTA_API_KEY</code>
-              ); if Numista cannot supply an image, AI fills the slot. Override any slot by uploading a photo in the rows above (#1·1–#1·3).
-            </p>
-          ) : null}
         </div>
+        </>
+        )}
 
         <div className="mt-2 flex gap-2">
           <button onClick={handleGenerateAll} disabled={generatingSlot !== null}
@@ -4407,7 +4315,7 @@ ${SHARED_RULES_OUTRO}`;
               <span className="text-violet-300/90 font-medium">{batchImageDataUrls.filter(Boolean).length}</span> /{" "}
               {batchImagesNeeded} with photos
               {!isLabely && batchImageDataUrls.some(Boolean) && batchImageDataUrls.filter(Boolean).length < batchImagesNeeded ? (
-                <span className="text-amber-400/80"> · empty rows use AI in batch (Thrifty/Valcoin)</span>
+                <span className="text-amber-400/80"> · empty rows use AI in batch</span>
               ) : null}
             </p>
           </div>
@@ -4416,21 +4324,17 @@ ${SHARED_RULES_OUTRO}`;
             disabled={
               generatingSlot !== null
               || (isLabelyFoodDbBatchMode && effectiveNumSlideshows <= 0)
-              || (!isLabely && !(isValcoin && isLabelyScanTourFormat(config)) && brandItems.length === 0 && !batchImageDataUrls.some(Boolean))
+              || (!isLabely && !isValcoin && brandItems.length === 0 && !batchImageDataUrls.some(Boolean))
             }
             className="w-full py-2.5 rounded-xl bg-fuchsia-700 hover:bg-fuchsia-600 disabled:opacity-40 text-white text-sm font-bold transition-colors"
           >
             {generatingSlot === "all" ? "Generating…" : `🎬 Generate ${effectiveNumSlideshows} Slideshow${effectiveNumSlideshows > 1 ? "s" : ""}`}
           </button>
-          {!isLabely && (
+          {!isLabely && !isValcoin && (
           <p className="text-white/25 text-[10px] mt-1.5 text-center">
             {(() => {
               const isMom = (config.outputFormat ?? "standard") === "imessageMom";
-              const imgs = isMom
-                ? 1
-                : isValcoin && isLabelyScanTourFormat(config)
-                  ? LABELY_SCAN_TOUR_SLOTS
-                  : 6;
+              const imgs = isMom ? 1 : 6;
               const cost = imageModel === "gpt-image-1" ? 0.015 * imgs : 0.07 * imgs;
               return `est. $${(effectiveNumSlideshows * cost).toFixed(2)} if all slots are AI · less when uploads fill the queue · each goes to gallery on the right`;
             })()}
@@ -4491,26 +4395,6 @@ ${SHARED_RULES_OUTRO}`;
       {/* ── EXPORT ── */}
       <div className="space-y-2 pb-8">
         <h3 className="text-white/50 text-xs uppercase tracking-widest font-bold mb-3">Export</h3>
-        {/* ── Background music toggle ── */}
-        <div className="bg-white/4 border border-white/10 rounded-xl p-3 flex items-start gap-3">
-          <button
-            type="button"
-            onClick={() => updateConfig("useRandomAudio", !config.useRandomAudio)}
-            className={`mt-0.5 w-9 h-5 rounded-full flex-shrink-0 transition-colors relative ${config.useRandomAudio ? "bg-violet-500" : "bg-white/15"}`}
-          >
-            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${config.useRandomAudio ? "left-[18px]" : "left-0.5"}`} />
-          </button>
-          <div>
-            <div className="text-xs font-semibold text-white/80">Background music</div>
-            <div className="text-[10px] text-white/35 mt-0.5 leading-relaxed">
-              Drop <span className="text-white/55">.mp3 / .wav / .m4a</span> files into{" "}
-              <span className="text-white/55">public/audio/</span> — a random track is mixed in on export.
-              {config.useRandomAudio && typeof window !== "undefined" && typeof AudioEncoder === "undefined" && (
-                <span className="text-amber-400"> AudioEncoder not supported in this browser — use Chrome.</span>
-              )}
-            </div>
-          </div>
-        </div>
 
         {(isExporting || exportStatus) && (
           <div className="mb-3">
@@ -4523,54 +4407,40 @@ ${SHARED_RULES_OUTRO}`;
             </div>
           </div>
         )}
-        <button onClick={handleExportPNG} disabled={isExporting}
-          className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 disabled:opacity-40 text-white text-sm font-semibold border border-white/10 transition-colors">
-          📸 Export Current Slide as PNG
-        </button>
-        <button onClick={handleExportAllPNGs} disabled={isExporting}
-          className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 disabled:opacity-40 text-white text-sm font-semibold border border-white/10 transition-colors">
-          🗂️ Export All Slides as PNG (ZIP)
-        </button>
-        {savedSlideshows.length >= 2 ? (
-          <>
-            {hasSavedLabelySlideshows ? (
-              <button
-                type="button"
-                onClick={handleFixBlankLabelyPhotos}
-                disabled={isExporting}
-                className="w-full py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white text-sm font-semibold transition-colors"
-              >
-                Check / fix blank photos
-              </button>
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+          <select
+            value={exportChoice}
+            onChange={(e) => setExportChoice(e.target.value)}
+            disabled={isExporting}
+            className="flex-1 rounded-xl border border-white/15 bg-black/30 px-3 py-2.5 text-sm text-white outline-none focus:border-violet-500/60 disabled:opacity-40"
+            aria-label="Export type"
+          >
+            <option value="png_slide">Current slide → PNG</option>
+            <option value="png_zip">All slides → ZIP (PNG)</option>
+            <option value="mp4_current">This workspace → MP4</option>
+            {savedSlideshows.length >= 2 ? (
+              <option value="mp4_gallery">All gallery items → MP4 (each)</option>
             ) : null}
-            <button
-              type="button"
-              onClick={handleExportAllVideos}
-              disabled={isExporting}
-              className="w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-semibold transition-colors"
-            >
-              📦 Export all gallery videos
-            </button>
-            <button
-              type="button"
-              onClick={handleExportVideo}
-              disabled={isExporting}
-              className="w-full py-2 rounded-xl bg-white/6 hover:bg-white/10 disabled:opacity-40 text-white/70 text-xs font-medium border border-white/10 transition-colors"
-            >
-              Export current workspace only
-            </button>
-            <p className="text-white/25 text-[10px] text-center leading-relaxed">
-              {`When every item is from the same ${GALLERY_IPHONE_DEVICE_COUNT}-phone Labely food DB batch pack, "Export all gallery videos" downloads ${GALLERY_IPHONE_DEVICE_COUNT} ZIPs—each with ${LABELY_DB_BATCH_COUNT} unique videos (batches 1–${LABELY_DB_BATCH_COUNT}). You need at least ${GALLERY_IPHONE_DEVICE_COUNT} videos per batch. Otherwise each thumbnail exports as its own .mp4.`}
-            </p>
-          </>
-        ) : (
-        <button onClick={handleExportVideo} disabled={isExporting}
-          className="w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-semibold transition-colors">
-            🎬 Export full video (.mp4)
-        </button>
-        )}
+          </select>
+          <button
+            type="button"
+            onClick={() => void runChosenExport()}
+            disabled={isExporting}
+            className="shrink-0 rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-40 transition-colors sm:min-w-[120px]"
+          >
+            Run export
+          </button>
+        </div>
+
+        {savedSlideshows.length >= 2 ? (
+          <p className="text-white/25 text-[10px] text-center leading-relaxed">
+            Gallery export runs each saved thumbnail as its own video, unless your Labely food-DB batch layout triggers the multi-ZIP iPhone pack (same rules as before).
+          </p>
+        ) : null}
+
         <p className="text-white/25 text-xs text-center">
-          {totalSlides} slides · {(config.slideDuration * totalSlides).toFixed(0)}s+ · 1080×1920 full res
+          {totalSlides} slides · {(config.slideDuration * totalSlides).toFixed(0)}s+ · 1080×1920
         </p>
       </div>
     </div>
