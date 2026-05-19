@@ -1,6 +1,6 @@
 "use client";
 
-export default function LabelyShelfIntroSlide({ slot, S, hidePlaceholder = false, objectFit = "cover" }) {
+export default function LabelyShelfIntroSlide({ slot, S, hidePlaceholder = false }) {
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
   const heroUrl = String(slot?.labelyShelfImageUrl || slot?.imageUrl || "").trim();
@@ -12,7 +12,7 @@ export default function LabelyShelfIntroSlide({ slot, S, hidePlaceholder = false
         <img
           src={heroUrl}
           alt={slot.itemName || "Product intro"}
-          style={{ width: "100%", height: "100%", objectFit, objectPosition: "center", display: "block" }}
+          style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center", display: "block" }}
         />
       ) : hidePlaceholder ? (
         <div style={{ width: "100%", height: "100%", background: "#000" }} />

@@ -13,8 +13,7 @@ import {
   isValcoinCollageFormat,
   LABELY_SCAN_TOUR_SLOTS,
 } from "@/lib/slideLayout";
-import { buildLabelyScanFrameSequence, captureShelfIntroCanvas } from "@/lib/labelyScanExport";
-import { ensureScanTourExportImages } from "@/lib/scanTourExportPrep";
+import { buildLabelyScanFrameSequence } from "@/lib/labelyScanExport";
 import { getBrand } from "@/lib/brand";
 import { savedShowMatchesApp } from "@/lib/showAppId";
 import {
@@ -2638,28 +2637,19 @@ ${SHARED_RULES_OUTRO}`;
     await waitWhilePaused();
     if (cancelGenRef.current) return null;
 
-    let cfg = exportCfg;
-    if (isLabelyScanTourFormat(exportCfg)) {
-      setExportStatus("Preparing scan tour images…");
-      cfg = await ensureScanTourExportImages(exportCfg);
-      flushSync(() => setConfig((prev) => ({ ...prev, slots: cfg.slots })));
-      await waitForPreviewPaint();
-      await waitForImagesDecoded(getCaptureNode());
-    }
-
-    if ((cfg.outputFormat ?? "standard") === "starterPack") {
+    if ((exportCfg.outputFormat ?? "standard") === "starterPack") {
       setExportStatus("Generating starter pack text…");
       const sp = await ensureStarterPackAutofill();
       await waitWhilePaused();
       if (cancelGenRef.current) return null;
       setExportStatus("Generating starter pack images…");
-      await ensureStarterPackImages(sp?.imagePrompts ?? sp?.items, cfg);
+      await ensureStarterPackImages(sp?.imagePrompts ?? sp?.items, exportCfg);
       await waitWhilePaused();
       if (cancelGenRef.current) return null;
       setExportStatus("Capturing slides…");
     }
 
-    const slidesCount = getTotalSlides(cfg);
+    const slidesCount = getTotalSlides(exportCfg);
     const allSlideFrames = [];
     const previewNode = getCaptureNode();
     const fontEmbedCSS = previewNode ? await getFontEmbedCSS(previewNode) : undefined;
@@ -2673,7 +2663,7 @@ ${SHARED_RULES_OUTRO}`;
       });
       await waitForPreviewPaint();
 
-      const info = getSlideInfo(cfg, i);
+      const info = getSlideInfo(exportCfg, i);
       const bg =
         info.type === "collage"
           ? "#111111"
@@ -2705,69 +2695,30 @@ ${SHARED_RULES_OUTRO}`;
         // Reset phase
         setConfig((prev) => ({ ...prev, _spPhase: -1 }));
       } else if (
-        info.type === "labelyShelfIntro" &&
-        (cfg.outputFormat ?? "standard") === "labelyScan" &&
-        ["labely", "valcoin"].includes(cfg.appId ?? "thrifty")
+        (exportCfg.outputFormat ?? "standard") === "labelyScan" &&
+        ["labely", "valcoin"].includes(exportCfg.appId ?? "thrifty") &&
+        (info.type === "labely" || (info.type === "thrifty" && (exportCfg.appId ?? "thrifty") === "valcoin"))
       ) {
         await new Promise((r) => setTimeout(r, 80));
         try {
-          const slotNow = info.slot ?? cfg.slots?.[0];
-          const productDataUrl = String(
-            slotNow?.labelyShelfImageUrl || slotNow?.imageUrl || "",
-          ).trim();
-          if ((cfg.appId ?? "thrifty") === "valcoin") {
-            const introCanvas = await captureShelfIntroCanvas(
-              productDataUrl,
-              (cfg.jitterSeed ?? 0) + (info.itemIndex ?? 0) * 9973,
-            );
-            allSlideFrames.push([introCanvas]);
-          } else {
-            const introCanvas = await captureSlideCanvas(bg, fontEmbedCSS);
-            if (!introCanvas) throw new Error("Preview node not found");
-            allSlideFrames.push([introCanvas]);
-          }
-        } catch (err) {
-          console.error("Capture error scan tour intro", err);
-          allSlideFrames.push([]);
-        }
-      } else if (
-        (cfg.outputFormat ?? "standard") === "labelyScan" &&
-        ["labely", "valcoin"].includes(cfg.appId ?? "thrifty") &&
-        (info.type === "labely" || (info.type === "thrifty" && (cfg.appId ?? "thrifty") === "valcoin"))
-      ) {
-        await new Promise((r) => setTimeout(r, 80));
-        try {
-          const slotNow = info.slot ?? cfg.slots?.[i];
-          const productDataUrl = String(slotNow?.imageUrl || "").trim();
-          let labelyCanvas = await captureSlideCanvas(bg, fontEmbedCSS);
+          const labelyCanvas = await captureSlideCanvas(bg, fontEmbedCSS);
           if (!labelyCanvas) throw new Error("Preview node not found");
+          const slotNow = info.slot ?? exportCfg.slots?.[i];
+          const productDataUrl =
+            typeof slotNow?.imageUrl === "string" ? slotNow.imageUrl.trim() : "";
           const seq = await buildLabelyScanFrameSequence({
             productDataUrl,
             labelyCanvas,
             scanSec: 1.35,
             revealSec: 0.52,
-            holdSec: cfg.slideDuration,
+            holdSec: exportCfg.slideDuration,
             fps,
-            imageVariationSeed: (cfg.jitterSeed ?? 0) + (info.itemIndex ?? i) * 9973,
+            imageVariationSeed: (exportCfg.jitterSeed ?? 0) + (info.itemIndex ?? i) * 9973,
           });
-          if (!seq?.length) throw new Error("Scan frame sequence empty");
           allSlideFrames.push([labelyCanvas, seq]);
         } catch (err) {
           console.error("Capture error Labely scan intro", err);
-          try {
-            const slotNow = info.slot ?? cfg.slots?.[i];
-            const productDataUrl = String(slotNow?.imageUrl || "").trim();
-            const fallbackCanvas = await captureShelfIntroCanvas(
-              productDataUrl,
-              (cfg.jitterSeed ?? 0) + (info.itemIndex ?? i) * 9973,
-            );
-            const holdFrames = Math.max(Math.round(cfg.slideDuration * fps), fps);
-            const holdSeq = Array.from({ length: holdFrames }, () => fallbackCanvas);
-            allSlideFrames.push([fallbackCanvas, holdSeq]);
-          } catch (fallbackErr) {
-            console.error("Scan tour fallback capture failed", fallbackErr);
-            allSlideFrames.push([]);
-          }
+          allSlideFrames.push([]);
         }
       } else {
         await new Promise((r) => setTimeout(r, 80));
@@ -2810,7 +2761,7 @@ ${SHARED_RULES_OUTRO}`;
 
     const OUT_W = 1080;
     const OUT_H = 1920;
-    const transitionFrames = Math.round((cfg.transitionMs / 1000) * fps);
+    const transitionFrames = Math.round((exportCfg.transitionMs / 1000) * fps);
     const frameDurationUs  = Math.round(1_000_000 / fps); // microseconds per frame
 
     // Per-slide hold duration in frames.
@@ -2821,7 +2772,7 @@ ${SHARED_RULES_OUTRO}`;
         return snapshots[1].length;
       }
       const overrideSec = snapshots[1];
-      const baseSec = typeof overrideSec === "number" ? overrideSec : cfg.slideDuration;
+      const baseSec = typeof overrideSec === "number" ? overrideSec : exportCfg.slideDuration;
       const jitterMs = typeof overrideSec === "number" ? 0 : Math.floor(Math.random() * 500);
       return Math.round((baseSec + jitterMs / 1000) * fps);
     });
@@ -2844,7 +2795,7 @@ ${SHARED_RULES_OUTRO}`;
     let audioSampleRate = 44100;
     let audioChannels = 2;
 
-    if (cfg.useRandomAudio && typeof AudioEncoder !== "undefined") {
+    if (exportCfg.useRandomAudio && typeof AudioEncoder !== "undefined") {
       try {
         setExportStatus("Loading audio…");
         const { files: audioFiles } = await fetch("/api/audio").then((r) => r.json());
