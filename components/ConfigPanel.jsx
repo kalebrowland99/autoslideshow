@@ -13,7 +13,8 @@ import {
   isValcoinCollageFormat,
   LABELY_SCAN_TOUR_SLOTS,
 } from "@/lib/slideLayout";
-import { buildLabelyScanFrameSequence } from "@/lib/labelyScanExport";
+import { buildLabelyScanFrameSequence, renderValcoinCoinSlideCanvas } from "@/lib/labelyScanExport";
+import { prepareConfigForExport } from "@/lib/prepareSlotsForExport";
 import { getBrand } from "@/lib/brand";
 import { savedShowMatchesApp } from "@/lib/showAppId";
 import {
@@ -2632,10 +2633,21 @@ ${SHARED_RULES_OUTRO}`;
   };
 
   // ── Video export: capture each slide, then animate ──
-  const encodeWorkspaceVideoToBlob = async (exportCfg) => {
+  const encodeWorkspaceVideoToBlob = async (exportCfgIn) => {
     setExportProgress(0);
     await waitWhilePaused();
     if (cancelGenRef.current) return null;
+
+    let exportCfg = exportCfgIn;
+    if (isLabelyScanTourFormat(exportCfgIn)) {
+      setExportStatus("Preparing images for export…");
+      exportCfg = await prepareConfigForExport(exportCfgIn);
+      flushSync(() => {
+        setConfig((prev) => ({ ...prev, slots: exportCfg.slots }));
+      });
+      await waitForPreviewPaint();
+      if (cancelGenRef.current) return null;
+    }
 
     if ((exportCfg.outputFormat ?? "standard") === "starterPack") {
       setExportStatus("Generating starter pack text…");
@@ -2701,11 +2713,22 @@ ${SHARED_RULES_OUTRO}`;
       ) {
         await new Promise((r) => setTimeout(r, 80));
         try {
-          const labelyCanvas = await captureSlideCanvas(bg, fontEmbedCSS);
-          if (!labelyCanvas) throw new Error("Preview node not found");
-          const slotNow = info.slot ?? exportCfg.slots?.[i];
+          const isValcoinScan = (exportCfg.appId ?? "thrifty") === "valcoin";
+          const slotNow = info.slot ?? exportCfg.slots?.[info.itemIndex ?? 0] ?? exportCfg.slots?.[0];
           const productDataUrl =
-            typeof slotNow?.imageUrl === "string" ? slotNow.imageUrl.trim() : "";
+            typeof slotNow?.imageUrl === "string"
+              ? slotNow.imageUrl.trim()
+              : typeof slotNow?.labelyShelfImageUrl === "string"
+                ? slotNow.labelyShelfImageUrl.trim()
+                : "";
+          const variationSeed = (exportCfg.jitterSeed ?? 0) + (info.itemIndex ?? i) * 9973;
+
+          let labelyCanvas = await captureSlideCanvas(bg, fontEmbedCSS);
+          if (!labelyCanvas && isValcoinScan) {
+            labelyCanvas = await renderValcoinCoinSlideCanvas(productDataUrl, variationSeed);
+          }
+          if (!labelyCanvas) throw new Error("Preview node not found");
+
           const seq = await buildLabelyScanFrameSequence({
             productDataUrl,
             labelyCanvas,
@@ -2713,8 +2736,10 @@ ${SHARED_RULES_OUTRO}`;
             revealSec: 0.52,
             holdSec: exportCfg.slideDuration,
             fps,
-            imageVariationSeed: (exportCfg.jitterSeed ?? 0) + (info.itemIndex ?? i) * 9973,
+            imageVariationSeed: variationSeed,
+            productLayout: isValcoinScan ? "coin" : "fullscreen",
           });
+          if (!seq?.length) throw new Error("Scan frame sequence empty");
           allSlideFrames.push([labelyCanvas, seq]);
         } catch (err) {
           console.error("Capture error Labely scan intro", err);
@@ -2723,7 +2748,21 @@ ${SHARED_RULES_OUTRO}`;
       } else {
         await new Promise((r) => setTimeout(r, 80));
         try {
-          const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
+          let canvas = await captureSlideCanvas(bg, fontEmbedCSS);
+          if (
+            !canvas &&
+            (exportCfg.appId ?? "thrifty") === "valcoin" &&
+            info.type === "labelyShelfIntro"
+          ) {
+            const introSlot = exportCfg.slots?.[0];
+            const introUrl =
+              typeof introSlot?.labelyShelfImageUrl === "string"
+                ? introSlot.labelyShelfImageUrl.trim()
+                : typeof introSlot?.imageUrl === "string"
+                  ? introSlot.imageUrl.trim()
+                  : "";
+            canvas = await renderValcoinCoinSlideCanvas(introUrl, exportCfg.jitterSeed ?? 0);
+          }
           if (!canvas) throw new Error("Preview node not found");
           allSlideFrames.push([canvas]);
         } catch (err) {

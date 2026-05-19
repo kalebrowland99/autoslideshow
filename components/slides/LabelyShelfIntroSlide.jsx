@@ -12,7 +12,13 @@ export default function LabelyShelfIntroSlide({ slot, S, hidePlaceholder = false
         <img
           src={heroUrl}
           alt={slot.itemName || "Product intro"}
-          style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center", display: "block" }}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: hidePlaceholder ? "contain" : "cover",
+            objectPosition: "center",
+            display: "block",
+          }}
         />
       ) : hidePlaceholder ? (
         <div style={{ width: "100%", height: "100%", background: "#000" }} />
