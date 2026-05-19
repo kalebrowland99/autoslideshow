@@ -1,9 +1,11 @@
 "use client";
 
+import { catalogueImageSrc } from "@/lib/numistaImageClient";
+
 export default function LabelyShelfIntroSlide({ slot, S, hidePlaceholder = false }) {
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
-  const heroUrl = String(slot?.labelyShelfImageUrl || slot?.imageUrl || "").trim();
+  const heroUrl = catalogueImageSrc(slot?.labelyShelfImageUrl || slot?.imageUrl || "");
 
   return (
     <div style={{ width: W, height: H, position: "relative", background: "#000", overflow: "hidden" }}>

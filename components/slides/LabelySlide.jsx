@@ -3,6 +3,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BAD_LABELY_SCORE, BAD_LABELY_VERDICT, MAX_BAD_LABELY_SCORE, MIN_BAD_LABELY_SCORE, clampLabelyScore } from "@/lib/labelyRating";
+import { catalogueImageSrc } from "@/lib/numistaImageClient";
 
 const IPHONE_SCALE = 1080 / 390;
 
@@ -458,7 +459,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
             >
               {slot.imageUrl ? (
                 <img
-                  src={slot.imageUrl}
+                  src={catalogueImageSrc(slot.imageUrl)}
                   alt=""
                   style={{
                     width: "100%",

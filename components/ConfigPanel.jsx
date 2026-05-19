@@ -2638,6 +2638,7 @@ ${SHARED_RULES_OUTRO}`;
     await waitWhilePaused();
     if (cancelGenRef.current) return null;
 
+    const exportCfgRaw = exportCfgIn;
     let exportCfg = exportCfgIn;
     if (isLabelyScanTourFormat(exportCfgIn)) {
       setExportStatus("Preparing images for export…");
@@ -2714,18 +2715,29 @@ ${SHARED_RULES_OUTRO}`;
         await new Promise((r) => setTimeout(r, 80));
         try {
           const isValcoinScan = (exportCfg.appId ?? "thrifty") === "valcoin";
-          const slotNow = info.slot ?? exportCfg.slots?.[info.itemIndex ?? 0] ?? exportCfg.slots?.[0];
+          const slotIdx = info.itemIndex ?? 0;
+          const slotNow = info.slot ?? exportCfg.slots?.[slotIdx] ?? exportCfg.slots?.[0];
+          const rawSlot = exportCfgRaw.slots?.[slotIdx] ?? exportCfgRaw.slots?.[0];
           const productDataUrl =
             typeof slotNow?.imageUrl === "string"
               ? slotNow.imageUrl.trim()
               : typeof slotNow?.labelyShelfImageUrl === "string"
                 ? slotNow.labelyShelfImageUrl.trim()
                 : "";
+          const rawProductUrl =
+            typeof rawSlot?.imageUrl === "string"
+              ? rawSlot.imageUrl.trim()
+              : typeof rawSlot?.labelyShelfImageUrl === "string"
+                ? rawSlot.labelyShelfImageUrl.trim()
+                : "";
           const variationSeed = (exportCfg.jitterSeed ?? 0) + (info.itemIndex ?? i) * 9973;
 
           let labelyCanvas = await captureSlideCanvas(bg, fontEmbedCSS);
           if (!labelyCanvas && isValcoinScan) {
-            labelyCanvas = await renderValcoinCoinSlideCanvas(productDataUrl, variationSeed);
+            labelyCanvas = await renderValcoinCoinSlideCanvas(
+              productDataUrl || rawProductUrl,
+              variationSeed,
+            );
           }
           if (!labelyCanvas) throw new Error("Preview node not found");
 
@@ -2755,13 +2767,23 @@ ${SHARED_RULES_OUTRO}`;
             info.type === "labelyShelfIntro"
           ) {
             const introSlot = exportCfg.slots?.[0];
+            const rawIntro = exportCfgRaw.slots?.[0];
             const introUrl =
               typeof introSlot?.labelyShelfImageUrl === "string"
                 ? introSlot.labelyShelfImageUrl.trim()
                 : typeof introSlot?.imageUrl === "string"
                   ? introSlot.imageUrl.trim()
                   : "";
-            canvas = await renderValcoinCoinSlideCanvas(introUrl, exportCfg.jitterSeed ?? 0);
+            const rawIntroUrl =
+              typeof rawIntro?.labelyShelfImageUrl === "string"
+                ? rawIntro.labelyShelfImageUrl.trim()
+                : typeof rawIntro?.imageUrl === "string"
+                  ? rawIntro.imageUrl.trim()
+                  : "";
+            canvas = await renderValcoinCoinSlideCanvas(
+              introUrl || rawIntroUrl,
+              exportCfg.jitterSeed ?? 0,
+            );
           }
           if (!canvas) throw new Error("Preview node not found");
           allSlideFrames.push([canvas]);
