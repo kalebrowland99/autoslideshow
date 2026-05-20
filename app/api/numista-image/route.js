@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { fetchRemoteImageDataUrl } from "@/lib/fetchRemoteImageDataUrl";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 export const maxDuration = 30;
 
 const NUMISTA_HOST = /^https:\/\/([a-z]{2}\.)?numista\.com\//i;
@@ -16,7 +16,10 @@ function dataUrlToBuffer(imageDataUrl) {
   const m = /^data:([^;]+);base64,(.+)$/i.exec(String(imageDataUrl || "").trim());
   if (!m) return null;
   try {
-    return { mime: m[1], buffer: Buffer.from(m[2], "base64") };
+    const binary = atob(m[2]);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return { mime: m[1], buffer: bytes };
   } catch {
     return null;
   }
