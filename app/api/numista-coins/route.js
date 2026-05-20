@@ -299,7 +299,7 @@ export async function POST(req) {
     const payload = await coinImagePayload(chosen, "AutoSlideshow Valcoin/1.0 (Numista)");
     if (!payload) {
       return NextResponse.json(
-        { error: "No Numista obverse image found for that coin. Try a different name or disable Numista photos to use AI." },
+        { error: "No Numista obverse image found for that coin. Try a different name or upload a photo." },
         { status: 422 },
       );
     }
