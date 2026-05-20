@@ -15,6 +15,10 @@
  */
 
 import { NextResponse } from "next/server";
+import {
+  PARENT_CATEGORY,
+  COIN_SUBCATEGORIES,
+} from "@/lib/usCoinWikimediaCategories";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -26,68 +30,6 @@ const WIKIMEDIA_API = "https://commons.wikimedia.org/w/api.php";
 const USER_AGENT =
   "AutoSlideshow/1.0 (https://github.com/kalebrowland99/autoslideshow; +random coin photos)";
 const WIKIMEDIA_FETCH_MS = 15_000;
-
-/**
- * Always-included parent category. "Coins of the United States" is one of
- * the largest US coin categories on Commons (hundreds of direct files even
- * after subcategory filtering), so it guarantees a non-empty result set
- * when paired denomination/series subcategories happen to be sparse or
- * missing on Commons.
- */
-const PARENT_CATEGORY = "Coins of the United States";
-
-/**
- * Curated Wikimedia Commons leaf categories that contain only US coin
- * photographs. Names match real Commons categories — verified live against
- * the MediaWiki API (each category below returns ≥9 photo files; total
- * pool across all subcategories is ~1700+ images). Singular vs plural
- * naming follows Commons conventions exactly.
- *
- * Source of truth:
- * https://commons.wikimedia.org/wiki/Category:Coins_of_the_United_States_by_name
- */
-const COIN_SUBCATEGORIES = [
-  // Cents
-  "Lincoln cents",
-  "Indian Head cent",
-  "Obverses of United States cents",
-  "Reverses of United States cents",
-  // Nickels
-  "Buffalo nickels",
-  "Jefferson nickel",
-  "Liberty Head nickel",
-  "Shield nickel",
-  // Dimes
-  "Barber dimes",
-  "Mercury dimes",
-  "Roosevelt dimes",
-  "Seated Liberty dimes",
-  "Draped Bust dimes",
-  "Capped Bust dimes",
-  // Quarters
-  "Washington quarter",
-  "Standing Liberty quarters",
-  "Seated Liberty quarter",
-  "Barber quarter",
-  // Half dollars
-  "Kennedy half dollar",
-  "Franklin half dollar",
-  "Walking Liberty half dollars",
-  "Barber half dollar",
-  "Seated Liberty half dollar",
-  "Capped Bust half dollar",
-  // Silver dollars + modern dollar coins
-  "Morgan dollar",
-  "Peace dollar",
-  "Eisenhower dollar",
-  "Sacagawea dollar",
-  "Susan B. Anthony dollar",
-  "Trade dollar (United States)",
-  "American Silver Eagle",
-  "Presidential $1 Coin Program",
-  // Commemoratives
-  "Commemorative coins of the United States",
-];
 
 function pickDistinctSubcategories(n) {
   const max = Math.min(n, COIN_SUBCATEGORIES.length);
@@ -146,8 +88,19 @@ async function fetchCategoryFiles(category) {
 }
 
 const PHOTO_MIMES = new Set(["image/jpeg", "image/png", "image/webp"]);
-/** Files inside coin categories that aren't actual coin photographs. */
-const REJECT_TITLE = /(map|chart|graph|logo|seal|coat[_ ]of[_ ]arms|flag|stamp|banknote|paper money|diagram|schematic|cover|book|portrait of)/i;
+
+/**
+ * Files inside coin categories that aren't a single, clean coin photograph.
+ *
+ * Includes:
+ *  - infographics, maps, paper money, banknotes, book pages
+ *  - boxed presentation sets (e.g. "1992 Prestige Proof Set Box/Front/Back",
+ *    "Silver Mint Set", "Uncirculated Set") — these show packaging, not a
+ *    single coin face suitable for a tight collage cell.
+ *  - lot/auction images and side-by-side group shots
+ */
+const REJECT_TITLE =
+  /(map|chart|graph|logo|seal|coat[_ ]of[_ ]arms|flag|^stamp|banknote|paper money|diagram|schematic|cover|book|portrait of|prestige|proof set|mint set|uncirculated set|presentation set|souvenir set|presentation case|gift set|coin set|lot of|group of|collection of|catalog|catalogue|advertisement|philippines|hawaiian kingdom|kingdom of hawaii|kalakaua|liliuokalani|iceland|krona|leifur eiriksson|spanish puerto rico)/i;
 
 function basenameToTitle(rawTitle) {
   return String(rawTitle || "")
@@ -216,7 +169,10 @@ export async function POST(req) {
     );
   }
 
-  const categories = pickCategoriesForRequest(5);
+  // 7 subcategories + parent = 8 categories per call. With ~526 leaves in
+  // the pool (many of which only have 1-2 files), 7 picks per call balances
+  // variety with the cost of parallel MediaWiki queries.
+  const categories = pickCategoriesForRequest(7);
   const results = await Promise.all(categories.map((c) => fetchCategoryFiles(c)));
 
   const diagnostics = categories.map((category, i) => {
