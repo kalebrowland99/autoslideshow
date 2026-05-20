@@ -1059,7 +1059,7 @@ export default function ConfigPanel({
     writeJobHeartbeat({ percent, phase });
   }, [generatingSlot, genAllProgress, isExporting, exportProgress, exportStatus]);
 
-  /** Valcoin: Numista catalog photos only — never AI-generated images. */
+  /** Valcoin: Wikimedia Commons coin photos only — never AI-generated images. */
   const fetchValcoinNumistaSlot = async () => {
     const numista = await fetchRandomNumistaCoin(abortRef.current?.signal, { maxAttempts: 6 });
     if (!numista?.dataUrl?.startsWith("data:image/")) return null;
@@ -1075,7 +1075,7 @@ export default function ConfigPanel({
         if (numista) return numista.dataUrl;
         setAiErrors((p) => ({
           ...p,
-          [index]: "No Numista catalog photo loaded. Set NUMISTA_API_KEY on the server and redeploy.",
+          [index]: "Could not load a Wikimedia Commons coin photo. Try again in a moment.",
         }));
         return null;
       }
@@ -1550,7 +1550,7 @@ ${SHARED_RULES_OUTRO}`;
       if (!numista) {
         setAiErrors((p) => ({
           ...p,
-          [index]: "No Numista catalog photo loaded. Set NUMISTA_API_KEY on the server and redeploy.",
+          [index]: "Could not load a Wikimedia Commons coin photo. Try again in a moment.",
         }));
       } else {
         const slot = config.slots[index];
@@ -1662,7 +1662,7 @@ ${SHARED_RULES_OUTRO}`;
         || (slotCfg.slots?.[i]?.prompt ?? "").trim()
         || (slotCfg.slots?.[i]?.itemName ?? "").trim();
       if (!p) continue;
-      setExportStatus(valcoinSlots ? `Loading Numista photo ${i + 1}/3…` : `Generating starter pack image ${i + 1}/3…`);
+      setExportStatus(valcoinSlots ? `Loading coin photo ${i + 1}/3…` : `Generating starter pack image ${i + 1}/3…`);
       if (valcoinSlots) {
         const numista = await fetchValcoinNumistaSlot();
         if (numista) updateSlot(i, { imageUrl: numista.dataUrl });
@@ -1928,7 +1928,7 @@ ${SHARED_RULES_OUTRO}`;
             done: slotsDone.size,
             current: i,
             phase: isValcoin
-              ? `Random Numista ${stepLabel}${brandLabel}…`
+              ? `Random coin photo ${stepLabel}${brandLabel}…`
               : `Generating image ${stepLabel}${brandLabel}…`,
             slotsDone: new Set(slotsDone),
           });
@@ -1954,8 +1954,8 @@ ${SHARED_RULES_OUTRO}`;
               setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Slot ${stepLabel} complete`, slotsDone: new Set(slotsDone) });
             } else {
               failedCount++;
-              setAiErrors((p) => ({ ...p, [i]: "No Numista catalog photo loaded." }));
-              setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Slot ${stepLabel} failed: Numista`, slotsDone: new Set(slotsDone) });
+              setAiErrors((p) => ({ ...p, [i]: "Could not load a Wikimedia Commons coin photo." }));
+              setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Slot ${stepLabel} failed: Wikimedia`, slotsDone: new Set(slotsDone) });
               await new Promise((r) => setTimeout(r, 2500));
             }
           } else {
@@ -2304,7 +2304,7 @@ ${SHARED_RULES_OUTRO}`;
           current: si,
           phase: pre
             ? `Show ${showIndex + 1}/${totalShows} · Upload ${si + 1}/${slotCount}…`
-            : `Show ${showIndex + 1}/${totalShows} · Random Numista ${si + 1}/${slotCount}…`,
+            : `Show ${showIndex + 1}/${totalShows} · Random coin photo ${si + 1}/${slotCount}…`,
           slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
         });
         let url = pre;
@@ -2371,7 +2371,7 @@ ${SHARED_RULES_OUTRO}`;
         phase: pre
           ? `Show ${showIndex + 1}/${totalShows} · Upload ${si + 1}/${slotCount}…`
           : isValcoin
-            ? `Show ${showIndex + 1}/${totalShows} · Random Numista ${si + 1}/${slotCount}…`
+            ? `Show ${showIndex + 1}/${totalShows} · Random coin photo ${si + 1}/${slotCount}…`
             : `Show ${showIndex + 1}/${totalShows} · Image ${si + 1}/${slotCount}${brandItem ? ` — "${brandItem}"` : ""}…`,
         slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
       });
@@ -2551,8 +2551,8 @@ ${SHARED_RULES_OUTRO}`;
         : savedCount === numSlideshows
           ? `✓ ${savedCount} slideshow${savedCount > 1 ? "s" : ""} saved to gallery!`
           : savedCount > 0
-            ? `⚠ Saved ${savedCount}/${numSlideshows}. Others had no Numista photos (check NUMISTA_API_KEY).`
-            : "✗ Nothing saved — no Numista catalog photos loaded. Check NUMISTA_API_KEY on the server.";
+            ? `⚠ Saved ${savedCount}/${numSlideshows}. Others had no coin photo loaded (Wikimedia API hiccup).`
+            : "✗ Nothing saved — no coin photos loaded. Wikimedia Commons may be temporarily unavailable.";
       setGenAllProgress((p) => (p ? { ...p, phase, done: 6 } : null));
       setTimeout(() => setGenAllProgress(null), savedCount === numSlideshows ? 4000 : 8000);
     } catch (err) {
@@ -3373,9 +3373,8 @@ ${SHARED_RULES_OUTRO}`;
             </button>
           ))}
           <p className="text-[10px] leading-relaxed text-white/40 px-0.5">
-            Coin photos come only from the Numista catalog (
-            <code className="rounded bg-black/40 px-1 text-amber-200/90">NUMISTA_API_KEY</code>
-            ). Upload your own photos in the image rows below if you prefer.
+            Coin photos come from Wikimedia Commons (public domain). No API key required.
+            Upload your own photos in the image rows below if you prefer.
           </p>
         </div>
         ) : (
@@ -3573,7 +3572,7 @@ ${SHARED_RULES_OUTRO}`;
             ? "border-amber-500/25 bg-amber-500/8 text-amber-100"
             : "border-emerald-500/20 bg-emerald-500/8 text-emerald-200"
         }`}>
-          <div className="font-semibold">{isValcoin ? "Numista API on the server" : "AI keys are managed on the server."}</div>
+          <div className="font-semibold">{isValcoin ? "Wikimedia Commons (no API key)" : "AI keys are managed on the server."}</div>
           <div className={`mt-1 ${isValcoin ? "text-amber-100/75" : "text-emerald-100/70"}`}>
             {isLabely
               ? config.labelyAiProducts
@@ -3582,7 +3581,7 @@ ${SHARED_RULES_OUTRO}`;
                   : "AI pack shots from your food list; scanner readout stays fictional."
                 : "Vision reads your uploaded pack photos."
               : isValcoin
-                ? "Numista catalog photos only — set NUMISTA_API_KEY on the server (no AI coin images)."
+                ? "Free public-domain coin photos from Wikimedia Commons — no API key required, no AI coin images."
                 : "This deployment uses the Vercel environment variables for image generation and auto-title, so teammates can use the app without entering API keys here."}
           </div>
         </div>
