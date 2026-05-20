@@ -1061,9 +1061,17 @@ export default function ConfigPanel({
     writeJobHeartbeat({ percent, phase });
   }, [generatingSlot, genAllProgress, isExporting, exportProgress, exportStatus]);
 
-  /** Valcoin: Wikimedia Commons coin photos only — never AI-generated images. */
-  const fetchValcoinNumistaSlot = async () => {
-    const numista = await fetchRandomNumistaCoin(abortRef.current?.signal, { maxAttempts: 6 });
+  /**
+   * Valcoin: Wikimedia Commons US coin photos only — never AI-generated images.
+   * Pass `excludeSourceUrls` to avoid returning a coin already used in the
+   * current slideshow (keeps the 6-coin collage visually distinct).
+   * @param {Set<string> | string[] | undefined} excludeSourceUrls
+   */
+  const fetchValcoinNumistaSlot = async (excludeSourceUrls) => {
+    const numista = await fetchRandomNumistaCoin(abortRef.current?.signal, {
+      maxAttempts: 6,
+      excludeSourceUrls,
+    });
     if (!numista?.dataUrl?.startsWith("data:image/")) return null;
     return numista;
   };
@@ -2296,6 +2304,7 @@ ${SHARED_RULES_OUTRO}`;
     }
 
     if (isValcoin && isLabelyScanTourFormat(config)) {
+      const usedSourceUrls = new Set();
       for (let si = 0; si < slotCount; si++) {
         await waitWhilePaused();
         if (cancelGenRef.current) break;
@@ -2306,16 +2315,17 @@ ${SHARED_RULES_OUTRO}`;
           current: si,
           phase: pre
             ? `Show ${showIndex + 1}/${totalShows} · Upload ${si + 1}/${slotCount}…`
-            : `Show ${showIndex + 1}/${totalShows} · Random coin photo ${si + 1}/${slotCount}…`,
+            : `Show ${showIndex + 1}/${totalShows} · Random US coin photo ${si + 1}/${slotCount}…`,
           slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
         });
         let url = pre;
         let coinTitle = "";
         if (!url) {
-          const numista = await fetchValcoinNumistaSlot();
+          const numista = await fetchValcoinNumistaSlot(usedSourceUrls);
           if (numista) {
             url = numista.dataUrl;
             coinTitle = numista.title || coinTitle;
+            if (numista.sourceUrl) usedSourceUrls.add(numista.sourceUrl);
           }
         }
         if (url) {
