@@ -76,6 +76,27 @@ async function searchTypesList(query, apiKey) {
   return { ok: true, data: { types: [] } };
 }
 
+async function searchTypesPage(query, apiKey, { page = 1, count = 50 } = {}) {
+  const safePage = Math.max(1, Math.floor(Number(page) || 1));
+  const safeCount = Math.min(100, Math.max(1, Math.floor(Number(count) || 50)));
+  const paths = [
+    `/types?q=${encodeURIComponent(query)}&count=${safeCount}&page=${safePage}&category=coin`,
+    `/types?q=${encodeURIComponent(query)}&count=${safeCount}&page=${safePage}`,
+  ];
+  let lastFail = /** @type {{ ok: false; status: number; error: string } | null} */ (null);
+  for (const path of paths) {
+    const r = await numistaJson(path, apiKey);
+    if (!r.ok) {
+      lastFail = r;
+      continue;
+    }
+    const types = Array.isArray(r.data?.types) ? r.data.types : [];
+    if (types.length > 0) return { ok: true, data: { ...r.data, types } };
+  }
+  if (lastFail) return lastFail;
+  return { ok: true, data: { types: [] } };
+}
+
 function scoreTypesRanked(types, query) {
   const qNorm = normalizeCoinText(query);
   if (!Array.isArray(types) || types.length === 0) return [];
@@ -124,14 +145,18 @@ async function coinImagePayload(chosen, userAgent) {
   if (urls.length === 0) return null;
 
   let imageDataUrl = null;
+  let imageUrl = urls[0];
   for (const u of urls) {
     imageDataUrl = await fetchRemoteImageDataUrl(u, userAgent);
-    if (imageDataUrl) break;
+    if (imageDataUrl) {
+      imageUrl = u;
+      break;
+    }
   }
 
   return {
     imageDataUrl,
-    imageUrl: urls[0],
+    imageUrl,
     title: String(chosen?.title || "").trim(),
     typeId: chosen?.id != null ? Number(chosen.id) : null,
   };
@@ -207,6 +232,28 @@ const NUMISTA_RANDOM_SEARCHES = [
 
 function pickRandomSearchQuery() {
   return NUMISTA_RANDOM_SEARCHES[Math.floor(Math.random() * NUMISTA_RANDOM_SEARCHES.length)];
+}
+
+function shuffled(items) {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+async function randomCatalogCandidates(apiKey, { maxCandidates = 8 } = {}) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const query = pickRandomSearchQuery();
+    const page = 1 + Math.floor(Math.random() * 12);
+    const r = await searchTypesPage(query, apiKey, { page, count: 50 });
+    if (!r.ok) continue;
+    const types = Array.isArray(r.data?.types) ? r.data.types : [];
+    const withImages = types.filter((t) => obverseUrlsFromType(t).length > 0);
+    if (withImages.length > 0) return shuffled(withImages).slice(0, maxCandidates);
+  }
+  return [];
 }
 
 /**
@@ -333,20 +380,29 @@ export async function POST(req) {
 
   if (action === "randomPhoto") {
     const ua = "AutoSlideshow Valcoin/1.0 (Numista random)";
-    for (let round = 0; round < 6; round++) {
-      const chosen = await pickRandomCatalogType(apiKey);
-      if (!chosen) continue;
-      const payload = await coinImagePayload(chosen, ua);
-      if (!payload) continue;
-      if (payload.imageDataUrl) return NextResponse.json(payload);
-      if (payload.imageUrl) {
-        return NextResponse.json({
-          ...payload,
-          clientFetch: true,
-        });
+    let fallbackPayload = null;
+
+    for (let round = 0; round < 4; round++) {
+      const candidates = await randomCatalogCandidates(apiKey, { maxCandidates: 6 });
+      const picks = candidates.length > 0 ? candidates : [await pickRandomCatalogType(apiKey)].filter(Boolean);
+
+      for (const chosen of picks) {
+        const payload = await coinImagePayload(chosen, ua);
+        if (!payload) continue;
+        if (payload.imageDataUrl) return NextResponse.json(payload);
+        if (payload.imageUrl && !fallbackPayload) {
+          fallbackPayload = {
+            ...payload,
+            clientFetch: true,
+          };
+        }
       }
+
       await new Promise((r) => setTimeout(r, 60 * (round + 1)));
     }
+
+    if (fallbackPayload) return NextResponse.json(fallbackPayload);
+
     return NextResponse.json(
       {
         error:
