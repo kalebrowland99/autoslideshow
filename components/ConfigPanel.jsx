@@ -10,6 +10,7 @@ import {
   slideIndexToSlotIndex,
   isLabelySingleSlideFormat,
   isLabelyScanTourFormat,
+  scanTourSlotCount,
   LABELY_SCAN_TOUR_SLOTS,
 } from "@/lib/slideLayout";
 import { buildLabelyScanFrameSequence, captureShelfIntroCanvas } from "@/lib/labelyScanExport";
@@ -279,8 +280,9 @@ function galleryShowToExportConfig(workspace, show) {
   const appId = show.appId != null ? show.appId : workspace.appId;
   const isLabely = appId === "labely";
   const isValcoin = appId === "valcoin";
-  const outputFormat =
-    show.outputFormat != null
+  const outputFormat = isValcoin
+    ? "labelyScan"
+    : show.outputFormat != null
       ? show.outputFormat
       : isLabely
         ? "labelyScan"
@@ -1791,7 +1793,7 @@ ${SHARED_RULES_OUTRO}`;
       const allSlots = isMomFmt
         ? [config.slots[0]]
         : isLabelyScanTourFormat(config)
-          ? config.slots.slice(0, LABELY_SCAN_TOUR_SLOTS)
+          ? config.slots.slice(0, scanTourSlotCount(config))
           : isLabelySingleSlideFormat(config)
             ? [config.slots[0]]
             : config.slots;
@@ -2034,7 +2036,7 @@ ${SHARED_RULES_OUTRO}`;
     (config.outputFormat ?? "standard") === "imessageMom"
       ? 1
       : isLabelyScanTourFormat(config)
-        ? LABELY_SCAN_TOUR_SLOTS
+        ? scanTourSlotCount(config)
         : isLabelySingleSlideFormat(config)
           ? 1
           : 6;
@@ -2166,7 +2168,7 @@ ${SHARED_RULES_OUTRO}`;
     const slotCount = isMomFmt
       ? 1
       : isLabelyScanTourFormat(config)
-        ? LABELY_SCAN_TOUR_SLOTS
+        ? scanTourSlotCount(config)
         : isLabelySingleSlideFormat(config)
           ? 1
           : 6;
@@ -3345,38 +3347,12 @@ ${SHARED_RULES_OUTRO}`;
             </p>
           </div>
         ) : isValcoin ? (
-        <div className="flex flex-col gap-2">
-          {[
-            {
-              id: "standard",
-              label: "6-coin collage",
-              sub: "Numista obverses in a 2×3 grid, then reveal + Valcoin per coin",
-            },
-            {
-              id: "labelyScan",
-              label: "Scan + slide-up",
-              sub: `Intro, scan beam, then ${LABELY_SCAN_TOUR_SLOTS} Valcoin slides (like Labely)`,
-            },
-          ].map(({ id, label, sub }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => updateConfig("outputFormat", id)}
-              className={`text-left rounded-xl border px-3 py-2 transition-all ${
-                (config.outputFormat ?? "standard") === id
-                  ? "border-violet-500 bg-violet-500/15 text-white"
-                  : "border-white/10 bg-white/4 text-white/50 hover:border-white/20"
-              }`}
-            >
-              <div className="text-xs font-semibold">{label}</div>
-              <div className="text-[10px] text-white/40 mt-0.5">{sub}</div>
-            </button>
-          ))}
-          <p className="text-[10px] leading-relaxed text-white/40 px-0.5">
-            Coin photos come from Wikimedia Commons (public domain). No API key required.
-            Upload your own photos in the image rows below if you prefer.
-          </p>
-        </div>
+          <div className="rounded-xl border border-violet-500/25 bg-violet-500/10 px-3 py-2.5 text-[11px] text-white/80">
+            <div className="font-semibold text-white">6-coin collage → scan ×6 → Valcoin slide-up</div>
+            <p className="mt-1 text-[10px] leading-relaxed text-white/45">
+              {`Opens on a 6-coin collage, then each coin gets a scan animation and the Valcoin app slides up — same slide-up choreography as Labely. Coin photos come from Wikimedia Commons (public domain); upload your own in the image rows below if you prefer.`}
+            </p>
+          </div>
         ) : (
         <div className="flex flex-col gap-2">
           {[
@@ -3541,9 +3517,7 @@ ${SHARED_RULES_OUTRO}`;
             const imgs = isMom
               ? 1
               : isValcoin
-                ? isLabelyScanTourFormat(config)
-                  ? LABELY_SCAN_TOUR_SLOTS
-                  : 6
+                ? scanTourSlotCount(config)
                 : 6;
             const sub = id === "gpt-image-1"
               ? `$${(0.015 * imgs).toFixed(2)}/slideshow`

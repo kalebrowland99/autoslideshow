@@ -15,7 +15,7 @@ import {
   isLabelySingleSlideFormat,
   isLabelyScanTourFormat,
   skipsCollageOpening,
-  LABELY_SCAN_TOUR_SLOTS,
+  scanTourSlotCount,
 } from "@/lib/slideLayout";
 import { getBrand } from "@/lib/brand";
 
@@ -61,9 +61,11 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
 
   const slideLabel = () => {
     if (isLabelyScanTourFormat(config)) {
-      return currentSlide === 0
-        ? "Intro (scan source)"
-        : `${(brand.appId === "valcoin" ? "Valcoin" : "Labely")} ${currentSlide} of ${LABELY_SCAN_TOUR_SLOTS} · scan → slide (export)`;
+      const tourSlots = scanTourSlotCount(config);
+      if (currentSlide === 0) {
+        return brand.appId === "valcoin" ? "6-coin collage" : "Intro (scan source)";
+      }
+      return `${brand.appId === "valcoin" ? "Valcoin" : "Labely"} ${currentSlide} of ${tourSlots} · scan → slide (export)`;
     }
     if (labelySingleSlide) {
       return "Labely";
@@ -245,12 +247,17 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>{brand.appId === "valcoin" ? "Valcoin" : "Labely"}</span>
                 {(config.outputFormat ?? "standard") === "labelyScan" && (
                   <>
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-400/90 inline-block"/>Scan × {LABELY_SCAN_TOUR_SLOTS} → slide</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-400/90 inline-block"/>Scan × {scanTourSlotCount(config)} → slide</span>
                     <span className="text-white/25">· includes intro</span>
                   </>
                 )}
               </>
             ) : null
+          ) : valcoinScanTour ? (
+            <>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-violet-500 inline-block"/>Collage</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-400/90 inline-block"/>Scan × {scanTourSlotCount(config)} → Valcoin slide-up</span>
+            </>
           ) : (
             <>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-violet-500 inline-block"/>Collage</span>
