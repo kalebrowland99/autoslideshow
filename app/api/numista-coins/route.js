@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { fetchRemoteImageDataUrl } from "@/lib/fetchRemoteImageDataUrl";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -131,32 +130,19 @@ function obverseUrlsFromType(t) {
   return out;
 }
 
-function obverseUrlFromType(t) {
-  return obverseUrlsFromType(t)[0] || "";
-}
-
 /**
+ * Build the response payload from a type row.
+ * Server does NOT download image bytes — Vercel function IPs are often blocked by
+ * Numista's Cloudflare CDN, so we hand the URL to the client which loads it via
+ * the public wsrv.nl image proxy (different IP ranges, CORS friendly).
  * @param {object} chosen
- * @param {string} userAgent
- * @returns {Promise<{ imageDataUrl: string | null, imageUrl: string, title: string, typeId: number | null } | null>}
+ * @returns {{ imageUrl: string, title: string, typeId: number | null } | null}
  */
-async function coinImagePayload(chosen, userAgent) {
+function coinUrlPayload(chosen) {
   const urls = obverseUrlsFromType(chosen);
   if (urls.length === 0) return null;
-
-  let imageDataUrl = null;
-  let imageUrl = urls[0];
-  for (const u of urls) {
-    imageDataUrl = await fetchRemoteImageDataUrl(u, userAgent);
-    if (imageDataUrl) {
-      imageUrl = u;
-      break;
-    }
-  }
-
   return {
-    imageDataUrl,
-    imageUrl,
+    imageUrl: urls[0],
     title: String(chosen?.title || "").trim(),
     typeId: chosen?.id != null ? Number(chosen.id) : null,
   };
@@ -232,51 +218,6 @@ const NUMISTA_RANDOM_SEARCHES = [
 
 function pickRandomSearchQuery() {
   return NUMISTA_RANDOM_SEARCHES[Math.floor(Math.random() * NUMISTA_RANDOM_SEARCHES.length)];
-}
-
-function shuffled(items) {
-  const out = [...items];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
-}
-
-async function randomCatalogCandidates(apiKey, { maxCandidates = 8 } = {}) {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const query = pickRandomSearchQuery();
-    const page = 1 + Math.floor(Math.random() * 12);
-    const r = await searchTypesPage(query, apiKey, { page, count: 50 });
-    if (!r.ok) continue;
-    const types = Array.isArray(r.data?.types) ? r.data.types : [];
-    const withImages = types.filter((t) => obverseUrlsFromType(t).length > 0);
-    if (withImages.length > 0) return shuffled(withImages).slice(0, maxCandidates);
-  }
-  return [];
-}
-
-/**
- * @param {string} apiKey
- * @returns {Promise<object | null>}
- */
-async function pickRandomCatalogType(apiKey) {
-  for (let attempt = 0; attempt < 24; attempt++) {
-    const r = await searchTypesList(pickRandomSearchQuery(), apiKey);
-    if (!r.ok) continue;
-    const allTypes = Array.isArray(r.data?.types) ? r.data.types : [];
-    if (allTypes.length === 0) continue;
-    const typesWithListImage = allTypes.filter((t) => obverseUrlsFromType(t).length > 0);
-    const types = typesWithListImage.length > 0 ? typesWithListImage : allTypes;
-    const pick = types[Math.floor(Math.random() * types.length)];
-    const id = pick?.id;
-    if (!Number.isFinite(Number(id))) continue;
-    const d = await numistaJson(`/types/${Math.floor(Number(id))}`, apiKey);
-    const detail = d.ok && d.data ? unwrapTypePayload(d.data) : null;
-    const chosen = mergeNumistaTypeRow(pick, detail);
-    if (obverseUrlFromType(chosen)) return chosen;
-  }
-  return null;
 }
 
 export async function GET() {
@@ -367,7 +308,7 @@ export async function POST(req) {
       }
     }
 
-    const payload = await coinImagePayload(chosen, "AutoSlideshow Valcoin/1.0 (Numista)");
+    const payload = coinUrlPayload(chosen);
     if (!payload) {
       return NextResponse.json(
         { error: "No Numista obverse image found for that coin. Try a different name or upload a photo." },
@@ -375,33 +316,34 @@ export async function POST(req) {
       );
     }
 
-    return NextResponse.json(payload);
+    return NextResponse.json({ ...payload, clientFetch: true });
   }
 
   if (action === "randomPhoto") {
-    const ua = "AutoSlideshow Valcoin/1.0 (Numista random)";
-    let fallbackPayload = null;
+    /**
+     * Fast path: a single search returns up to 50 types, ~85% have thumbnails.
+     * Pick one and return its URL. Client loads the image via wsrv.nl
+     * (server cannot download Numista CDN reliably from Vercel IPs).
+     */
+    const queriesTried = new Set();
+    for (let attempt = 0; attempt < 5; attempt++) {
+      let query;
+      do {
+        query = pickRandomSearchQuery();
+      } while (queriesTried.has(query) && queriesTried.size < NUMISTA_RANDOM_SEARCHES.length);
+      queriesTried.add(query);
 
-    for (let round = 0; round < 4; round++) {
-      const candidates = await randomCatalogCandidates(apiKey, { maxCandidates: 6 });
-      const picks = candidates.length > 0 ? candidates : [await pickRandomCatalogType(apiKey)].filter(Boolean);
+      const r = await searchTypesPage(query, apiKey, { page: 1, count: 50 });
+      if (!r.ok) continue;
 
-      for (const chosen of picks) {
-        const payload = await coinImagePayload(chosen, ua);
-        if (!payload) continue;
-        if (payload.imageDataUrl) return NextResponse.json(payload);
-        if (payload.imageUrl && !fallbackPayload) {
-          fallbackPayload = {
-            ...payload,
-            clientFetch: true,
-          };
-        }
-      }
+      const types = Array.isArray(r.data?.types) ? r.data.types : [];
+      const withImages = types.filter((t) => obverseUrlsFromType(t).length > 0);
+      if (withImages.length === 0) continue;
 
-      await new Promise((r) => setTimeout(r, 60 * (round + 1)));
+      const chosen = withImages[Math.floor(Math.random() * withImages.length)];
+      const payload = coinUrlPayload(chosen);
+      if (payload) return NextResponse.json({ ...payload, clientFetch: true });
     }
-
-    if (fallbackPayload) return NextResponse.json(fallbackPayload);
 
     return NextResponse.json(
       {
