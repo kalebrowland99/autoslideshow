@@ -94,11 +94,16 @@ function resolveNumistaImageUrl(u) {
   return s;
 }
 
+function nonEmptyString(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 /** Prefer thumbnail first (smaller, more reliable), then full picture. */
 function obverseUrlsFromType(t) {
   if (!t || typeof t !== "object") return [];
-  const pic = resolveNumistaImageUrl(t.obverse_picture);
-  const thumb = resolveNumistaImageUrl(t.obverse_thumbnail);
+  const obverse = t.obverse && typeof t.obverse === "object" ? t.obverse : null;
+  const pic = resolveNumistaImageUrl(nonEmptyString(t.obverse_picture) || nonEmptyString(obverse?.picture));
+  const thumb = resolveNumistaImageUrl(nonEmptyString(t.obverse_thumbnail) || nonEmptyString(obverse?.thumbnail));
   const out = [];
   if (thumb) out.push(thumb);
   if (pic && pic !== thumb) out.push(pic);
@@ -141,6 +146,22 @@ function unwrapTypePayload(data) {
 }
 
 const NUMISTA_IMAGE_FIELDS = ["obverse_picture", "obverse_thumbnail", "reverse_picture", "reverse_thumbnail"];
+const NUMISTA_SIDES = ["obverse", "reverse"];
+const NUMISTA_SIDE_IMAGE_FIELDS = ["picture", "thumbnail"];
+
+function mergeSideImageFields(out, listRow, detailRow, side) {
+  const listSide = listRow?.[side] && typeof listRow[side] === "object" ? listRow[side] : null;
+  const detailSide = detailRow?.[side] && typeof detailRow[side] === "object" ? detailRow[side] : null;
+  if (!listSide && !detailSide) return;
+
+  const merged = { ...(listSide || {}), ...(detailSide || {}) };
+  for (const field of NUMISTA_SIDE_IMAGE_FIELDS) {
+    const dt = nonEmptyString(detailSide?.[field]);
+    const lt = nonEmptyString(listSide?.[field]);
+    if (dt || lt) merged[field] = dt || lt;
+  }
+  out[side] = merged;
+}
 
 /**
  * Search rows often include thumbnails; GET /types/{id} sometimes omits image URLs.
@@ -154,10 +175,11 @@ function mergeNumistaTypeRow(listRow, detailRow) {
   if (!listRow) return detailRow && typeof detailRow === "object" ? { ...detailRow } : detailRow;
   const out = { ...listRow, ...detailRow };
   for (const k of NUMISTA_IMAGE_FIELDS) {
-    const dt = typeof detailRow[k] === "string" ? detailRow[k].trim() : "";
-    const lt = typeof listRow[k] === "string" ? listRow[k].trim() : "";
+    const dt = nonEmptyString(detailRow[k]);
+    const lt = nonEmptyString(listRow[k]);
     out[k] = dt || lt || "";
   }
+  for (const side of NUMISTA_SIDES) mergeSideImageFields(out, listRow, detailRow, side);
   return out;
 }
 
@@ -195,8 +217,10 @@ async function pickRandomCatalogType(apiKey) {
   for (let attempt = 0; attempt < 24; attempt++) {
     const r = await searchTypesList(pickRandomSearchQuery(), apiKey);
     if (!r.ok) continue;
-    const types = (Array.isArray(r.data?.types) ? r.data.types : []).filter((t) => obverseUrlsFromType(t).length > 0);
-    if (types.length === 0) continue;
+    const allTypes = Array.isArray(r.data?.types) ? r.data.types : [];
+    if (allTypes.length === 0) continue;
+    const typesWithListImage = allTypes.filter((t) => obverseUrlsFromType(t).length > 0);
+    const types = typesWithListImage.length > 0 ? typesWithListImage : allTypes;
     const pick = types[Math.floor(Math.random() * types.length)];
     const id = pick?.id;
     if (!Number.isFinite(Number(id))) continue;
