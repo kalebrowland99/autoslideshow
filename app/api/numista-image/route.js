@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { fetchRemoteImageDataUrl } from "@/lib/fetchRemoteImageDataUrl";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 export const maxDuration = 30;
 
 const NUMISTA_HOST = /^https:\/\/([a-z]{2}\.)?numista\.com\//i;
@@ -27,12 +27,26 @@ function dataUrlToBuffer(imageDataUrl) {
 
 /** GET /api/numista-image?url=… — same-origin proxy for Numista catalogue photos (never redirect). */
 export async function GET(req) {
-  const url = normalizeRemoteUrl(new URL(req.url).searchParams.get("url"));
+  const reqUrl = new URL(req.url);
+  // GET /api/numista-image?healthcheck=1 — verifies the proxy can reach Numista
+  if (reqUrl.searchParams.get("healthcheck")) {
+    const probe =
+      "https://en.numista.com/catalogue/photos/etats-unis/3260-original.jpg";
+    const ok = await fetchRemoteImageDataUrl(probe, "AutoSlideshow Healthcheck/1.0");
+    return NextResponse.json({
+      ok: Boolean(ok),
+      probe,
+      bytes: ok ? ok.length : 0,
+      runtime: "nodejs",
+    });
+  }
+
+  const url = normalizeRemoteUrl(reqUrl.searchParams.get("url"));
   if (!url) {
     return NextResponse.json({ error: "Missing or invalid Numista image url." }, { status: 400 });
   }
 
-  const mode = String(new URL(req.url).searchParams.get("mode") || "").trim().toLowerCase();
+  const mode = String(reqUrl.searchParams.get("mode") || "").trim().toLowerCase();
   if (mode === "redirect") {
     return NextResponse.json(
       {

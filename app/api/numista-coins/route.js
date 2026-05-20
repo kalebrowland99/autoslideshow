@@ -220,6 +220,13 @@ function pickRandomSearchQuery() {
   return NUMISTA_RANDOM_SEARCHES[Math.floor(Math.random() * NUMISTA_RANDOM_SEARCHES.length)];
 }
 
+function pickDistinctQueries(n) {
+  const max = Math.min(n, NUMISTA_RANDOM_SEARCHES.length);
+  const picked = new Set();
+  while (picked.size < max) picked.add(pickRandomSearchQuery());
+  return [...picked];
+}
+
 export async function GET() {
   const hasKey = Boolean(process.env.NUMISTA_API_KEY?.trim());
   return NextResponse.json({
@@ -321,36 +328,55 @@ export async function POST(req) {
 
   if (action === "randomPhoto") {
     /**
-     * Fast path: a single search returns up to 50 types, ~85% have thumbnails.
-     * Pick one and return its URL. Client loads the image via wsrv.nl
-     * (server cannot download Numista CDN reliably from Vercel IPs).
+     * Run several searches in parallel (fits well under Vercel function timeout).
+     * Aggregate all types that have obverse images, pick one at random.
+     * Diagnostics are included in error responses so production failures are debuggable.
      */
-    const queriesTried = new Set();
-    for (let attempt = 0; attempt < 5; attempt++) {
-      let query;
-      do {
-        query = pickRandomSearchQuery();
-      } while (queriesTried.has(query) && queriesTried.size < NUMISTA_RANDOM_SEARCHES.length);
-      queriesTried.add(query);
+    const queries = pickDistinctQueries(6);
+    const results = await Promise.all(
+      queries.map((q) => searchTypesPage(q, apiKey, { page: 1, count: 50 })),
+    );
 
-      const r = await searchTypesPage(query, apiKey, { page: 1, count: 50 });
-      if (!r.ok) continue;
+    const diagnostics = queries.map((q, i) => {
+      const r = results[i];
+      return {
+        query: q,
+        ok: r?.ok === true,
+        status: r?.status ?? (r?.ok ? 200 : null),
+        error: r?.error || null,
+        typeCount: r?.ok ? (Array.isArray(r.data?.types) ? r.data.types.length : 0) : 0,
+      };
+    });
 
+    const aggregated = [];
+    for (const r of results) {
+      if (!r?.ok) continue;
       const types = Array.isArray(r.data?.types) ? r.data.types : [];
-      const withImages = types.filter((t) => obverseUrlsFromType(t).length > 0);
-      if (withImages.length === 0) continue;
+      for (const t of types) {
+        if (obverseUrlsFromType(t).length > 0) aggregated.push(t);
+      }
+    }
 
-      const chosen = withImages[Math.floor(Math.random() * withImages.length)];
+    if (aggregated.length > 0) {
+      const chosen = aggregated[Math.floor(Math.random() * aggregated.length)];
       const payload = coinUrlPayload(chosen);
       if (payload) return NextResponse.json({ ...payload, clientFetch: true });
     }
 
+    const firstUpstreamError = diagnostics.find((d) => !d.ok && d.error)?.error || null;
+    const allUpstreamFailed = diagnostics.every((d) => !d.ok);
+    const errorSummary = firstUpstreamError
+      ? `Numista API error: ${firstUpstreamError}`
+      : allUpstreamFailed
+        ? "All Numista search requests failed."
+        : "Numista searches returned no types with obverse images.";
+
     return NextResponse.json(
       {
-        error:
-          "Could not pick a random catalog coin with an obverse image. Try again or check Numista API access.",
+        error: errorSummary,
+        diagnostics,
       },
-      { status: 422 },
+      { status: 502 },
     );
   }
 
