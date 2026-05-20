@@ -13,7 +13,8 @@ import {
   LABELY_SCAN_TOUR_SLOTS,
 } from "@/lib/slideLayout";
 import { buildLabelyScanFrameSequence, captureShelfIntroCanvas } from "@/lib/labelyScanExport";
-import { ensureExportImageUrls } from "@/lib/ensureExportImageUrls";
+import { ensureExportImageUrls, needsExportImageInlining } from "@/lib/ensureExportImageUrls";
+import { inlineRemoteImagesInElement } from "@/lib/exportImagePrepare";
 import { getBrand } from "@/lib/brand";
 import { savedShowMatchesApp } from "@/lib/showAppId";
 import {
@@ -926,8 +927,9 @@ export default function ConfigPanel({
   const getCaptureOptions = (bgColor, fontEmbedCSS) => ({
     backgroundColor: bgColor,
     pixelRatio: EXPORT_CAPTURE_PIXEL_RATIO,
-    cacheBust: true,
-    includeQueryParams: true,
+    // html-to-image re-fetches every http(s) img when cacheBust is on → CORS failures.
+    cacheBust: false,
+    includeQueryParams: false,
     ...(fontEmbedCSS ? { fontEmbedCSS } : {}),
   });
 
@@ -937,6 +939,9 @@ export default function ConfigPanel({
 
     await waitForPreviewPaint();
     await waitForFonts();
+    await inlineRemoteImagesInElement(el, {
+      strict: needsExportImageInlining(config),
+    });
     await waitForImagesDecoded(el);
     return toCanvas(el, getCaptureOptions(bgColor, fontEmbedCSS));
   };
@@ -1059,8 +1064,8 @@ export default function ConfigPanel({
       let b64 = null;
 
       if (isValcoin) {
-        const numista = await fetchRandomNumistaCoin(abortRef.current?.signal);
-        if (numista?.dataUrl) return numista.dataUrl;
+        const numista = await fetchRandomNumistaCoin(abortRef.current?.signal, { maxAttempts: 5 });
+        if (numista?.dataUrl?.startsWith("data:image/")) return numista.dataUrl;
       }
 
       const outFmt = config.outputFormat ?? "standard";
@@ -2254,17 +2259,11 @@ ${SHARED_RULES_OUTRO}`;
         let url = pre;
         let coinTitle = "";
         if (!url) {
-          const numista = await fetchRandomNumistaCoin(abortRef.current?.signal);
-          if (numista?.dataUrl) {
+          const numista = await fetchRandomNumistaCoin(abortRef.current?.signal, { maxAttempts: 6 });
+          if (numista?.dataUrl?.startsWith("data:image/")) {
             url = numista.dataUrl;
             coinTitle = numista.title || coinTitle;
           }
-        }
-        const fallbackHint = pickValuableUSCoin();
-        if (!url) {
-          const p = `${globalPrompt}\n\nSpecific item to depict: ${fallbackHint}.`;
-          url = await generateImage(si, p, fallbackHint);
-          if (!coinTitle) coinTitle = fallbackHint;
         }
         if (url) {
           const prices = pre
@@ -2524,12 +2523,14 @@ ${SHARED_RULES_OUTRO}`;
     if (cancelGenRef.current) return null;
 
     let cfg = exportCfg;
-    const aid = cfg.appId ?? "thrifty";
-    if (aid === "valcoin" || aid === "labely") {
+    if (needsExportImageInlining(cfg)) {
       setExportStatus("Preparing images for export…");
       cfg = await ensureExportImageUrls(cfg);
       flushSync(() => setConfig((prev) => ({ ...prev, slots: cfg.slots })));
       await waitForPreviewPaint();
+      await new Promise((r) => {
+        requestAnimationFrame(() => requestAnimationFrame(r));
+      });
       await waitForImagesDecoded(getCaptureNode());
     }
 
@@ -2653,6 +2654,8 @@ ${SHARED_RULES_OUTRO}`;
           allSlideFrames.push([canvas]);
         } catch (err) {
           console.error("Capture error slide", i, err);
+          const msg = err?.message ? String(err.message) : "";
+          if (msg && needsExportImageInlining(cfg)) setExportStatus(msg);
           allSlideFrames.push([]);
         }
       }
@@ -3109,6 +3112,13 @@ ${SHARED_RULES_OUTRO}`;
     setIsExporting(true);
     setExportProgress(20);
     try {
+      if (needsExportImageInlining(config)) {
+        setExportStatus("Preparing images for export…");
+        const cfg = await ensureExportImageUrls(config);
+        flushSync(() => setConfig((prev) => ({ ...prev, slots: cfg.slots })));
+        await waitForPreviewPaint();
+        await waitForImagesDecoded(el);
+      }
       if ((config.outputFormat ?? "standard") === "starterPack") {
         setExportStatus("Generating starter pack text…");
         const sp = await ensureStarterPackAutofill();
@@ -3153,6 +3163,14 @@ ${SHARED_RULES_OUTRO}`;
     setIsExporting(true);
     setExportProgress(0);
     setExportStatus("Capturing slides…");
+
+    if (needsExportImageInlining(config)) {
+      setExportStatus("Preparing images for export…");
+      const cfg = await ensureExportImageUrls(config);
+      flushSync(() => setConfig((prev) => ({ ...prev, slots: cfg.slots })));
+      await waitForPreviewPaint();
+      await waitForImagesDecoded(getCaptureNode());
+    }
 
     if ((config.outputFormat ?? "standard") === "starterPack") {
       setExportStatus("Generating starter pack text…");

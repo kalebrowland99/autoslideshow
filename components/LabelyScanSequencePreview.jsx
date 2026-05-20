@@ -112,8 +112,8 @@ export default function LabelyScanSequencePreview({ config, currentSlide, setCur
       const labelyCanvas = await toCanvas(root, {
         backgroundColor: canvasBg,
         pixelRatio: EXPORT_CAPTURE_PIXEL_RATIO,
-        cacheBust: true,
-        includeQueryParams: true,
+        cacheBust: false,
+        includeQueryParams: false,
         ...(fontEmbedCSS ? { fontEmbedCSS } : {}),
       });
 
