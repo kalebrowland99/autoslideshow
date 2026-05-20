@@ -1,5 +1,7 @@
 "use client";
 
+import { numistaDisplaySrc } from "@/lib/numistaImageClient";
+
 export default function LabelyShelfIntroSlide({ slot, S, hidePlaceholder = false }) {
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
@@ -10,7 +12,7 @@ export default function LabelyShelfIntroSlide({ slot, S, hidePlaceholder = false
       {heroUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={heroUrl}
+          src={numistaDisplaySrc(heroUrl)}
           alt={slot.itemName || "Product intro"}
           style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center", display: "block" }}
         />

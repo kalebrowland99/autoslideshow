@@ -315,12 +315,7 @@ export async function POST(req) {
       const payload = await coinImagePayload(chosen, ua);
       if (!payload) continue;
       if (payload.imageDataUrl) return NextResponse.json(payload);
-      if (payload.imageUrl) {
-        return NextResponse.json({
-          ...payload,
-          clientFetch: true,
-        });
-      }
+      // Server could not download this CDN URL (Cloudflare); try another catalog coin.
       await new Promise((r) => setTimeout(r, 60 * (round + 1)));
     }
     return NextResponse.json(

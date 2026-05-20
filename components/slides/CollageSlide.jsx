@@ -1,5 +1,7 @@
 "use client";
 
+import { numistaDisplaySrc } from "@/lib/numistaImageClient";
+
 export default function CollageSlide({ config, S }) {
   const { slots } = config;
   const isLabely = (config.appId ?? "thrifty") === "labely";
@@ -36,7 +38,7 @@ export default function CollageSlide({ config, S }) {
           >
             {slot.imageUrl ? (
               <img
-                src={slot.imageUrl}
+                src={numistaDisplaySrc(slot.imageUrl)}
                 alt={`Slot ${i + 1}`}
                 style={{
                   width: "100%",
