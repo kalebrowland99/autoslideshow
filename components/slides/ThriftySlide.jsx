@@ -5,7 +5,6 @@ import { makeJitter } from "@/lib/jitter";
 import { tiktokCaptionTextStyle, tickerBoxCaptionTextStyle, captionWrapperStyle } from "@/lib/captionStyles";
 import { captionFontSize1080 } from "@/lib/captionFontSize";
 import { getBrand } from "@/lib/brand";
-import { isLabelyScanTourFormat } from "@/lib/slideLayout";
 import { numistaDisplaySrc } from "@/lib/numistaImageClient";
 
 /**
@@ -66,19 +65,7 @@ export default function ThriftySlide({ slot, S, config = {} }) {
   const brand = getBrand(config);
   const captionStyle = config.captionStyle ?? "tiktok";
   const captionBg    = config.captionBg    ?? "#e03030";
-  /**
-   * Valcoin scan tour renders this same Valcoin app UI as the slide-up
-   * target, but with no text content — the Wikimedia file titles, the
-   * auto-generated prices, and the sold-listing rows aren't tied to the
-   * pictured coin so they add noise without value. Hiding all text leaves
-   * a clean visual frame (status bar icons, back arrow, coin thumbnail,
-   * empty card structures) that reads as "Valcoin app" without misleading
-   * details.
-   */
-  const isValcoinScanTour =
-    brand.appId === "valcoin" && isLabelyScanTourFormat(config);
-  const hideCaption =
-    (config.outputFormat ?? "standard") === "imessageMom" || isValcoinScanTour;
+  const hideCaption  = (config.outputFormat ?? "standard") === "imessageMom";
   const captionColor = config.captionColor ?? "#ffffff";
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
@@ -110,9 +97,9 @@ export default function ThriftySlide({ slot, S, config = {} }) {
     return [a, b];
   }, [seed, sourcesPool]);
 
-  const soldPrice  = isValcoinScanTour ? "" : (slot.soldPrice ? `$${slot.soldPrice}` : "$—");
-  const itemName   = isValcoinScanTour ? "" : (slot.itemName || "Untitled Item");
-  const date       = isValcoinScanTour ? "" : (slot.date || statusBar.date);
+  const soldPrice  = slot.soldPrice ? `$${slot.soldPrice}` : "$—";
+  const itemName   = slot.itemName || "Untitled Item";
+  const date       = slot.date || statusBar.date;
 
   // Varied caption phrasings — picked by seed so each slide gets a different one
   const CAPTION_TEMPLATES = [
@@ -159,10 +146,6 @@ export default function ThriftySlide({ slot, S, config = {} }) {
 
   const soldRows = buildSoldRows(slot, src1, src2);
 
-  // Valcoin scan tour renders the SAME full Valcoin app UI below (price card,
-  // sold listings, status bar). The scan animation in lib/labelyScanExport.js
-  // shows the coin photo + scan beam first, then slides this captured UI up.
-
   return (
     <div style={{ width: W, height: H, background: "#ffffff", overflow: "hidden",
       position: "relative", fontFamily: "Arial, Helvetica, sans-serif",
@@ -200,7 +183,7 @@ export default function ThriftySlide({ slot, S, config = {} }) {
         </div>
       )}
 
-      <StatusBar px={px} values={statusBar} hideTime={isValcoinScanTour} />
+      <StatusBar px={px} values={statusBar} />
 
       {/* ── HEADER ── */}
       <div style={{ background: "#fff", flexShrink: 0,
@@ -280,33 +263,29 @@ export default function ThriftySlide({ slot, S, config = {} }) {
           paddingTop: px(20), paddingBottom: px(20),
           display: "flex", flexDirection: "column", alignItems: "center", gap: px(6) }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: px(44) }}>
-            {!isValcoinScanTour && (
-              <span style={{
-                display: "block",
-                fontSize: px(42),
-                fontWeight: "900",
-                color: "#7B4F2E",
-                fontFamily: "Georgia, 'Times New Roman', serif",
-                letterSpacing: "-1px",
-                lineHeight: 1.02,
-              }}>
-                {brand.appLower}
-              </span>
-            )}
-          </div>
-          {!isValcoinScanTour && (
             <span style={{
               display: "block",
-              fontSize: px(38),
-              fontWeight: "700",
-              letterSpacing: "-0.5px",
-              lineHeight: 0.96,
-              color: slot.soldPrice ? "#000" : "#aaa",
-              marginLeft: px(-12),
+              fontSize: px(42),
+              fontWeight: "900",
+              color: "#7B4F2E",
+              fontFamily: "Georgia, 'Times New Roman', serif",
+              letterSpacing: "-1px",
+              lineHeight: 1.02,
             }}>
-              {soldPrice}
+              {brand.appLower}
             </span>
-          )}
+          </div>
+          <span style={{
+            display: "block",
+            fontSize: px(38),
+            fontWeight: "700",
+            letterSpacing: "-0.5px",
+            lineHeight: 0.96,
+            color: slot.soldPrice ? "#000" : "#aaa",
+            marginLeft: px(-12),
+          }}>
+            {soldPrice}
+          </span>
         </div>
 
         {/* Sold card */}
@@ -318,23 +297,19 @@ export default function ThriftySlide({ slot, S, config = {} }) {
             <svg width={px(18)} height={px(18)} viewBox="0 0 24 24" fill="#ef4444">
               <path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
             </svg>
-            {!isValcoinScanTour && (
-              <span style={{ fontSize: px(18), fontWeight: "600", color: "#111" }}>Sold</span>
-            )}
+            <span style={{ fontSize: px(18), fontWeight: "600", color: "#111" }}>Sold</span>
           </div>
 
-          {!isValcoinScanTour && (
-            <p style={{ fontSize: px(14), fontWeight: "500", color: "#888", lineHeight: 1.2, margin: `0 0 ${px(8)}px 0` }}>
-              Recently Sold on {src1}, {src2}{" "}&amp; more:
-            </p>
-          )}
+          <p style={{ fontSize: px(14), fontWeight: "500", color: "#888", lineHeight: 1.2, margin: `0 0 ${px(8)}px 0` }}>
+            Recently Sold on {src1}, {src2}{" "}&amp; more:
+          </p>
 
           {soldRows.map((row, i) => (
             <SoldRow key={i} row={row}
-              last={i === soldRows.length - 1} px={px} blank={isValcoinScanTour} />
+              last={i === soldRows.length - 1} px={px} />
           ))}
 
-          {!isValcoinScanTour && soldRows.some((r) => r.price) && (
+          {soldRows.some((r) => r.price) && (
             <>
               <div style={{ height: px(1), background: "#f0f0f0", margin: `${px(6)}px 0` }} />
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -384,7 +359,7 @@ function buildSoldRows(slot, src1, src2) {
 }
 
 // ── iOS Status Bar — fully random ────────────────────────────────────────────
-function StatusBar({ px, values, hideTime = false }) {
+function StatusBar({ px, values }) {
   const { time, signalBars, wifiStrength, batteryPct } = values;
   const batteryFill = Math.round((batteryPct / 100) * 15); // 0-15px fill width
   const batteryColor = batteryPct < 25 ? "#ef4444" : "#111";
@@ -392,11 +367,7 @@ function StatusBar({ px, values, hideTime = false }) {
   return (
     <div style={{ height: px(44), background: "#fff", display: "flex", alignItems: "center",
       justifyContent: "space-between", paddingLeft: px(24), paddingRight: px(24), flexShrink: 0 }}>
-      {hideTime ? (
-        <span style={{ width: px(40) }} aria-hidden />
-      ) : (
-        <span style={{ fontSize: px(15), fontWeight: "700", color: "#111" }}>{time}</span>
-      )}
+      <span style={{ fontSize: px(15), fontWeight: "700", color: "#111" }}>{time}</span>
       <div style={{ display: "flex", alignItems: "center", gap: px(5) }}>
 
         {/* Signal bars — show signalBars out of 4 */}
@@ -434,7 +405,7 @@ function StatusBar({ px, values, hideTime = false }) {
 }
 
 // ── Sold listing row ─────────────────────────────────────────────────────────
-function SoldRow({ row, last, px, blank = false }) {
+function SoldRow({ row, last, px }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: px(8),
       paddingTop: px(6), paddingBottom: px(6),
@@ -449,33 +420,28 @@ function SoldRow({ row, last, px, blank = false }) {
         </svg>
       </div>
 
-      {/* Title + source — hidden in Valcoin scan tour (blank=true) */}
-      {!blank && (
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ display: "block", fontSize: px(14), fontWeight: "500", color: "#000",
-            lineHeight: 1.15, margin: `0 0 ${px(4)}px`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {row.title || "Sold listing"}
-          </p>
-          <div style={{ display: "flex", gap: px(6) }}>
-            <span style={{ fontSize: px(12), color: "#3b82f6" }}>{row.source || "eBay"}</span>
-            <span style={{ fontSize: px(12), color: "#ef4444", fontWeight: "500" }}>• Sold</span>
-          </div>
+      {/* Title + source */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ display: "block", fontSize: px(14), fontWeight: "500", color: "#000",
+          lineHeight: 1.15, margin: `0 0 ${px(4)}px`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {row.title || "Sold listing"}
+        </p>
+        <div style={{ display: "flex", gap: px(6) }}>
+          <span style={{ fontSize: px(12), color: "#3b82f6" }}>{row.source || "eBay"}</span>
+          <span style={{ fontSize: px(12), color: "#ef4444", fontWeight: "500" }}>• Sold</span>
         </div>
-      )}
-      {blank && <div style={{ flex: 1 }} aria-hidden />}
+      </div>
 
-      {/* Price + chevron — hidden in Valcoin scan tour */}
-      {!blank && (
-        <div style={{ display: "flex", alignItems: "center", gap: px(3), flexShrink: 0 }}>
-          <span style={{ fontSize: px(15), fontWeight: "700", color: "#000" }}>
-            {row.price ? `$${row.price}` : "—"}
-          </span>
-          <svg width={px(11)} height={px(11)} viewBox="0 0 24 24" fill="none"
-            stroke="rgba(0,0,0,0.25)" strokeWidth="2.5">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 18l6-6-6-6"/>
-          </svg>
-        </div>
-      )}
+      {/* Price + chevron */}
+      <div style={{ display: "flex", alignItems: "center", gap: px(3), flexShrink: 0 }}>
+        <span style={{ fontSize: px(15), fontWeight: "700", color: "#000" }}>
+          {row.price ? `$${row.price}` : "—"}
+        </span>
+        <svg width={px(11)} height={px(11)} viewBox="0 0 24 24" fill="none"
+          stroke="rgba(0,0,0,0.25)" strokeWidth="2.5">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 18l6-6-6-6"/>
+        </svg>
+      </div>
     </div>
   );
 }

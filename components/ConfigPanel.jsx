@@ -1735,6 +1735,31 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
+  /**
+   * Vision-identify a coin photo and return clean name + realistic prices + sold listings.
+   * Used by the Valcoin scan tour so the slide-up shows meaningful AI-inferred details
+   * rather than noisy Wikimedia titles.
+   */
+  const valcoinIdentifyFromImage = async (imageDataUrl) => {
+    if (typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image/")) {
+      return null;
+    }
+    try {
+      const res = await fetch("/api/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: abortRef.current?.signal,
+        body: JSON.stringify({ action: "valcoinIdentify", imageUrl: imageDataUrl }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data?.name) return null;
+      return data;
+    } catch {
+      return null;
+    }
+  };
+
   // ── Auto-generate 2 slightly-varied sold listing rows ──
   const autoSoldListings = (itemName, soldPrice) => {
     const PREFIXES = ["Pre-owned ", "Used ", "Vintage ", "Authentic "];
@@ -2329,18 +2354,43 @@ ${SHARED_RULES_OUTRO}`;
           }
         }
         if (url) {
-          const prices = pre
-            ? autoRandomPrices()
-            : (coinTitle ? await coinPrices(coinTitle) : null) ?? autoRandomPrices();
+          const ai = pre ? null : await valcoinIdentifyFromImage(url);
+
+          const aiPrices =
+            ai && ai.buy && ai.sell
+              ? { spentPrice: String(ai.buy), soldPrice: String(ai.sell) }
+              : null;
+          const prices =
+            aiPrices ??
+            (pre
+              ? autoRandomPrices()
+              : (coinTitle ? await coinPrices(coinTitle) : null) ?? autoRandomPrices());
+
           let nextSlot = {
             ...localSlots[si],
             imageUrl: url,
             ...prices,
           };
           if (si === 0) nextSlot.labelyShelfImageUrl = url;
-          const displayName = coinTitle.trim() || pickValuableUSCoin();
+
+          const displayName = ai?.name?.trim() || coinTitle.trim() || pickValuableUSCoin();
           nextSlot.itemName = displayName;
-          nextSlot.matchItems = autoSoldListings(displayName, prices.soldPrice);
+
+          const aiListings = Array.isArray(ai?.listings)
+            ? ai.listings
+                .map((l) => ({
+                  title: String(l?.title ?? "").trim(),
+                  source: String(l?.source ?? "").trim(),
+                  price: l?.price != null ? String(l.price) : "",
+                  inStock: false,
+                }))
+                .filter((l) => l.title && l.source)
+            : [];
+          nextSlot.matchItems =
+            aiListings.length >= 1
+              ? aiListings.slice(0, 2)
+              : autoSoldListings(displayName, prices.soldPrice);
+
           localSlots[si] = nextSlot;
         }
         updateConfig("slots", [...localSlots]);
