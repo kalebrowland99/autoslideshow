@@ -181,7 +181,9 @@ function sanitizeFileToken(v) {
 function sequentialRandomMp4Name(orderIndexZeroBased, show = null) {
   const batch = Number(show?.batchNumber);
   const inBatch = Number(show?.batchSlideshowIndex);
-  const foodToken = sanitizeFileToken(show?.batchFoodName) || "food";
+  const foodToken =
+    sanitizeFileToken(show?.batchFoodName)
+    || (String(show?.appId || "").trim() === "valcoin" ? "coins" : "food");
   const rand = randomExportHex(6);
   if (Number.isFinite(batch) && batch > 0) {
     if (Number.isFinite(inBatch) && inBatch > 1) return `${batch}-${inBatch}-${foodToken}-${rand}.mp4`;
@@ -334,8 +336,12 @@ const DEFAULT_LABELY_DB_BATCHES = Array.from({ length: LABELY_DB_BATCH_COUNT }, 
   slideshowCount: 1,
 }));
 
-/** One folder per physical phone; each folder gets one unique video per batch 1–6 (Labely food DB batches; clips not reused across folders). */
+/** One folder per physical phone; each folder gets one unique video per batch 1–6 (Labely food DB / Valcoin iPhone pack; clips not reused across folders). */
 const GALLERY_IPHONE_DEVICE_COUNT = 20;
+
+/** Valcoin gallery export: 6 batches × 20 unique slideshows = 120 (same iPhone ZIP layout as Labely food DB). */
+const VALCOIN_IPHONE_SLIDESHOWS_PER_BATCH = 20;
+const VALCOIN_IPHONE_PACK_TOTAL = LABELY_DB_BATCH_COUNT * VALCOIN_IPHONE_SLIDESHOWS_PER_BATCH;
 
 /**
  * Batch-gallery export: one ZIP per `iPhone 1` … `iPhone 20`, each holding six videos (batches 1–6).
@@ -370,7 +376,7 @@ function tryBuildIphoneBatchZipPlan(savedSlideshows) {
   if (appIds.size > 1) {
     return {
       error:
-        "This gallery mixes different apps. iPhone pack export needs every item from the same app (all Labely batch runs).",
+        "This gallery mixes different apps. iPhone pack export needs every item from the same app (all Labely or Valcoin batch runs).",
     };
   }
 
@@ -485,6 +491,7 @@ export default function ConfigPanel({
   const isValcoin = brand.appId === "valcoin";
   const isLabely = brand.appId === "labely";
   const isLabelyFoodDbBatchMode = isLabely && !!config.labelyAiProducts && !!config.labelyUseFoodDatabasePhotos;
+  const isValcoinIphonePackBatchMode = isValcoin && isLabelyScanTourFormat(config);
   const labelyUploadsLocked = isLabely && !!config.labelyAiProducts;
   const savedForCurrentApp = useMemo(() => {
     const aid = config.appId ?? "thrifty";
@@ -2078,7 +2085,9 @@ ${SHARED_RULES_OUTRO}`;
           : 6;
   const effectiveNumSlideshows = isLabelyFoodDbBatchMode
     ? totalBatchSlideshows
-    : numSlideshows;
+    : isValcoinIphonePackBatchMode
+      ? VALCOIN_IPHONE_PACK_TOTAL
+      : numSlideshows;
   const batchImagesNeeded = effectiveNumSlideshows * batchSlotCount;
 
   const hasWorkspacePhotos = useMemo(
@@ -2541,6 +2550,65 @@ ${SHARED_RULES_OUTRO}`;
         setTimeout(() => setGenAllProgress(null), 4000);
       } catch (err) {
         console.error("Generate batch failed:", err);
+        setGenAllProgress((p) => p ? { ...p, phase: "Batch failed — check console for details." } : null);
+        setTimeout(() => setGenAllProgress(null), 5000);
+      } finally {
+        setGeneratingSlot(null);
+        abortRef.current = null;
+      }
+      return;
+    }
+
+    if (isValcoinIphonePackBatchMode) {
+      const plans = Array.from({ length: LABELY_DB_BATCH_COUNT }, (_, idx) => ({
+        batchNumber: idx + 1,
+        batchName: `coins-batch-${idx + 1}`,
+        slideshowCount: VALCOIN_IPHONE_SLIDESHOWS_PER_BATCH,
+      }));
+      const totalShows = VALCOIN_IPHONE_PACK_TOTAL;
+      setGeneratingSlot("all");
+      setAiErrors({});
+      cancelGenRef.current = false;
+      abortRef.current?.abort();
+      abortRef.current = new AbortController();
+      try {
+        let globalShowIdx = 0;
+        const generatedShows = [];
+        for (const plan of plans) {
+          for (let i = 0; i < plan.slideshowCount; i++) {
+            await waitWhilePaused();
+            if (cancelGenRef.current) break;
+            const savedShow = await generateOneSlideshow(globalShowIdx, totalShows, {
+              batchMeta: {
+                batchNumber: plan.batchNumber,
+                batchSlideshowIndex: i + 1,
+                batchFoodName: plan.batchName,
+              },
+            });
+            if (savedShow) generatedShows.push(savedShow);
+            globalShowIdx++;
+          }
+          if (cancelGenRef.current) break;
+        }
+        if (!cancelGenRef.current) {
+          setGenAllProgress((p) => p
+            ? { ...p, phase: `✓ ${generatedShows.length} slideshow${generatedShows.length > 1 ? "s" : ""} saved. Auto-exporting iPhone ZIPs…`, done: 6 }
+            : null
+          );
+          const restoreConfig = {
+            ...config,
+            slots: (config.slots ?? []).map((s) => ({ ...s })),
+          };
+          await exportIphoneZipPlans(generatedShows, restoreConfig, { auto: true });
+        } else {
+          setGenAllProgress((p) => p
+            ? { ...p, phase: `Stopped after ${generatedShows.length} slideshow${generatedShows.length === 1 ? "" : "s"}.`, done: 6 }
+            : null
+          );
+        }
+        setTimeout(() => setGenAllProgress(null), 4000);
+      } catch (err) {
+        console.error("Valcoin iPhone pack batch failed:", err);
         setGenAllProgress((p) => p ? { ...p, phase: "Batch failed — check console for details." } : null);
         setTimeout(() => setGenAllProgress(null), 5000);
       } finally {
@@ -3135,6 +3203,10 @@ ${SHARED_RULES_OUTRO}`;
       const labelyGallery = savedSlideshows.filter((s) => savedShowMatchesApp(s, "labely"));
       if (await exportIphoneZipPlans(labelyGallery, restoreConfig)) return;
     }
+    if (aid === "valcoin") {
+      const valcoinGallery = savedSlideshows.filter((s) => savedShowMatchesApp(s, "valcoin"));
+      if (await exportIphoneZipPlans(valcoinGallery, restoreConfig)) return;
+    }
 
     const videos = savedSlideshows.filter((s) => savedShowMatchesApp(s, aid));
     if (videos.length < 2) return;
@@ -3374,7 +3446,7 @@ ${SHARED_RULES_OUTRO}`;
           <div className="rounded-xl border border-violet-500/25 bg-violet-500/10 px-3 py-2.5 text-[11px] text-white/80">
             <div className="font-semibold text-white">6-coin collage → scan ×6 → Valcoin slide-up</div>
             <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-              {`Opens on a 6-coin collage, then each coin gets a scan animation and the Valcoin app slides up — same slide-up choreography as Labely. Coin photos come from Wikimedia Commons (public domain); upload your own in the image rows below if you prefer.`}
+              {`Opens on a 6-coin collage, then each coin gets a scan animation and the Valcoin app slides up — same slide-up choreography as Labely. Coin photos come from Wikimedia Commons (public domain); upload your own in the image rows below if you prefer. Batch generate builds ${VALCOIN_IPHONE_PACK_TOTAL} slideshows (6 batches × ${VALCOIN_IPHONE_SLIDESHOWS_PER_BATCH}) and auto-exports ${GALLERY_IPHONE_DEVICE_COUNT} iPhone ZIPs (${LABELY_DB_BATCH_COUNT} videos each), same folder layout as Labely.`}
             </p>
           </div>
         ) : (
@@ -4194,18 +4266,21 @@ ${SHARED_RULES_OUTRO}`;
         <div className="mt-3 pt-3 border-t border-white/8">
           <div className="flex items-center gap-2 mb-2">
             <span className="text-white/45 text-xs flex-1">Generate multiple slideshows</span>
-            {!isLabelyFoodDbBatchMode ? (
+            {!isLabelyFoodDbBatchMode && !isValcoinIphonePackBatchMode ? (
             <div className="flex items-center gap-1.5">
               <span className="text-white/30 text-[11px]">qty</span>
               <input
-                type="number" min={1} max={50}
+                type="number" min={1} max={120}
                 value={numSlideshows}
-                onChange={(e) => setNumSlideshows(Math.max(1, Math.min(50, Number(e.target.value))))}
+                onChange={(e) => setNumSlideshows(Math.max(1, Math.min(120, Number(e.target.value))))}
                 className="w-14 bg-white/8 border border-white/15 rounded-lg px-2 py-1 text-white text-sm text-center focus:outline-none focus:border-violet-500/60"
               />
             </div>
             ) : (
-              <span className="text-emerald-200/80 text-[11px] font-semibold">{effectiveNumSlideshows} total</span>
+              <span className="text-emerald-200/80 text-[11px] font-semibold">
+                {effectiveNumSlideshows} total
+                {isValcoinIphonePackBatchMode ? ` · ${LABELY_DB_BATCH_COUNT}×${VALCOIN_IPHONE_SLIDESHOWS_PER_BATCH} iPhone pack` : ""}
+              </span>
             )}
           </div>
           <div className="mb-2 rounded-lg border border-white/10 bg-black/25 px-2.5 py-2">
@@ -4361,7 +4436,7 @@ ${SHARED_RULES_OUTRO}`;
 
         {savedForCurrentApp.length >= 2 ? (
           <p className="text-white/25 text-[10px] text-center leading-relaxed">
-            Gallery export runs each saved thumbnail for <span className="text-white/45">{brand.appName}</span> as its own video, unless your Labely food-DB batch layout triggers the multi-ZIP iPhone pack (same rules as before).
+            Gallery export runs each saved thumbnail for <span className="text-white/45">{brand.appName}</span> as its own video, unless batch metadata triggers the multi-ZIP iPhone pack (Labely food DB or Valcoin {VALCOIN_IPHONE_PACK_TOTAL}-slideshow batch).
           </p>
         ) : null}
 

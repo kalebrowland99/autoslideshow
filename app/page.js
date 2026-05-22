@@ -146,7 +146,7 @@ export default function Home() {
     } else {
       setActiveShowIdx(null);
     }
-    if (typeof raw.numSlideshows === "number" && raw.numSlideshows >= 1 && raw.numSlideshows <= 50) {
+    if (typeof raw.numSlideshows === "number" && raw.numSlideshows >= 1 && raw.numSlideshows <= 120) {
       setNumSlideshows(raw.numSlideshows);
     }
     if (Array.isArray(raw.batchImageDataUrls)) {
