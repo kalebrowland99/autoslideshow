@@ -65,7 +65,8 @@ export default function ThriftySlide({ slot, S, config = {} }) {
   const brand = getBrand(config);
   const captionStyle = config.captionStyle ?? "tiktok";
   const captionBg    = config.captionBg    ?? "#e03030";
-  const hideCaption  = (config.outputFormat ?? "standard") === "imessageMom";
+  const hideCaption =
+    (config.outputFormat ?? "standard") === "imessageMom" || brand.appId === "valcoin";
   const captionColor = config.captionColor ?? "#ffffff";
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);

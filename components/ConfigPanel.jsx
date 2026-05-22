@@ -25,7 +25,7 @@ import {
   IMAGE_FILE_ACCEPT,
 } from "@/lib/fileToDisplayableDataUrl";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
-import { fetchValcoinCoinForSlideshow } from "@/lib/numistaImageClient";
+import { fetchRandomNumistaCoin } from "@/lib/numistaImageClient";
 import { BAD_LABELY_VERDICT, normalizeBadLabelyScore } from "@/lib/labelyRating";
 import {
   clearGlobalJob,
@@ -1068,12 +1068,12 @@ export default function ConfigPanel({
    * @param {Set<string> | string[] | undefined} excludeSourceUrls
    */
   const fetchValcoinNumistaSlot = async (excludeSourceUrls) => {
-    const coin = await fetchValcoinCoinForSlideshow(abortRef.current?.signal, {
+    const numista = await fetchRandomNumistaCoin(abortRef.current?.signal, {
       maxAttempts: 6,
       excludeSourceUrls,
     });
-    if (!coin?.dataUrl?.startsWith("data:image/")) return null;
-    return coin;
+    if (!numista?.dataUrl?.startsWith("data:image/")) return null;
+    return numista;
   };
 
   const generateImage = async (index, prompt, brandItem) => {
@@ -1443,32 +1443,30 @@ ${SHARED_RULES_OUTRO}`;
       const randomBrand = weightedPool.length > 0
         ? weightedPool[Math.floor(Math.random() * weightedPool.length)]
         : null;
-      const coinPick = isValcoin ? pickValuableUSCoin() : null;
-      const hint = isValcoin ? coinPick : randomBrand;
-      const priceUpdates =
-        !slot.spentPrice && !slot.soldPrice
-          ? (isValcoin && hint ? (await coinPrices(hint)) : null) ?? autoRandomPrices()
-          : {};
-      const isPlaceholderName = /^item\s+\d+$/i.test((slot.itemName ?? "").trim());
-      updateSlot(globalIdx, {
-        imageUrl: dataUrl,
-        ...priceUpdates,
-        ...(isValcoin && hint && (isPlaceholderName || !(slot.itemName ?? "").trim()) ? { itemName: hint } : {}),
-      });
-      const grail = await autoTitleFromImage(dataUrl);
-      let resolvedName = slot.itemName;
-      let resolvedPrice = priceUpdates.soldPrice ?? slot.soldPrice;
-      if (grail?.title) {
-        resolvedName = grail.title;
-        resolvedPrice = grail.price ?? resolvedPrice;
-        updateSlot(globalIdx, {
-          itemName: resolvedName,
-          ...(grail.price ? { soldPrice: resolvedPrice } : {}),
-          matchItems: autoSoldListings(resolvedName, resolvedPrice),
-        });
+      if (isValcoin) {
+        const hint = pickValuableUSCoin();
+        const patch = await buildValcoinSlotPatch(hint, slot, dataUrl);
+        updateSlot(globalIdx, patch);
+      } else {
+        const priceUpdates =
+          !slot.spentPrice && !slot.soldPrice ? autoRandomPrices() : {};
+        updateSlot(globalIdx, { imageUrl: dataUrl, ...priceUpdates });
+        const grail = await autoTitleFromImage(dataUrl);
+        let resolvedName = slot.itemName;
+        let resolvedPrice = priceUpdates.soldPrice ?? slot.soldPrice;
+        if (grail?.title) {
+          resolvedName = grail.title;
+          resolvedPrice = grail.price ?? resolvedPrice;
+          updateSlot(globalIdx, {
+            itemName: resolvedName,
+            ...(grail.price ? { soldPrice: resolvedPrice } : {}),
+            matchItems: autoSoldListings(resolvedName, resolvedPrice),
+          });
+        }
       }
       if ((config.outputFormat ?? "standard") === "imessageMom") {
-        const thread = await generateImessageThread(resolvedName, resolvedPrice);
+        const slotNow = config.slots[globalIdx];
+        const thread = await generateImessageThread(slotNow.itemName, slotNow.soldPrice);
         if (thread) updateSlot(globalIdx, { imessageThread: thread });
       }
       setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
@@ -1564,21 +1562,9 @@ ${SHARED_RULES_OUTRO}`;
         }));
       } else {
         const slot = config.slots[index];
-        const catalogTitle = numista.catalogTitle?.trim() || numista.title?.trim() || "";
-        const fallbackName = pickValuableUSCoin();
-        const itemName = catalogTitle || fallbackName;
-        const priceUpdates = (!slot.spentPrice && !slot.soldPrice)
-          ? (await coinPrices(itemName)) ?? autoRandomPrices()
-          : {};
-        const isPlaceholderName = /^item\s+\d+$/i.test((slot.itemName ?? "").trim());
-        const soldPrice = priceUpdates.soldPrice ?? slot.soldPrice;
-        updateSlot(index, {
-          imageUrl: numista.dataUrl,
-          ...priceUpdates,
-          ...(catalogTitle || isPlaceholderName || !(slot.itemName ?? "").trim()
-            ? { itemName, matchItems: autoSoldListings(itemName, soldPrice) }
-            : {}),
-        });
+        const catalogTitle = numista.title?.trim() || pickValuableUSCoin();
+        const patch = await buildValcoinSlotPatch(catalogTitle, slot, numista.dataUrl);
+        updateSlot(index, patch);
       }
     } else {
       const basePrompt = config.slots[index].prompt || globalPrompt;
@@ -1735,6 +1721,25 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
+  /**
+   * Fill a Valcoin slot from a coin title (Wikimedia file title or brand-list
+   * hint) — never from vision on the photo. Prices come from coinPrices(text).
+   */
+  const buildValcoinSlotPatch = async (catalogTitle, slot, imageUrl) => {
+    const title = String(catalogTitle ?? "").trim() || pickValuableUSCoin();
+    const priceUpdates =
+      !slot.spentPrice && !slot.soldPrice
+        ? (await coinPrices(title)) ?? autoRandomPrices()
+        : {};
+    const soldPrice = priceUpdates.soldPrice ?? slot.soldPrice;
+    return {
+      ...(imageUrl ? { imageUrl } : {}),
+      ...priceUpdates,
+      itemName: title,
+      matchItems: autoSoldListings(title, soldPrice),
+    };
+  };
+
   // ── Auto-generate 2 slightly-varied sold listing rows ──
   const autoSoldListings = (itemName, soldPrice) => {
     const PREFIXES = ["Pre-owned ", "Used ", "Vintage ", "Authentic "];
@@ -1771,6 +1776,16 @@ ${SHARED_RULES_OUTRO}`;
       } else {
         setAiErrors((p) => ({ ...p, [`title_${index}`]: "Could not analyze packaging." }));
       }
+    } else if (isValcoin) {
+      const existing = (slot.itemName ?? "").trim();
+      const title =
+        existing && !/^item\s+\d+$/i.test(existing) ? existing : pickValuableUSCoin();
+      const priceUpdates = (await coinPrices(title)) ?? autoRandomPrices();
+      updateSlot(index, {
+        itemName: title,
+        ...priceUpdates,
+        matchItems: autoSoldListings(title, priceUpdates.soldPrice),
+      });
     } else {
       const grail = await autoTitleFromImage(slot.imageUrl);
       if (grail?.title) {
@@ -1947,20 +1962,9 @@ ${SHARED_RULES_OUTRO}`;
             const numista = await fetchValcoinNumistaSlot();
             if (numista) {
               const slot = config.slots[i];
-              const catalogTitle =
-                numista.catalogTitle?.trim() || numista.title?.trim() || hint || pickValuableUSCoin();
-              const priceUpdates = (!slot.spentPrice && !slot.soldPrice)
-                ? (await coinPrices(catalogTitle)) ?? autoRandomPrices()
-                : {};
-              const isPlaceholderName = /^item\s+\d+$/i.test((slot.itemName ?? "").trim());
-              const soldPrice = priceUpdates.soldPrice ?? slot.soldPrice;
-              updateSlot(i, {
-                imageUrl: numista.dataUrl,
-                ...priceUpdates,
-                ...(catalogTitle || isPlaceholderName || !(slot.itemName ?? "").trim()
-                  ? { itemName: catalogTitle, matchItems: autoSoldListings(catalogTitle, soldPrice) }
-                  : {}),
-              });
+              const catalogTitle = numista.title?.trim() || hint || pickValuableUSCoin();
+              const patch = await buildValcoinSlotPatch(catalogTitle, slot, numista.dataUrl);
+              updateSlot(i, patch);
               slotsDone.add(i);
               setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Slot ${stepLabel} complete`, slotsDone: new Set(slotsDone) });
             } else {
@@ -2325,23 +2329,15 @@ ${SHARED_RULES_OUTRO}`;
           const numista = await fetchValcoinNumistaSlot(usedSourceUrls);
           if (numista) {
             url = numista.dataUrl;
-            coinTitle = numista.catalogTitle?.trim() || numista.title?.trim() || coinTitle;
+            coinTitle = numista.title || coinTitle;
             if (numista.sourceUrl) usedSourceUrls.add(numista.sourceUrl);
           }
         }
         if (url) {
-          const prices = pre
-            ? autoRandomPrices()
-            : (coinTitle ? await coinPrices(coinTitle) : null) ?? autoRandomPrices();
-          let nextSlot = {
-            ...localSlots[si],
-            imageUrl: url,
-            ...prices,
-          };
+          const title = coinTitle.trim() || pickValuableUSCoin();
+          const patch = await buildValcoinSlotPatch(title, localSlots[si], url);
+          let nextSlot = { ...localSlots[si], ...patch };
           if (si === 0) nextSlot.labelyShelfImageUrl = url;
-          const displayName = coinTitle.trim() || pickValuableUSCoin();
-          nextSlot.itemName = displayName;
-          nextSlot.matchItems = autoSoldListings(displayName, prices.soldPrice);
           localSlots[si] = nextSlot;
         }
         updateConfig("slots", [...localSlots]);
@@ -2396,29 +2392,23 @@ ${SHARED_RULES_OUTRO}`;
         const numista = await fetchValcoinNumistaSlot();
         if (numista) {
           url = numista.dataUrl;
-          catalogTitle = numista.catalogTitle?.trim() || numista.title?.trim() || "";
+          catalogTitle = numista.title?.trim() || "";
         }
       } else if (!url) {
         url = await generateImage(si, p, hintGen);
       }
       if (url) {
-        const nameForSlot = catalogTitle || hintGen || "";
-        const prices = pre
-          ? autoRandomPrices()
-          : (isValcoin && nameForSlot ? (await coinPrices(nameForSlot)) : null) ?? autoRandomPrices();
-        const isPlaceholderName = /^item\s+\d+$/i.test((localSlots[si]?.itemName ?? "").trim());
-        localSlots[si] = {
-          ...localSlots[si],
-          imageUrl: url,
-          ...prices,
-          ...(isValcoin && nameForSlot && !pre && (catalogTitle || isPlaceholderName || !(localSlots[si]?.itemName ?? "").trim())
-            ? {
-                itemName: nameForSlot,
-                matchItems: autoSoldListings(nameForSlot, prices.soldPrice),
-              }
-            : {}),
-        };
-        if (!isValcoin) {
+        if (isValcoin) {
+          const title = catalogTitle.trim() || hintGen || pickValuableUSCoin();
+          const patch = await buildValcoinSlotPatch(title, localSlots[si], url);
+          localSlots[si] = { ...localSlots[si], ...patch };
+        } else {
+          const prices = pre ? autoRandomPrices() : autoRandomPrices();
+          localSlots[si] = {
+            ...localSlots[si],
+            imageUrl: url,
+            ...prices,
+          };
           setGenAllProgress({
             total: slotCount,
             done: si,
