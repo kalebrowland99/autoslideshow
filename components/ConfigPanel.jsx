@@ -603,14 +603,15 @@ export default function ConfigPanel({
     const savedPrompt = localStorage.getItem(storeKey("ts_global_prompt"));
     if (savedPrompt != null) setGlobalPrompt(savedPrompt);
     else setGlobalPrompt(DEFAULT_PROMPT);
-    if (isLabely && typeof config.labelyFoodItemsRaw === "string") {
-      setBrandItemsRaw(config.labelyFoodItemsRaw);
-      localStorage.setItem(storeKey("ts_brand_items"), config.labelyFoodItemsRaw);
+    if (isLabely) {
+      const raw = typeof config.labelyFoodItemsRaw === "string" ? config.labelyFoodItemsRaw : "";
+      setBrandItemsRaw(raw);
+      localStorage.setItem(storeKey("ts_brand_items"), raw);
       return;
     }
     const savedBrands = localStorage.getItem(storeKey("ts_brand_items"));
     if (savedBrands?.trim()) setBrandItemsRaw(savedBrands);
-    else setBrandItemsRaw(isValcoin ? VALUABLE_US_COINS.join("\n") : isLabely ? DEFAULT_LABELY_ITEMS : DEFAULT_BRAND_LIST);
+    else setBrandItemsRaw(isValcoin ? VALUABLE_US_COINS.join("\n") : DEFAULT_BRAND_LIST);
   }, [brand.appId, isLabely, config.labelyFoodItemsRaw]); // reload per-brand persisted values
 
   const pickValuableUSCoin = () => {
@@ -638,26 +639,65 @@ export default function ConfigPanel({
 
   // Parsed brand items (non-empty lines) — fall back to defaults when empty
   const brandItems = (() => {
-    const rawSource =
-      isLabely && typeof config.labelyFoodItemsRaw === "string"
-        ? config.labelyFoodItemsRaw
-        : brandItemsRaw;
-    const parsed = rawSource.split("\n").map((l) => l.trim()).filter(Boolean);
-    if (parsed.length > 0) return parsed;
-    if (isLabely && typeof config.labelyFoodItemsRaw === "string") return [];
-    if (isLabely && config.labelyAiProducts && config.labelyUseFoodDatabasePhotos) return [];
-    if (isLabely && config.labelyAiProducts) {
-      return DEFAULT_LABELY_ITEMS.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (isLabely) {
+      const raw =
+        typeof config.labelyFoodItemsRaw === "string" ? config.labelyFoodItemsRaw : brandItemsRaw;
+      return raw.split("\n").map((l) => l.trim()).filter(Boolean);
     }
-    if (isLabely) return [];
+    const parsed = brandItemsRaw.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (parsed.length > 0) return parsed;
     return DEFAULT_BRAND_LIST.split("\n").map((l) => l.trim()).filter(Boolean);
   })();
+  const labelyFoodItemCount = isLabelyFoodDbBatchMode
+    ? labelyFoodDbBatches.reduce(
+        (sum, b) =>
+          sum + String(b.itemsRaw || "").split("\n").map((line) => line.trim()).filter(Boolean).length,
+        0,
+      )
+    : brandItems.length;
   const commitLabelyFoodItemsRaw = (nextRaw) => {
     const next = typeof nextRaw === "string" ? nextRaw : "";
     setBrandItemsRaw(next);
     localStorage.setItem(storeKey("ts_brand_items"), next);
     setConfig((prev) => {
       const nextConfig = { ...prev, labelyFoodItemsRaw: next };
+      persistHomeSessionNow?.({ config: nextConfig });
+      return nextConfig;
+    });
+  };
+  const clearAllLabelyFoods = () => {
+    if (
+      !window.confirm(
+        "Clear every food from all Labely batches and the main list? This is saved immediately and will stay cleared after refresh.",
+      )
+    ) {
+      return;
+    }
+    setFoodDbSuggestions([]);
+    setFoodDbSearch("");
+    setFoodDbSearchOptions([]);
+    setFoodDbSearchStatus("idle");
+    setBatchFoodDbSearch({});
+    setBatchFoodDbSearchOptions({});
+    setBatchFoodDbSearchStatus({});
+    foodDbSuggestionCacheRef.current.clear();
+    setBrandItemsRaw("");
+    localStorage.setItem(storeKey("ts_brand_items"), "");
+    setConfig((prev) => {
+      const current = Array.isArray(prev.labelyFoodDbBatches)
+        ? prev.labelyFoodDbBatches
+        : DEFAULT_LABELY_DB_BATCHES;
+      const clearedBatches = DEFAULT_LABELY_DB_BATCHES.map((base, i) => ({
+        ...base,
+        ...(current[i] || {}),
+        itemsRaw: "",
+        foodDbMatches: {},
+      }));
+      const nextConfig = {
+        ...prev,
+        labelyFoodItemsRaw: "",
+        labelyFoodDbBatches: clearedBatches,
+      };
       persistHomeSessionNow?.({ config: nextConfig });
       return nextConfig;
     });
@@ -3764,15 +3804,28 @@ ${SHARED_RULES_OUTRO}`;
         {/* Labely AI: same role as Thrifty “Brand Items List” — seeds packaged-food generations */}
         {isLabely && config.labelyAiProducts ? (
           <div className="mt-3 bg-white/4 border border-white/10 rounded-xl p-3">
-            <div className="flex items-center justify-between mb-1">
-              <Label>Food &amp; drink list</Label>
-              {mounted && (isLabelyFoodDbBatchMode ? totalBatchSlideshows > 0 : brandItems.length > 0) && (
-                <span className="text-violet-300 text-[10px] font-medium">
-                  {isLabelyFoodDbBatchMode
-                    ? `${totalBatchSlideshows} slideshow${totalBatchSlideshows > 1 ? "s" : ""}`
-                    : `${brandItems.length} item${brandItems.length > 1 ? "s" : ""}`}
-                </span>
-              )}
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <Label className="!mb-0 shrink-0">Food &amp; drink list</Label>
+              <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+                {mounted && (isLabelyFoodDbBatchMode ? totalBatchSlideshows > 0 : labelyFoodItemCount > 0) && (
+                  <span className="text-violet-300 text-[10px] font-medium">
+                    {isLabelyFoodDbBatchMode
+                      ? `${totalBatchSlideshows} slideshow${totalBatchSlideshows > 1 ? "s" : ""}`
+                      : `${labelyFoodItemCount} item${labelyFoodItemCount > 1 ? "s" : ""}`}
+                  </span>
+                )}
+                {mounted && labelyFoodItemCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={clearAllLabelyFoods}
+                    disabled={generatingSlot !== null}
+                    className="shrink-0 rounded-md border border-red-500/35 bg-red-500/10 px-2 py-1 text-[10px] font-bold tracking-wide text-red-300 hover:bg-red-500/20 disabled:opacity-40"
+                    title="Remove every food from all batches and the main list (saved to session)"
+                  >
+                    Clear all foods
+                  </button>
+                ) : null}
+              </div>
             </div>
             <p className="text-white/35 text-[10px] mb-2 leading-relaxed">
               {config.labelyUseFoodDatabasePhotos

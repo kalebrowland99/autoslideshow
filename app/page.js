@@ -185,7 +185,7 @@ export default function Home() {
   const persistHomeSessionNow = useCallback(
     (overrides = {}) => {
       if (skipSaveUntilHydrated.current) return;
-      writeHomeSession({
+      const payload = {
         v: 1,
         config: overrides.config ?? config,
         savedSlideshows: overrides.savedSlideshows ?? savedSlideshows,
@@ -194,9 +194,19 @@ export default function Home() {
         numSlideshows: overrides.numSlideshows ?? numSlideshows,
         batchImageDataUrls: overrides.batchImageDataUrls ?? batchImageDataUrls,
         savedAt: Date.now(),
-      });
+      };
+      writeHomeSession(payload);
+      if (cloudUid && isFirebaseConfigured()) {
+        firebaseRemoteSaveChainRef.current = firebaseRemoteSaveChainRef.current
+          .catch(() => {})
+          .then(async () => {
+            const { saveHomeSessionRemote } = await import("@/lib/firebaseHomeSession");
+            await saveHomeSessionRemote(cloudUid, payload);
+          })
+          .catch((e) => console.warn("[firebase] immediate save", e));
+      }
     },
-    [config, savedSlideshows, activeShowIdx, currentSlide, numSlideshows, batchImageDataUrls],
+    [config, savedSlideshows, activeShowIdx, currentSlide, numSlideshows, batchImageDataUrls, cloudUid],
   );
 
   const reloadGalleryAndBatchMedia = useCallback(async () => {
