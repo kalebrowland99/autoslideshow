@@ -486,6 +486,7 @@ export default function ConfigPanel({
   setNumSlideshows,
   batchImageDataUrls,
   setBatchImageDataUrls,
+  persistHomeSessionNow,
 }) {
   const brand = getBrand(config);
   const isValcoin = brand.appId === "valcoin";
@@ -521,7 +522,9 @@ export default function ConfigPanel({
         : DEFAULT_LABELY_DB_BATCHES;
       const next = DEFAULT_LABELY_DB_BATCHES.map((base, i) => ({ ...base, ...(current[i] || {}) }));
       next[batchIndex] = { ...next[batchIndex], ...patch };
-      return { ...prev, labelyFoodDbBatches: next };
+      const nextConfig = { ...prev, labelyFoodDbBatches: next };
+      persistHomeSessionNow?.({ config: nextConfig });
+      return nextConfig;
     });
   };
   const referencesDirLabel =
@@ -600,10 +603,15 @@ export default function ConfigPanel({
     const savedPrompt = localStorage.getItem(storeKey("ts_global_prompt"));
     if (savedPrompt != null) setGlobalPrompt(savedPrompt);
     else setGlobalPrompt(DEFAULT_PROMPT);
+    if (isLabely && typeof config.labelyFoodItemsRaw === "string") {
+      setBrandItemsRaw(config.labelyFoodItemsRaw);
+      localStorage.setItem(storeKey("ts_brand_items"), config.labelyFoodItemsRaw);
+      return;
+    }
     const savedBrands = localStorage.getItem(storeKey("ts_brand_items"));
     if (savedBrands?.trim()) setBrandItemsRaw(savedBrands);
     else setBrandItemsRaw(isValcoin ? VALUABLE_US_COINS.join("\n") : isLabely ? DEFAULT_LABELY_ITEMS : DEFAULT_BRAND_LIST);
-  }, [brand.appId]); // reload per-brand persisted values
+  }, [brand.appId, isLabely, config.labelyFoodItemsRaw]); // reload per-brand persisted values
 
   const pickValuableUSCoin = () => {
     const idx = Math.floor(Math.random() * VALUABLE_US_COINS.length);
@@ -630,8 +638,13 @@ export default function ConfigPanel({
 
   // Parsed brand items (non-empty lines) — fall back to defaults when empty
   const brandItems = (() => {
-    const parsed = brandItemsRaw.split("\n").map((l) => l.trim()).filter(Boolean);
+    const rawSource =
+      isLabely && typeof config.labelyFoodItemsRaw === "string"
+        ? config.labelyFoodItemsRaw
+        : brandItemsRaw;
+    const parsed = rawSource.split("\n").map((l) => l.trim()).filter(Boolean);
     if (parsed.length > 0) return parsed;
+    if (isLabely && typeof config.labelyFoodItemsRaw === "string") return [];
     if (isLabely && config.labelyAiProducts && config.labelyUseFoodDatabasePhotos) return [];
     if (isLabely && config.labelyAiProducts) {
       return DEFAULT_LABELY_ITEMS.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -639,6 +652,16 @@ export default function ConfigPanel({
     if (isLabely) return [];
     return DEFAULT_BRAND_LIST.split("\n").map((l) => l.trim()).filter(Boolean);
   })();
+  const commitLabelyFoodItemsRaw = (nextRaw) => {
+    const next = typeof nextRaw === "string" ? nextRaw : "";
+    setBrandItemsRaw(next);
+    localStorage.setItem(storeKey("ts_brand_items"), next);
+    setConfig((prev) => {
+      const nextConfig = { ...prev, labelyFoodItemsRaw: next };
+      persistHomeSessionNow?.({ config: nextConfig });
+      return nextConfig;
+    });
+  };
   const [foodDbSuggestions, setFoodDbSuggestions] = useState([]);
   const [foodDbSuggestionStatus, setFoodDbSuggestionStatus] = useState("idle");
   const [foodDbSearch, setFoodDbSearch] = useState("");
@@ -713,14 +736,12 @@ export default function ConfigPanel({
   }, [foodDbSuggestionKey]);
 
   const replaceFoodListItem = (from, to) => {
-    const lines = brandItemsRaw.trim()
-      ? brandItemsRaw.split("\n")
-      : brandItems;
-    const next = lines
-      .map((line) => (line.trim() === from ? to : line))
-      .join("\n");
-    setBrandItemsRaw(next);
-    localStorage.setItem(storeKey("ts_brand_items"), next);
+    const next = brandItems.map((line) => (line === from ? to : line)).join("\n");
+    if (isLabely) commitLabelyFoodItemsRaw(next);
+    else {
+      setBrandItemsRaw(next);
+      localStorage.setItem(storeKey("ts_brand_items"), next);
+    }
     const cached = foodDbSuggestionCacheRef.current.get(foodDbKeyFor(from));
     if (cached) {
       foodDbSuggestionCacheRef.current.set(foodDbKeyFor(to), { ...cached, query: to });
@@ -729,24 +750,26 @@ export default function ConfigPanel({
   const addFoodListItem = (item) => {
     const nextItem = String(item || "").trim();
     if (!nextItem) return;
-    const current = brandItemsRaw.trim()
-      ? brandItemsRaw.split("\n").map((line) => line.trim()).filter(Boolean)
-      : [];
+    const current = brandItems;
     if (!current.some((line) => line.toLowerCase() === nextItem.toLowerCase())) {
       const next = [...current, nextItem].join("\n");
-      setBrandItemsRaw(next);
-      localStorage.setItem(storeKey("ts_brand_items"), next);
+      if (isLabely) commitLabelyFoodItemsRaw(next);
+      else {
+        setBrandItemsRaw(next);
+        localStorage.setItem(storeKey("ts_brand_items"), next);
+      }
     }
     setFoodDbSearch("");
     setFoodDbSearchOptions([]);
     setFoodDbSearchStatus("idle");
   };
   const removeFoodListItem = (item) => {
-    const next = brandItems
-      .filter((line) => line !== item)
-      .join("\n");
-    setBrandItemsRaw(next);
-    localStorage.setItem(storeKey("ts_brand_items"), next);
+    const next = brandItems.filter((line) => line !== item).join("\n");
+    if (isLabely) commitLabelyFoodItemsRaw(next);
+    else {
+      setBrandItemsRaw(next);
+      localStorage.setItem(storeKey("ts_brand_items"), next);
+    }
   };
   const runFoodDbSearch = async () => {
     const q = foodDbSearch.trim();
@@ -3975,10 +3998,13 @@ ${SHARED_RULES_OUTRO}`;
             ) : (
               <>
             <textarea
-              value={brandItemsRaw}
+              value={isLabely && typeof config.labelyFoodItemsRaw === "string" ? config.labelyFoodItemsRaw : brandItemsRaw}
               onChange={(e) => {
-                setBrandItemsRaw(e.target.value);
-                localStorage.setItem(storeKey("ts_brand_items"), e.target.value);
+                if (isLabely) commitLabelyFoodItemsRaw(e.target.value);
+                else {
+                  setBrandItemsRaw(e.target.value);
+                  localStorage.setItem(storeKey("ts_brand_items"), e.target.value);
+                }
               }}
               placeholder={DEFAULT_LABELY_ITEMS}
               rows={6}

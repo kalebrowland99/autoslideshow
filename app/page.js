@@ -91,6 +91,8 @@ export const defaultConfig = {
     itemsRaw: "",
     slideshowCount: 1,
   })),
+  /** Labely food list (newline-separated); persisted in home session so removals survive refresh. */
+  labelyFoodItemsRaw: "",
 
 };
 
@@ -178,6 +180,24 @@ export default function Home() {
       setActiveShowIdx(null);
     }
   }, []);
+
+  /** Write session immediately (food-list / batch edits must survive refresh before debounced save). */
+  const persistHomeSessionNow = useCallback(
+    (overrides = {}) => {
+      if (skipSaveUntilHydrated.current) return;
+      writeHomeSession({
+        v: 1,
+        config: overrides.config ?? config,
+        savedSlideshows: overrides.savedSlideshows ?? savedSlideshows,
+        activeShowIdx: overrides.activeShowIdx ?? activeShowIdx,
+        currentSlide: overrides.currentSlide ?? currentSlide,
+        numSlideshows: overrides.numSlideshows ?? numSlideshows,
+        batchImageDataUrls: overrides.batchImageDataUrls ?? batchImageDataUrls,
+        savedAt: Date.now(),
+      });
+    },
+    [config, savedSlideshows, activeShowIdx, currentSlide, numSlideshows, batchImageDataUrls],
+  );
 
   const reloadGalleryAndBatchMedia = useCallback(async () => {
     if (reloadSessionMediaBusyRef.current) return;
@@ -589,6 +609,7 @@ export default function Home() {
             setNumSlideshows={setNumSlideshows}
             batchImageDataUrls={batchImageDataUrls}
             setBatchImageDataUrls={setBatchImageDataUrls}
+            persistHomeSessionNow={persistHomeSessionNow}
           />
         </aside>
 
