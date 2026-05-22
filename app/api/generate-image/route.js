@@ -98,6 +98,67 @@ async function rewordCaptionWithOpenAI({ text, openaiApiKey }) {
   return { text: out };
 }
 
+/** Turn noisy Wikimedia filenames into short collector-friendly US coin names (text only). */
+async function simplifyCoinTitleWithOpenAI({ rawTitle, openaiApiKey }) {
+  if (!openaiApiKey?.trim()) {
+    return { error: "OpenAI API key is not configured on the server.", status: 500 };
+  }
+  const raw = String(rawTitle ?? "").trim();
+  if (!raw) return { error: "Empty title.", status: 400 };
+
+  const res = await fetch(OPENAI_CHAT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${openaiApiKey}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "user",
+          content: `You clean up Wikimedia Commons coin photo titles into short US coin names for a collector app.
+
+Raw title (from filename / catalog):
+${raw}
+
+Return ONLY JSON (no markdown):
+{"title": "1909-S VDB Lincoln Cent"}
+
+Rules:
+- 3–8 words, Title Case, United States coins only
+- Include year and mint mark (P, D, S, CC, etc.) when present or inferable
+- Include denomination and series (e.g. Morgan Dollar, Buffalo Nickel, Washington Quarter)
+- If the raw title is only numbers, codes, or gibberish (e.g. "1968KHDUCB", "5813028525", "NNC-US-1855-5C"), infer the most likely US coin collectors would recognize — never return only digits
+- Never return "Unknown" — make a reasonable best guess from context
+- Drop: obverse/reverse, photographer, museum IDs, file extensions, Flickr IDs
+- If the raw title is already clear, shorten it slightly but keep the same coin`,
+        },
+      ],
+      temperature: 0.4,
+      max_tokens: 60,
+    }),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    return { error: data?.error?.message || `OpenAI error ${res.status}`, status: res.status };
+  }
+
+  const data = await res.json();
+  const out = data.choices?.[0]?.message?.content?.trim() || "";
+  try {
+    const parsed = JSON.parse(out.replace(/```json|```/g, "").trim());
+    const title = String(parsed.title ?? "").trim().replace(/^["']|["']$/g, "");
+    if (!title || /^\d+$/.test(title)) {
+      return { error: "Invalid simplified title.", status: 502 };
+    }
+    return { title };
+  } catch {
+    return { error: "Could not parse simplified coin title.", status: 502 };
+  }
+}
+
 async function coinPricesWithOpenAI({ coinName, openaiApiKey }) {
   if (!openaiApiKey?.trim()) {
     return { error: "OpenAI API key is not configured on the server.", status: 500 };
@@ -141,108 +202,6 @@ async function coinPricesWithOpenAI({ coinName, openaiApiKey }) {
   }
 }
 
-async function valcoinIdentifyWithOpenAI({ imageUrl, openaiApiKey }) {
-  if (!openaiApiKey?.trim()) {
-    return { error: "OpenAI API key is not configured on the server.", status: 500 };
-  }
-  if (typeof imageUrl !== "string" || !imageUrl.trim()) {
-    return { error: "imageUrl is required.", status: 400 };
-  }
-
-  const res = await fetch(OPENAI_CHAT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${openaiApiKey}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-4o",
-      temperature: 0.4,
-      max_tokens: 600,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "image_url", image_url: { url: imageUrl, detail: "high" } },
-            {
-              type: "text",
-              text: `You are a US coin grading and pricing expert (Heritage Auctions / PCGS / NGC vibe). The photo may show a single coin, both sides, or a small group; pick the most prominent US coin and identify it.
-
-Return ONLY valid JSON (no markdown, no extra prose), exactly this shape:
-{
-  "name": "1909-S VDB Lincoln Cent",
-  "year": "1909",
-  "mintMark": "S",
-  "denomination": "1 cent",
-  "grade": "VF-30",
-  "buy": 1400,
-  "sell": 2200,
-  "listings": [
-    { "title": "1909-S VDB Lincoln Wheat Cent VF Original", "source": "Heritage Auctions", "price": 2150 },
-    { "title": "1909 S VDB Penny PCGS Genuine Detail", "source": "eBay", "price": 1850 }
-  ]
-}
-
-Rules:
-- name: 3-7 words, clean Title Case (year, mint mark if visible, series, denomination). Examples: "1916-D Mercury Dime", "1893-S Morgan Dollar", "1955 Doubled Die Lincoln Cent", "1942/1 Mercury Dime".
-- If only the obverse or reverse is visible, still pick a sensible variety/year window from visual cues (portrait, design, mint mark location, devices).
-- buy: realistic acquire price at a show / strong eBay buy, USD integer.
-- sell: realistic comp / collector retail price, USD integer, >= buy.
-- For ultra-common coins (modern Lincoln cents, Wheat cents post-1934, Memorial cents, Roosevelt dimes, Jefferson nickels, clad quarters, Kennedy halves, Sacagawea/Presidential dollars): keep prices low ($2-$60). For semi-keys ($50-$500). Only true keys (1909-S VDB, 1914-D, 1916-D Merc, 1893-S Morgan, 1916 Standing Liberty, 1932-D/S Washington, 1955 DDO, etc.) should reach $500+; never invent absurd numbers.
-- listings: exactly 2 plausible recently-sold comps, sources from {Heritage Auctions, Stack's Bowers, GreatCollections, eBay, APMEX, JM Bullion, NGC, PCGS, SD Bullion}. Each price within ~25% of sell.
-- If the photo is clearly NOT a US coin or you cannot identify any coin (medal, token, foreign, packaging only), return {"name": ""} with no other fields.`,
-            },
-          ],
-        },
-      ],
-    }),
-  });
-
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    return { error: data?.error?.message || `OpenAI error ${res.status}`, status: res.status };
-  }
-
-  const data = await res.json();
-  const raw = data.choices?.[0]?.message?.content?.trim() || "";
-
-  try {
-    const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
-    const name = String(parsed?.name ?? "").trim();
-    if (!name) {
-      return { error: "Could not identify a US coin in the photo.", status: 422 };
-    }
-    const buy = Math.round(Number(parsed.buy));
-    const sell = Math.round(Number(parsed.sell));
-    if (!Number.isFinite(buy) || !Number.isFinite(sell) || buy <= 0 || sell <= 0) {
-      return { error: "Invalid coin price response.", status: 502 };
-    }
-    const sellSafe = Math.max(buy, sell);
-    const listings = Array.isArray(parsed.listings)
-      ? parsed.listings.slice(0, 2).map((l) => {
-          const lp = Math.round(Number(l?.price));
-          return {
-            title: String(l?.title ?? "").trim() || `${name} — Sold`,
-            source: String(l?.source ?? "").trim() || "eBay",
-            price: Number.isFinite(lp) && lp > 0 ? String(lp) : "",
-          };
-        })
-      : [];
-    return {
-      name,
-      year: String(parsed.year ?? "").trim(),
-      mintMark: String(parsed.mintMark ?? "").trim(),
-      denomination: String(parsed.denomination ?? "").trim(),
-      grade: String(parsed.grade ?? "").trim(),
-      buy: String(Math.max(1, buy)),
-      sell: String(sellSafe),
-      listings,
-    };
-  } catch {
-    return { error: "Could not parse coin identification response.", status: 502 };
-  }
-}
-
 // ── Route handler ─────────────────────────────────────────────────────────────
 export async function POST(req) {
   try {
@@ -279,6 +238,15 @@ export async function POST(req) {
       return NextResponse.json({ text: result.text });
     }
 
+    if (action === "coinTitle") {
+      const rawTitle = String(text ?? "").trim();
+      result = await simplifyCoinTitleWithOpenAI({ rawTitle, openaiApiKey });
+      if (result.error) {
+        return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
+      }
+      return NextResponse.json({ title: result.title });
+    }
+
     if (action === "coinPrices") {
       const coinName = String(text ?? "").trim();
       result = await coinPricesWithOpenAI({ coinName, openaiApiKey });
@@ -286,23 +254,6 @@ export async function POST(req) {
         return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
       }
       return NextResponse.json({ buy: result.buy, sell: result.sell });
-    }
-
-    if (action === "valcoinIdentify") {
-      result = await valcoinIdentifyWithOpenAI({ imageUrl, openaiApiKey });
-      if (result.error) {
-        return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
-      }
-      return NextResponse.json({
-        name: result.name,
-        year: result.year,
-        mintMark: result.mintMark,
-        denomination: result.denomination,
-        grade: result.grade,
-        buy: result.buy,
-        sell: result.sell,
-        listings: result.listings,
-      });
     }
 
     result = await runImageGenerationPipeline({

@@ -1702,6 +1702,26 @@ ${SHARED_RULES_OUTRO}`;
     return { spentPrice: String(spent), soldPrice: String(sold) };
   };
 
+  /** Text-only: simplify a raw Wikimedia / filename title into a readable coin name. */
+  const simplifyCoinTitle = async (rawTitle) => {
+    const raw = String(rawTitle ?? "").trim();
+    if (!raw) return null;
+    try {
+      const res = await fetch("/api/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: abortRef.current?.signal,
+        body: JSON.stringify({ action: "coinTitle", text: raw }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const title = String(data?.title ?? "").trim();
+      return title && !/^\d+$/.test(title) ? title : null;
+    } catch {
+      return null;
+    }
+  };
+
   const coinPrices = async (coinName) => {
     const name = String(coinName ?? "").trim();
     if (!name) return null;
@@ -1723,10 +1743,13 @@ ${SHARED_RULES_OUTRO}`;
 
   /**
    * Fill a Valcoin slot from a coin title (Wikimedia file title or brand-list
-   * hint) — never from vision on the photo. Prices come from coinPrices(text).
+   * hint) — never from vision on the photo. Raw titles are simplified via AI,
+   * then prices come from coinPrices(simplified title).
    */
   const buildValcoinSlotPatch = async (catalogTitle, slot, imageUrl) => {
-    const title = String(catalogTitle ?? "").trim() || pickValuableUSCoin();
+    const raw = String(catalogTitle ?? "").trim() || pickValuableUSCoin();
+    const simplified = (await simplifyCoinTitle(raw)) ?? raw;
+    const title = simplified.trim() || pickValuableUSCoin();
     const priceUpdates =
       !slot.spentPrice && !slot.soldPrice
         ? (await coinPrices(title)) ?? autoRandomPrices()
