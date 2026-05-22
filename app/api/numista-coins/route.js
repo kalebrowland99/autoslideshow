@@ -12,18 +12,41 @@ function normalizeCoinText(s) {
     .trim();
 }
 
+function issuerLabel(type) {
+  const issuer = type?.issuer;
+  if (typeof issuer === "object" && issuer) {
+    return String(issuer.name || issuer.code || "").trim();
+  }
+  return String(issuer || "").trim();
+}
+
+/** Prefer United States types when matching Wikimedia file titles to Numista. */
+function isUnitedStatesType(type) {
+  const issuer = normalizeCoinText(issuerLabel(type));
+  const title = normalizeCoinText(type?.title);
+  const hay = `${issuer} ${title}`;
+  return (
+    issuer.includes("united states") ||
+    issuer === "usa" ||
+    issuer === "us" ||
+    /\bu s\b/.test(hay) ||
+    hay.includes("america the beautiful") ||
+    hay.includes("state quarter") ||
+    hay.includes("presidential dollar")
+  );
+}
+
 function scoreTypeAgainstQuery(type, qNorm) {
   if (!type || !qNorm) return 0;
   const title = normalizeCoinText(type.title);
-  const issuer = normalizeCoinText(
-    typeof type.issuer === "object" && type.issuer ? type.issuer.name || type.issuer.code : type.issuer,
-  );
+  const issuer = normalizeCoinText(issuerLabel(type));
   const hay = `${title} ${issuer}`;
   let score = 0;
   for (const tok of qNorm.split(/\s+/).filter((t) => t.length >= 2)) {
     if (hay.includes(tok)) score += 2;
   }
   if (type.obverse_thumbnail || type.obverse_picture) score += 1;
+  if (isUnitedStatesType(type)) score += 12;
   return score;
 }
 
@@ -233,7 +256,7 @@ export async function GET() {
     ok: true,
     route: "/api/numista-coins",
     numistaApiKeyConfigured: hasKey,
-    usage: 'POST JSON { action: "search" | "photo" | "randomPhoto", ... }',
+    usage: 'POST JSON { action: "search" | "photo" | "randomPhoto" | "lookup", ... }',
   });
 }
 
@@ -281,6 +304,39 @@ export async function POST(req) {
       reverse_thumbnail: String(t.reverse_thumbnail || "").trim(),
     }));
     return NextResponse.json({ results });
+  }
+
+  if (action === "lookup") {
+    /** Match a Wikimedia (or other) coin label to Numista catalog metadata — no image download. */
+    const query = String(body.query || "").trim();
+    if (!query) {
+      return NextResponse.json({ error: "query is required for lookup." }, { status: 400 });
+    }
+    const r = await searchTypesList(query, apiKey);
+    if (!r.ok) {
+      return NextResponse.json(
+        { error: r.error || "Numista search failed" },
+        { status: r.status >= 400 && r.status < 600 ? r.status : 502 },
+      );
+    }
+    const types = Array.isArray(r.data?.types) ? r.data.types : [];
+    const ranked = scoreTypesRanked(types, query);
+    const best = ranked[0]?.t;
+    if (!best?.id) {
+      return NextResponse.json(
+        { error: "No Numista catalog match for that coin name." },
+        { status: 404 },
+      );
+    }
+    const d = await numistaJson(`/types/${best.id}`, apiKey);
+    const detail = d.ok && d.data ? unwrapTypePayload(d.data) : null;
+    const merged = mergeNumistaTypeRow(best, detail) || best;
+    return NextResponse.json({
+      title: String(merged.title || best.title || "").trim(),
+      typeId: merged.id != null ? Number(merged.id) : null,
+      issuer: issuerLabel(merged),
+      source: "numista",
+    });
   }
 
   if (action === "photo") {

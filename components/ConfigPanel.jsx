@@ -25,7 +25,7 @@ import {
   IMAGE_FILE_ACCEPT,
 } from "@/lib/fileToDisplayableDataUrl";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
-import { fetchRandomNumistaCoin } from "@/lib/numistaImageClient";
+import { fetchValcoinCoinForSlideshow } from "@/lib/numistaImageClient";
 import { BAD_LABELY_VERDICT, normalizeBadLabelyScore } from "@/lib/labelyRating";
 import {
   clearGlobalJob,
@@ -1068,12 +1068,12 @@ export default function ConfigPanel({
    * @param {Set<string> | string[] | undefined} excludeSourceUrls
    */
   const fetchValcoinNumistaSlot = async (excludeSourceUrls) => {
-    const numista = await fetchRandomNumistaCoin(abortRef.current?.signal, {
+    const coin = await fetchValcoinCoinForSlideshow(abortRef.current?.signal, {
       maxAttempts: 6,
       excludeSourceUrls,
     });
-    if (!numista?.dataUrl?.startsWith("data:image/")) return null;
-    return numista;
+    if (!coin?.dataUrl?.startsWith("data:image/")) return null;
+    return coin;
   };
 
   const generateImage = async (index, prompt, brandItem) => {
@@ -1564,7 +1564,7 @@ ${SHARED_RULES_OUTRO}`;
         }));
       } else {
         const slot = config.slots[index];
-        const catalogTitle = numista.title?.trim() || "";
+        const catalogTitle = numista.catalogTitle?.trim() || numista.title?.trim() || "";
         const fallbackName = pickValuableUSCoin();
         const itemName = catalogTitle || fallbackName;
         const priceUpdates = (!slot.spentPrice && !slot.soldPrice)
@@ -1730,31 +1730,6 @@ ${SHARED_RULES_OUTRO}`;
       const data = await res.json();
       if (!data?.buy || !data?.sell) return null;
       return { spentPrice: String(data.buy), soldPrice: String(data.sell) };
-    } catch {
-      return null;
-    }
-  };
-
-  /**
-   * Vision-identify a coin photo and return clean name + realistic prices + sold listings.
-   * Used by the Valcoin scan tour so the slide-up shows meaningful AI-inferred details
-   * rather than noisy Wikimedia titles.
-   */
-  const valcoinIdentifyFromImage = async (imageDataUrl) => {
-    if (typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image/")) {
-      return null;
-    }
-    try {
-      const res = await fetch("/api/generate-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: abortRef.current?.signal,
-        body: JSON.stringify({ action: "valcoinIdentify", imageUrl: imageDataUrl }),
-      });
-      if (!res.ok) return null;
-      const data = await res.json();
-      if (!data?.name) return null;
-      return data;
     } catch {
       return null;
     }
@@ -1972,7 +1947,8 @@ ${SHARED_RULES_OUTRO}`;
             const numista = await fetchValcoinNumistaSlot();
             if (numista) {
               const slot = config.slots[i];
-              const catalogTitle = numista.title?.trim() || hint || pickValuableUSCoin();
+              const catalogTitle =
+                numista.catalogTitle?.trim() || numista.title?.trim() || hint || pickValuableUSCoin();
               const priceUpdates = (!slot.spentPrice && !slot.soldPrice)
                 ? (await coinPrices(catalogTitle)) ?? autoRandomPrices()
                 : {};
@@ -1981,7 +1957,7 @@ ${SHARED_RULES_OUTRO}`;
               updateSlot(i, {
                 imageUrl: numista.dataUrl,
                 ...priceUpdates,
-                ...(numista.title?.trim() || isPlaceholderName || !(slot.itemName ?? "").trim()
+                ...(catalogTitle || isPlaceholderName || !(slot.itemName ?? "").trim()
                   ? { itemName: catalogTitle, matchItems: autoSoldListings(catalogTitle, soldPrice) }
                   : {}),
               });
@@ -2349,48 +2325,23 @@ ${SHARED_RULES_OUTRO}`;
           const numista = await fetchValcoinNumistaSlot(usedSourceUrls);
           if (numista) {
             url = numista.dataUrl;
-            coinTitle = numista.title || coinTitle;
+            coinTitle = numista.catalogTitle?.trim() || numista.title?.trim() || coinTitle;
             if (numista.sourceUrl) usedSourceUrls.add(numista.sourceUrl);
           }
         }
         if (url) {
-          const ai = pre ? null : await valcoinIdentifyFromImage(url);
-
-          const aiPrices =
-            ai && ai.buy && ai.sell
-              ? { spentPrice: String(ai.buy), soldPrice: String(ai.sell) }
-              : null;
-          const prices =
-            aiPrices ??
-            (pre
-              ? autoRandomPrices()
-              : (coinTitle ? await coinPrices(coinTitle) : null) ?? autoRandomPrices());
-
+          const prices = pre
+            ? autoRandomPrices()
+            : (coinTitle ? await coinPrices(coinTitle) : null) ?? autoRandomPrices();
           let nextSlot = {
             ...localSlots[si],
             imageUrl: url,
             ...prices,
           };
           if (si === 0) nextSlot.labelyShelfImageUrl = url;
-
-          const displayName = ai?.name?.trim() || coinTitle.trim() || pickValuableUSCoin();
+          const displayName = coinTitle.trim() || pickValuableUSCoin();
           nextSlot.itemName = displayName;
-
-          const aiListings = Array.isArray(ai?.listings)
-            ? ai.listings
-                .map((l) => ({
-                  title: String(l?.title ?? "").trim(),
-                  source: String(l?.source ?? "").trim(),
-                  price: l?.price != null ? String(l.price) : "",
-                  inStock: false,
-                }))
-                .filter((l) => l.title && l.source)
-            : [];
-          nextSlot.matchItems =
-            aiListings.length >= 1
-              ? aiListings.slice(0, 2)
-              : autoSoldListings(displayName, prices.soldPrice);
-
+          nextSlot.matchItems = autoSoldListings(displayName, prices.soldPrice);
           localSlots[si] = nextSlot;
         }
         updateConfig("slots", [...localSlots]);
@@ -2445,7 +2396,7 @@ ${SHARED_RULES_OUTRO}`;
         const numista = await fetchValcoinNumistaSlot();
         if (numista) {
           url = numista.dataUrl;
-          catalogTitle = numista.title?.trim() || "";
+          catalogTitle = numista.catalogTitle?.trim() || numista.title?.trim() || "";
         }
       } else if (!url) {
         url = await generateImage(si, p, hintGen);

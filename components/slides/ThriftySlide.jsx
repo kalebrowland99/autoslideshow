@@ -65,7 +65,7 @@ export default function ThriftySlide({ slot, S, config = {} }) {
   const brand = getBrand(config);
   const captionStyle = config.captionStyle ?? "tiktok";
   const captionBg    = config.captionBg    ?? "#e03030";
-  const hideCaption  = (config.outputFormat ?? "standard") === "imessageMom";
+  const hideCaption = (config.outputFormat ?? "standard") === "imessageMom";
   const captionColor = config.captionColor ?? "#ffffff";
   const W = Math.round(1080 * S);
   const H = Math.round(1920 * S);
@@ -145,6 +145,10 @@ export default function ThriftySlide({ slot, S, config = {} }) {
   const captionTop = Math.min(rawCaptionTop, maxCaptionTop);
 
   const soldRows = buildSoldRows(slot, src1, src2);
+
+  // Valcoin scan tour renders the SAME full Valcoin app UI below (price card,
+  // sold listings, status bar). The scan animation in lib/labelyScanExport.js
+  // shows the coin photo + scan beam first, then slides this captured UI up.
 
   return (
     <div style={{ width: W, height: H, background: "#ffffff", overflow: "hidden",
