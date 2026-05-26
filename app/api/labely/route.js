@@ -30,6 +30,8 @@ Create a new AI-generated photorealistic luxury pilates / wellness mirror selfie
 
 Use the reference for pose, crop, mirror angle, phone placement, outfit silhouette, hair silhouette, lighting, room layout, and overall composition, but do not output the original photo unchanged. If no reference is attached, create a new polished luxury pilates mirror selfie in this same style.
 
+Body proportions must stay realistic, athletic, and natural. Do not exaggerate the waist-to-hip ratio, hips, glutes, thighs, or curves; avoid an overly curvy or cartoonish body shape.
+
 Remove every piece of text from the image. No captions, quotes, UI overlays, logos, watermarks, usernames, stickers, or readable writing anywhere. If the reference has text, replace that area with clean wall, mirror, or background texture. The phone must fully cover the face.
 `.trim();
 
