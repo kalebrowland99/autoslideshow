@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
+import { readFile } from "fs/promises";
+import { join } from "path";
 import { runImageGenerationPipeline } from "@/lib/imageGenerationBackend";
+import { mimeFromPath } from "@/lib/imageGenerationBackend";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
-import { listPublicReferenceImageRelPaths } from "@/lib/referenceImages";
+import { listPublicReferenceImageRelPaths, publicReferenceDirForAppId } from "@/lib/referenceImages";
 import { BAD_LABELY_VERDICT, normalizeBadLabelyScore, randomBadLabelyScore } from "@/lib/labelyRating";
 import { extractOpenFoodFactsImage, sniffImageMimeFromBytes } from "@/lib/openFoodFactsProductImage";
 
@@ -525,11 +528,80 @@ async function generateProductImage({ imagePrompt, name, brand }) {
   return null;
 }
 
-async function generateSelfieImage() {
+function buildSelfiePromptWithReference(referenceDescription) {
+  const desc = String(referenceDescription || "").trim();
+  if (!desc) return LABELY_SELFIE_IMAGE_PROMPT;
+  return `${LABELY_SELFIE_IMAGE_PROMPT}
+
+Reference photo guidance:
+Use the selected reference image as the strongest visual guide while preserving every constraint in the JSON prompt above.
+Vision description of the selected reference: ${desc}
+
+Generate a new realistic photo, not a direct copy. Match the reference photo's pose, crop, camera angle, phone placement, outfit silhouette, lighting, mirror setup, and studio/background cues as closely as possible. The phone must still completely cover the face.`;
+}
+
+async function describeSelfieReferenceImage({ refFile, openaiApiKey }) {
+  if (!refFile || !openaiApiKey?.trim()) return "";
+  try {
+    const filePath = join(publicReferenceDirForAppId("labely-selfie"), refFile);
+    const bytes = await readFile(filePath);
+    const mimeType = mimeFromPath(refFile);
+    const res = await fetch(OPENAI_CHAT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${openaiApiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        temperature: 0.15,
+        max_tokens: 180,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:${mimeType};base64,${bytes.toString("base64")}`,
+                  detail: "high",
+                },
+              },
+              {
+                type: "text",
+                text:
+                  "Describe this reference photo for generating a new luxury pilates mirror selfie. Focus only on visual traits to copy: pose, crop, camera angle, phone placement, body framing, outfit silhouette/colors, hair silhouette, mirror setup, room/studio details, and lighting. Do not identify the person. If any face is visible, say the generated image must cover it fully with the phone. Keep it under 90 words.",
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      console.error("[labely] selfie reference vision failed", body?.error?.message || res.status);
+      return "";
+    }
+    const data = await res.json();
+    return String(data.choices?.[0]?.message?.content || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 900);
+  } catch (e) {
+    console.error("[labely] selfie reference vision failed", e);
+    return "";
+  }
+}
+
+async function generateSelfieImage({ openaiApiKey } = {}) {
   const refs = await listPublicReferenceImageRelPaths("labely-selfie");
   const refFile = refs.length > 0 ? refs[Math.floor(Math.random() * refs.length)] : null;
+  const referenceDescription = await describeSelfieReferenceImage({ refFile, openaiApiKey });
+  if (refFile) {
+    console.log(`[labely] selfie reference: ${refFile}${referenceDescription ? " + vision" : ""}`);
+  }
   const result = await runImageGenerationPipeline({
-    prompt: LABELY_SELFIE_IMAGE_PROMPT,
+    prompt: buildSelfiePromptWithReference(referenceDescription),
     referenceFile: refFile,
     referenceInline: undefined,
     referenceRoot: refFile ? "labely/selfie-references" : undefined,
@@ -765,7 +837,7 @@ export async function POST(req) {
 
     if (includeShelfIntro) {
       shelfIntroDataUrl = useSelfieImage
-        ? await generateSelfieImage()
+        ? await generateSelfieImage({ openaiApiKey })
         : await generateShelfIntroImage({ name: base.name, brand: base.brand });
     }
 
