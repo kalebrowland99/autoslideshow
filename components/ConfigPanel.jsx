@@ -1414,7 +1414,7 @@ ${SHARED_RULES_OUTRO}`;
         signal: abortRef.current?.signal,
         body: JSON.stringify({
           ...(seedHint?.trim() ? { seedHint: seedHint.trim() } : {}),
-          useFoodDatabasePhoto: !!labelyUseFoodDatabasePhotos && !useSelfieImage,
+          useFoodDatabasePhoto: !!labelyUseFoodDatabasePhotos,
           useSelfieImage,
           ...(foodDatabaseImageUrl ? { foodDatabaseImageUrl } : {}),
           ...(opts.includeShelfIntro ? { includeShelfIntro: true } : {}),
@@ -2013,8 +2013,12 @@ ${SHARED_RULES_OUTRO}`;
           const includeShelfIntro = i === 0 && isLabelyScanTourFormat(config);
           if (config.labelyAiProducts) {
             const useSelfieForSlot = labelyUseSelfieImage && i === 0;
+            const foodDatabaseImageUrl = labelyUseFoodDatabasePhotos
+              ? foodDbImageUrlForItem(brandItem)
+              : "";
             ly = await fillLabelyFromAi(brandItem, i, {
               includeShelfIntro,
+              foodDatabaseImageUrl,
               useSelfieImage: useSelfieForSlot,
             });
           } else {
