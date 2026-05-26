@@ -299,6 +299,9 @@ function galleryShowToExportConfig(workspace, show) {
     captionText: "",
     jitterSeed: show.jitterSeed ?? workspace.jitterSeed,
     labelyOutroText: show.labelyOutroText ?? workspace.labelyOutroText,
+    labelyScanSlotCount: isLabely
+      ? show.labelyScanSlotCount ?? LABELY_SCAN_TOUR_SLOTS
+      : show.labelyScanSlotCount ?? workspace.labelyScanSlotCount,
   };
 }
 
@@ -789,7 +792,7 @@ export default function ConfigPanel({
       foodDbSuggestionCacheRef.current.set(foodDbKeyFor(to), { ...cached, query: to });
     }
   };
-  const addFoodListItem = (item) => {
+  const addFoodListItem = (item, opts = {}) => {
     const nextItem = String(item || "").trim();
     if (!nextItem) return;
     const current = brandItems;
@@ -801,9 +804,11 @@ export default function ConfigPanel({
         localStorage.setItem(storeKey("ts_brand_items"), next);
       }
     }
-    setFoodDbSearch("");
-    setFoodDbSearchOptions([]);
-    setFoodDbSearchStatus("idle");
+    if (!opts.keepSearchOpen) {
+      setFoodDbSearch("");
+      setFoodDbSearchOptions([]);
+      setFoodDbSearchStatus("idle");
+    }
   };
   const removeFoodListItem = (item) => {
     const next = brandItems.filter((line) => line !== item).join("\n");
@@ -838,7 +843,7 @@ export default function ConfigPanel({
       setFoodDbSearchStatus("error");
     }
   };
-  const addBatchFoodListItem = (batchIndex, item, option = null) => {
+  const addBatchFoodListItem = (batchIndex, item, option = null, opts = {}) => {
     const nextItem = String(item || "").trim();
     if (!nextItem) return;
     const batch = labelyFoodDbBatches[batchIndex] || {};
@@ -860,7 +865,7 @@ export default function ConfigPanel({
       updateLabelyFoodDbBatch(batchIndex, patch);
     }
     const batchId = batch.id;
-    if (batchId) {
+    if (batchId && !opts.keepSearchOpen) {
       setBatchFoodDbSearch((prev) => ({ ...prev, [batchId]: "" }));
       setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: [] }));
       setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: "idle" }));
@@ -2292,10 +2297,22 @@ ${SHARED_RULES_OUTRO}`;
   // Generate one complete slideshow into a local slots array, save via callback.
   const generateOneSlideshow = async (showIndex, totalShows, options = {}) => {
     const isMomFmt = (config.outputFormat ?? "standard") === "imessageMom";
+    const sourceBrandItems = Array.isArray(options.brandItemsOverride) && options.brandItemsOverride.length > 0
+      ? options.brandItemsOverride
+      : brandItems;
+    const sourceFoodDbMatches =
+      options.foodDbMatchesOverride && typeof options.foodDbMatchesOverride === "object"
+        ? options.foodDbMatchesOverride
+        : {};
+    const scanSlotOverride = Math.floor(Number(options.scanSlotCountOverride));
+    const labelyScanSlotsForShow =
+      isLabely && isLabelyScanTourFormat(config) && Number.isFinite(scanSlotOverride) && scanSlotOverride > 0
+        ? scanSlotOverride
+        : scanTourSlotCount(config);
     const slotCount = isMomFmt
       ? 1
       : isLabelyScanTourFormat(config)
-        ? scanTourSlotCount(config)
+        ? labelyScanSlotsForShow
         : isLabelySingleSlideFormat(config)
           ? 1
           : 6;
@@ -2307,19 +2324,12 @@ ${SHARED_RULES_OUTRO}`;
           )
         : null;
 
-    const sourceBrandItems = Array.isArray(options.brandItemsOverride) && options.brandItemsOverride.length > 0
-      ? options.brandItemsOverride
-      : brandItems;
-    const sourceFoodDbMatches =
-      options.foodDbMatchesOverride && typeof options.foodDbMatchesOverride === "object"
-        ? options.foodDbMatchesOverride
-        : {};
     const uniqueBrands = [...new Set(sourceBrandItems)];
     const shuffled = [...uniqueBrands].sort(() => Math.random() - 0.5);
     while (shuffled.length > 0 && shuffled.length < slotCount)
       shuffled.push(...[...uniqueBrands].sort(() => Math.random() - 0.5));
 
-    const localSlots = Array.from({ length: 6 }, (_, i) => freshSlot(i));
+    const localSlots = Array.from({ length: Math.max(6, slotCount) }, (_, i) => freshSlot(i));
     const showJitterSeed = (Math.random() * 0xffff) | 0;
 
     if (isLabely) {
@@ -2408,6 +2418,7 @@ ${SHARED_RULES_OUTRO}`;
           slots: [...localSlots],
           captionText: "",
           jitterSeed: showJitterSeed,
+          ...(isLabelyScanTourFormat(config) ? { labelyScanSlotCount: slotCount } : {}),
         }));
       });
       await waitForPreviewPaint();
@@ -2419,6 +2430,7 @@ ${SHARED_RULES_OUTRO}`;
         outputFormat: config.outputFormat,
         appId: config.appId,
         jitterSeed: showJitterSeed,
+        ...(isLabelyScanTourFormat(config) ? { labelyScanSlotCount: slotCount } : {}),
         ...(config.labelyOutroText ? { labelyOutroText: config.labelyOutroText } : {}),
         ...(config.labelyFoodDbBatches ? { labelyFoodDbBatches: config.labelyFoodDbBatches } : {}),
         ...(options.batchMeta || {}),
@@ -2607,6 +2619,7 @@ ${SHARED_RULES_OUTRO}`;
             const savedShow = await generateOneSlideshow(globalShowIdx, totalShows, {
               brandItemsOverride: plan.items,
               foodDbMatchesOverride: plan.foodDbMatches,
+              scanSlotCountOverride: plan.items.length,
               batchMeta: {
                 batchNumber: plan.batchNumber,
                 batchSlideshowIndex: i + 1,
@@ -3524,9 +3537,11 @@ ${SHARED_RULES_OUTRO}`;
         <span className="text-white/45 text-xs font-semibold uppercase tracking-wider">Output format</span>
         {isLabely ? (
           <div className="rounded-xl border border-violet-500/25 bg-violet-500/10 px-3 py-2.5 text-[11px] text-white/80">
-            <div className="font-semibold text-white">Grocery intro + scan (×3)</div>
+            <div className="font-semibold text-white">Grocery intro + scan</div>
             <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-              {`Shelf intro, scan beam, then ${LABELY_SCAN_TOUR_SLOTS} Labely slides. Use AI products + food list, or upload ${LABELY_SCAN_TOUR_SLOTS} pack photos in the rows below.`}
+              {isLabelyFoodDbBatchMode
+                ? "Shelf intro, then one scan/result pair for each food saved in that batch."
+                : `Shelf intro, scan beam, then ${scanTourSlotCount(config)} Labely slides. Use AI products + food list, or upload ${scanTourSlotCount(config)} pack photos in the rows below.`}
             </p>
           </div>
         ) : isValcoin ? (
@@ -3967,7 +3982,7 @@ ${SHARED_RULES_OUTRO}`;
                                 <button
                                   key={`${batch.id}-${option.label}`}
                                   type="button"
-                                  onClick={() => addBatchFoodListItem(idx, option.label, option)}
+                                  onClick={() => addBatchFoodListItem(idx, option.label, option, { keepSearchOpen: true })}
                                   className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-emerald-500/15"
                                 >
                                   <span className="min-w-0 flex-1 text-[11px] leading-snug text-white/75">
@@ -4083,7 +4098,7 @@ ${SHARED_RULES_OUTRO}`;
                           <button
                             key={option.label}
                             type="button"
-                            onClick={() => addFoodListItem(option.label)}
+                            onClick={() => addFoodListItem(option.label, { keepSearchOpen: true })}
                             className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-emerald-500/15"
                           >
                             <span className="min-w-0 flex-1 text-[11px] leading-snug text-white/75">
@@ -4221,7 +4236,7 @@ ${SHARED_RULES_OUTRO}`;
             {labelyUploadsLocked
               ? " AI mode is on — uploads are disabled; run Generate to fill slots."
               : isLabely
-              ? ` First ${LABELY_SCAN_TOUR_SLOTS} rows are your slides. Use AI products + food list, or upload ${LABELY_SCAN_TOUR_SLOTS} photos.`
+              ? ` First ${batchSlotCount} rows are your slides. Use AI products + food list, or upload ${batchSlotCount} photos.`
               : " Rows 1–6 match the live preview. AI uses the brand list for any row left empty when generating."}
           </p>
 

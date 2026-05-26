@@ -118,9 +118,9 @@ const LABELY_SELFIE_IMAGE_PROMPT = `
 
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 const OPEN_FOOD_FACTS_SEARCH = "https://world.openfoodfacts.org/cgi/search.pl";
-const LABELY_SELFIE_EXPOSURE_BRIGHTNESS = 0.92;
-const LABELY_SELFIE_HIGHLIGHT_THRESHOLD = 176;
-const LABELY_SELFIE_HIGHLIGHT_REDUCTION = 0.72;
+const LABELY_SELFIE_EXPOSURE_BRIGHTNESS = 0.9;
+const LABELY_SELFIE_HIGHLIGHT_THRESHOLD = 148;
+const LABELY_SELFIE_HIGHLIGHT_REDUCTION = 0.45;
 
 /** Same prompt skeleton as ConfigPanel starter-pack / Valcoin branch → POST /api/generate-image. */
 function buildLabelyPackPromptWithReference({ name, brand, imagePrompt }) {

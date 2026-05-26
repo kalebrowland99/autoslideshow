@@ -7,7 +7,7 @@ import ConfigPanel from "@/components/ConfigPanel";
 import GlobalJobBar from "@/components/GlobalJobBar";
 import GalleryRail from "@/components/GalleryRail";
 import VideoUniqueizer from "@/components/VideoUniqueizer";
-import { getTotalSlides, normalizeValcoinOutputFormat } from "@/lib/slideLayout";
+import { getTotalSlides, normalizeValcoinOutputFormat, LABELY_SCAN_TOUR_SLOTS } from "@/lib/slideLayout";
 import {
   mergePersistedConfig,
   readHomeSession,
@@ -87,6 +87,8 @@ export const defaultConfig = {
   labelyUseFoodDatabasePhotos: false,
   /** Labely AI-products only: use the pilates mirror selfie prompt for the first generated photo. */
   labelyUseSelfieImage: false,
+  /** Labely scan tour: number of food scan/result pairs in the current saved slideshow. */
+  labelyScanSlotCount: 3,
   /** Labely DB photo mode: six isolated generation batches. */
   labelyFoodDbBatches: Array.from({ length: 6 }, (_, i) => ({
     id: `batch-${i + 1}`,
@@ -450,6 +452,11 @@ export default function Home() {
       ...(showData.jitterSeed != null ? { jitterSeed: showData.jitterSeed } : {}),
       ...(showData.labelyOutroText != null ? { labelyOutroText: showData.labelyOutroText } : {}),
       ...(showData.labelyFoodDbBatches != null ? { labelyFoodDbBatches: showData.labelyFoodDbBatches } : {}),
+      ...(isLabelyShow
+        ? { labelyScanSlotCount: showData.labelyScanSlotCount ?? LABELY_SCAN_TOUR_SLOTS }
+        : showData.labelyScanSlotCount != null
+          ? { labelyScanSlotCount: showData.labelyScanSlotCount }
+          : {}),
     }));
     setActiveShowIdx(idx);
     setCurrentSlide(0);
