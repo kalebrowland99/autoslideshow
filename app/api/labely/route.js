@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import sharp from "sharp";
 import { runImageGenerationPipeline } from "@/lib/imageGenerationBackend";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
 import { listPublicReferenceImageRelPaths } from "@/lib/referenceImages";
@@ -117,6 +118,9 @@ const LABELY_SELFIE_IMAGE_PROMPT = `
 
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 const OPEN_FOOD_FACTS_SEARCH = "https://world.openfoodfacts.org/cgi/search.pl";
+const LABELY_SELFIE_EXPOSURE_BRIGHTNESS = 0.92;
+const LABELY_SELFIE_HIGHLIGHT_THRESHOLD = 176;
+const LABELY_SELFIE_HIGHLIGHT_REDUCTION = 0.72;
 
 /** Same prompt skeleton as ConfigPanel starter-pack / Valcoin branch → POST /api/generate-image. */
 function buildLabelyPackPromptWithReference({ name, brand, imagePrompt }) {
@@ -538,8 +542,44 @@ async function generateSelfieImage() {
     console.error("[labely] selfie image pipeline", result.error);
     return null;
   }
-  if (result.b64) return `data:image/png;base64,${result.b64}`;
+  if (result.b64) {
+    return adjustSelfieTone(`data:image/png;base64,${result.b64}`);
+  }
   return null;
+}
+
+async function adjustSelfieTone(dataUrl) {
+  const m = String(dataUrl || "").match(/^data:image\/[^;,]+;base64,(.+)$/);
+  if (!m) return dataUrl;
+  try {
+    const { data, info } = await sharp(Buffer.from(m[1], "base64"))
+      .modulate({ brightness: LABELY_SELFIE_EXPOSURE_BRIGHTNESS })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    for (let i = 0; i < data.length; i += info.channels) {
+      for (let c = 0; c < 3; c++) {
+        const v = data[i + c];
+        if (v > LABELY_SELFIE_HIGHLIGHT_THRESHOLD) {
+          data[i + c] = Math.round(
+            LABELY_SELFIE_HIGHLIGHT_THRESHOLD
+              + (v - LABELY_SELFIE_HIGHLIGHT_THRESHOLD) * LABELY_SELFIE_HIGHLIGHT_REDUCTION
+          );
+        }
+      }
+    }
+    const out = await sharp(data, {
+      raw: {
+        width: info.width,
+        height: info.height,
+        channels: info.channels,
+      },
+    }).png().toBuffer();
+    return `data:image/png;base64,${out.toString("base64")}`;
+  } catch (e) {
+    console.error("[labely] selfie tone adjustment failed", e);
+    return dataUrl;
+  }
 }
 
 async function generateShelfIntroImage({ name, brand }) {
@@ -747,10 +787,9 @@ export async function POST(req) {
       }
     }
     try {
-      // Always fall back to generated pack art when no usable photo yet — including when
-      // `useFoodDatabasePhoto` is true but OFF fetch / proxy / MIME sniff failed (previously
-      // we incorrectly skipped AI entirely in that case, yielding blank slides).
-      if (!outImage) {
+      // Food database mode must scan real database photos only; never replace
+      // missing package photos with generated pack art.
+      if (!outImage && !useFoodDatabasePhoto) {
         outImage = await generateProductImage({
           imagePrompt: base.imagePrompt,
           name: base.name,
