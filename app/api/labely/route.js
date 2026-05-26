@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { readFile } from "fs/promises";
 import { join } from "path";
+import sharp from "sharp";
 import { runImageGenerationPipeline } from "@/lib/imageGenerationBackend";
-import { mimeFromPath } from "@/lib/imageGenerationBackend";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
 import { listPublicReferenceImageRelPaths, publicReferenceDirForAppId } from "@/lib/referenceImages";
 import { BAD_LABELY_VERDICT, normalizeBadLabelyScore, randomBadLabelyScore } from "@/lib/labelyRating";
@@ -26,25 +26,45 @@ Trash-can scene (CRITICAL — every image):
 `.trim();
 
 const LABELY_SELFIE_IMAGE_PROMPT = `
-Copy the attached reference photo as exactly as possible.
+Create a new AI-generated photorealistic luxury pilates / wellness mirror selfie based on the attached reference photo.
 
-Preserve the same person/body, pose, crop, mirror angle, phone placement, outfit, hair, lighting, room, background, and overall composition. Do not invent a new photo, new room, new pose, new outfit, or new body framing.
+Use the reference for pose, crop, mirror angle, phone placement, outfit silhouette, hair silhouette, lighting, room layout, and overall composition, but do not output the original photo unchanged. Make it a new generated photo with a subtle polished wellness aesthetic.
 
-Make only a slight realistic adjustment: polish the image just enough to feel like a clean luxury pilates / wellness mirror selfie while keeping the original reference photo almost unchanged. If the face is visible in the reference, adjust the phone position so the phone fully covers the face. No text, captions, UI overlays, logos, or watermarks.
+Remove every piece of text from the image. No captions, quotes, UI overlays, logos, watermarks, usernames, stickers, or readable writing anywhere. If the reference has text, replace that area with clean wall, mirror, or background texture. The phone must fully cover the face.
 `.trim();
 
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 const OPEN_FOOD_FACTS_SEARCH = "https://world.openfoodfacts.org/cgi/search.pl";
 
-async function selfieReferenceDataUrl(refFile) {
-  if (!refFile) return null;
+async function sanitizedSelfieReferenceInline(refFile) {
+  if (!refFile) return undefined;
   try {
     const filePath = join(publicReferenceDirForAppId("labely-selfie"), refFile);
-    const bytes = await readFile(filePath);
-    return `data:${mimeFromPath(refFile)};base64,${bytes.toString("base64")}`;
+    const input = await readFile(filePath);
+    const base = sharp(input).rotate();
+    const meta = await base.metadata();
+    const width = Math.max(1, Math.round(meta.width || 0));
+    const height = Math.max(1, Math.round(meta.height || 0));
+    if (!width || !height) return undefined;
+
+    // Reference photos often contain social captions near the top. Blur that
+    // band before image editing so GPT-Image cannot copy readable overlay text.
+    const textBandHeight = Math.min(height, Math.round(height * 0.48));
+    const blurredTop = await sharp(input)
+      .rotate()
+      .extract({ left: 0, top: 0, width, height: textBandHeight })
+      .blur(22)
+      .jpeg({ quality: 88 })
+      .toBuffer();
+    const sanitized = await sharp(input)
+      .rotate()
+      .composite([{ input: blurredTop, left: 0, top: 0 }])
+      .jpeg({ quality: 92 })
+      .toBuffer();
+    return { base64: sanitized.toString("base64"), mimeType: "image/jpeg" };
   } catch (e) {
-    console.error("[labely] selfie reference fallback failed", e);
-    return null;
+    console.error("[labely] selfie reference sanitize failed", e);
+    return undefined;
   }
 }
 
@@ -458,25 +478,26 @@ async function generateProductImage({ imagePrompt, name, brand }) {
 async function generateSelfieImage() {
   const refs = await listPublicReferenceImageRelPaths("labely-selfie");
   const refFile = refs.length > 0 ? refs[Math.floor(Math.random() * refs.length)] : null;
+  const referenceInline = await sanitizedSelfieReferenceInline(refFile);
   if (refFile) {
-    console.log(`[labely] selfie reference: ${refFile}`);
+    console.log(`[labely] selfie reference: ${refFile}${referenceInline ? " (sanitized)" : ""}`);
   } else {
     console.warn("[labely] no selfie reference images found in public/labely/selfie-references");
   }
   const result = await runImageGenerationPipeline({
     prompt: LABELY_SELFIE_IMAGE_PROMPT,
-    referenceFile: refFile,
-    referenceInline: undefined,
-    referenceRoot: refFile ? "labely/selfie-references" : undefined,
+    referenceFile: referenceInline ? null : refFile,
+    referenceInline,
+    referenceRoot: !referenceInline && refFile ? "labely/selfie-references" : undefined,
     model: "gpt-image-1",
   });
 
   if (result.error) {
     console.error("[labely] selfie image pipeline", result.error);
-    return selfieReferenceDataUrl(refFile);
+    return null;
   }
   if (result.b64) return `data:image/png;base64,${result.b64}`;
-  return selfieReferenceDataUrl(refFile);
+  return null;
 }
 
 async function generateShelfIntroImage({ name, brand }) {
@@ -699,9 +720,11 @@ export async function POST(req) {
     }
 
     if (includeShelfIntro) {
-      shelfIntroDataUrl = useSelfieImage
-        ? await generateSelfieImage()
-        : await generateShelfIntroImage({ name: base.name, brand: base.brand });
+      if (useSelfieImage) {
+        shelfIntroDataUrl = await generateSelfieImage();
+      } else {
+        shelfIntroDataUrl = await generateShelfIntroImage({ name: base.name, brand: base.brand });
+      }
     }
 
     return NextResponse.json({

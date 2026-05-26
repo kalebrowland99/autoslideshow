@@ -2867,7 +2867,9 @@ ${SHARED_RULES_OUTRO}`;
         try {
           const slotNow = info.slot ?? cfg.slots?.[0];
           const productDataUrl = String(
-            slotNow?.labelyShelfImageUrl || ((cfg.appId ?? "thrifty") === "valcoin" ? slotNow?.imageUrl : "") || "",
+            slotNow?.labelyShelfImageUrl
+              || ((cfg.appId ?? "thrifty") === "valcoin" ? slotNow?.imageUrl : "")
+              || "",
           ).trim();
           const introCanvas = await captureShelfIntroCanvas(
             productDataUrl,
