@@ -6,6 +6,7 @@ import LabelyScanSequencePreview from "@/components/LabelyScanSequencePreview";
 import ConfigPanel from "@/components/ConfigPanel";
 import GlobalJobBar from "@/components/GlobalJobBar";
 import GalleryRail from "@/components/GalleryRail";
+import VideoUniqueizer from "@/components/VideoUniqueizer";
 import { getTotalSlides, normalizeValcoinOutputFormat } from "@/lib/slideLayout";
 import {
   mergePersistedConfig,
@@ -72,7 +73,7 @@ export const defaultConfig = {
   /** Add a random track from public/audio/ to the exported video. */
   useRandomAudio: false,
   outputFormat: "standard", // "standard" | "appOnly" | … | "labelyOnly" | "labelyScan" (Labely app)
-  appId: "thrifty", // "thrifty" | "valcoin" | "labely"
+  appId: "thrifty", // "thrifty" | "valcoin" | "labely" | "videoUniqueizer"
   /** Headline text shown at the top of the Starter Pack slide */
   starterPackHeadline: "",
   /** Changed each generation so every export has unique pixel-level layout (anti-fingerprint). */
@@ -455,6 +456,7 @@ export default function Home() {
   }, []);
 
   const totalSlides = useMemo(() => getTotalSlides(config), [config]);
+  const isVideoUniqueizer = (config.appId ?? "thrifty") === "videoUniqueizer";
 
   const galleryEntries = useMemo(() => {
     const aid = config.appId ?? "thrifty";
@@ -546,6 +548,7 @@ export default function Home() {
                 <option value="thrifty" className="bg-[#0f0f0f] text-white">Thrifty Slideshows</option>
                 <option value="valcoin" className="bg-[#0f0f0f] text-white">Valcoin Slideshows</option>
                 <option value="labely" className="bg-[#0f0f0f] text-white">Labely</option>
+                <option value="videoUniqueizer" className="bg-[#0f0f0f] text-white">Video Uniqueizer</option>
               </select>
               <span className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-white/60 text-xs">▼</span>
             </div>
@@ -560,99 +563,111 @@ export default function Home() {
               {cloudStatus}
             </span>
           ) : null}
-          <button
-            type="button"
-            onClick={() => void reloadGalleryAndBatchMedia()}
-            disabled={isGenerating || isExporting || reloadingSessionMedia}
-            title="Clears saved slideshow thumbnails and batch photo rows, then reloads them from your last saved session (Firebase when newer). Does not reset the left editor workspace."
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 text-[11px] font-medium text-white/85 hover:bg-white/10 disabled:pointer-events-none disabled:opacity-35"
-          >
-            <svg
-              className={`h-3.5 w-3.5 shrink-0 ${reloadingSessionMedia ? "animate-spin" : ""}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              aria-hidden
+          {!isVideoUniqueizer ? (
+            <button
+              type="button"
+              onClick={() => void reloadGalleryAndBatchMedia()}
+              disabled={isGenerating || isExporting || reloadingSessionMedia}
+              title="Clears saved slideshow thumbnails and batch photo rows, then reloads them from your last saved session (Firebase when newer). Does not reset the left editor workspace."
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 text-[11px] font-medium text-white/85 hover:bg-white/10 disabled:pointer-events-none disabled:opacity-35"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-            {reloadingSessionMedia ? "Reloading…" : "Reload media"}
-          </button>
-          <span className="text-white/30 text-xs">
-            Slide {currentSlide + 1} / {totalSlides}
-          </span>
-          <span className="text-white/40 text-sm">Video Generator</span>
+              <svg
+                className={`h-3.5 w-3.5 shrink-0 ${reloadingSessionMedia ? "animate-spin" : ""}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                aria-hidden
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+              {reloadingSessionMedia ? "Reloading…" : "Reload media"}
+            </button>
+          ) : null}
+          {!isVideoUniqueizer ? (
+            <span className="text-white/30 text-xs">
+              Slide {currentSlide + 1} / {totalSlides}
+            </span>
+          ) : null}
+          <span className="text-white/40 text-sm">{isVideoUniqueizer ? "Video Uniqueizer" : "Video Generator"}</span>
         </div>
       </header>
 
       <GlobalJobBar />
 
       <div className="flex-1 flex overflow-hidden min-h-0">
-        <aside className="w-[420px] border-r border-white/10 overflow-y-auto shrink-0 min-h-0">
-          <ConfigPanel
-            config={config}
-            setConfig={setConfig}
-            updateConfig={updateConfig}
-            updateSlot={updateSlot}
-            updateMatchItem={updateMatchItem}
-            currentSlide={currentSlide}
-            setCurrentSlide={setCurrentSlide}
-            totalSlides={totalSlides}
-            isExporting={isExporting}
-            setIsExporting={setIsExporting}
-            exportProgress={exportProgress}
-            setExportProgress={setExportProgress}
-            exportStatus={exportStatus}
-            setExportStatus={setExportStatus}
-            onBusyChange={setIsGenerating}
-            registerRefreshSlide={(fn) => { refreshHandlerRef.current = fn; }}
-            onSlideshowSaved={handleSlideshowSaved}
-            onSavedSlideshowsChange={setSavedSlideshows}
-            activeShowIdx={activeShowIdx}
-            savedSlideshows={savedSlideshows}
-            numSlideshows={numSlideshows}
-            setNumSlideshows={setNumSlideshows}
-            batchImageDataUrls={batchImageDataUrls}
-            setBatchImageDataUrls={setBatchImageDataUrls}
-            persistHomeSessionNow={persistHomeSessionNow}
-          />
-        </aside>
-
-        <main className="flex-1 min-h-0 min-w-0 flex items-center justify-center p-8 overflow-auto bg-[#080808]">
-          <div className="flex flex-col items-center gap-4">
-            <div className="flex items-center justify-center gap-3 flex-wrap">
-              <p className="text-white/40 text-xs uppercase tracking-widest">Live Preview</p>
-              <LabelyScanSequencePreview
+        {isVideoUniqueizer ? (
+          <main className="flex-1 min-h-0 min-w-0 overflow-auto bg-[#080808]">
+            <VideoUniqueizer />
+          </main>
+        ) : (
+          <>
+            <aside className="w-[420px] border-r border-white/10 overflow-y-auto shrink-0 min-h-0">
+              <ConfigPanel
                 config={config}
+                setConfig={setConfig}
+                updateConfig={updateConfig}
+                updateSlot={updateSlot}
+                updateMatchItem={updateMatchItem}
                 currentSlide={currentSlide}
                 setCurrentSlide={setCurrentSlide}
                 totalSlides={totalSlides}
+                isExporting={isExporting}
+                setIsExporting={setIsExporting}
+                exportProgress={exportProgress}
+                setExportProgress={setExportProgress}
+                exportStatus={exportStatus}
+                setExportStatus={setExportStatus}
+                onBusyChange={setIsGenerating}
+                registerRefreshSlide={(fn) => { refreshHandlerRef.current = fn; }}
+                onSlideshowSaved={handleSlideshowSaved}
+                onSavedSlideshowsChange={setSavedSlideshows}
+                activeShowIdx={activeShowIdx}
+                savedSlideshows={savedSlideshows}
+                numSlideshows={numSlideshows}
+                setNumSlideshows={setNumSlideshows}
+                batchImageDataUrls={batchImageDataUrls}
+                setBatchImageDataUrls={setBatchImageDataUrls}
+                persistHomeSessionNow={persistHomeSessionNow}
               />
-            </div>
-            <VideoPreview
-              config={config}
-              currentSlide={currentSlide}
-              setCurrentSlide={setCurrentSlide}
-              totalSlides={totalSlides}
-              isGenerating={isGenerating}
-              onRefreshSlide={(i) => refreshHandlerRef.current?.(i)}
-            />
-            <p className="text-white/30 text-xs">1080 × 1920 · {totalSlides} slides · {config.slideDuration}s each</p>
-          </div>
-        </main>
+            </aside>
 
-        {/* ── Slideshow gallery panel (scrolls inside viewport; compact when many) ─ */}
-        {galleryEntries.length > 0 && (
-          <GalleryRail
-            entries={galleryEntries}
-            activeShowIdx={activeShowIdx}
-            loadShow={loadShow}
-          />
+            <main className="flex-1 min-h-0 min-w-0 flex items-center justify-center p-8 overflow-auto bg-[#080808]">
+              <div className="flex flex-col items-center gap-4">
+                <div className="flex items-center justify-center gap-3 flex-wrap">
+                  <p className="text-white/40 text-xs uppercase tracking-widest">Live Preview</p>
+                  <LabelyScanSequencePreview
+                    config={config}
+                    currentSlide={currentSlide}
+                    setCurrentSlide={setCurrentSlide}
+                    totalSlides={totalSlides}
+                  />
+                </div>
+                <VideoPreview
+                  config={config}
+                  currentSlide={currentSlide}
+                  setCurrentSlide={setCurrentSlide}
+                  totalSlides={totalSlides}
+                  isGenerating={isGenerating}
+                  onRefreshSlide={(i) => refreshHandlerRef.current?.(i)}
+                />
+                <p className="text-white/30 text-xs">1080 × 1920 · {totalSlides} slides · {config.slideDuration}s each</p>
+              </div>
+            </main>
+
+            {/* ── Slideshow gallery panel (scrolls inside viewport; compact when many) ─ */}
+            {galleryEntries.length > 0 && (
+              <GalleryRail
+                entries={galleryEntries}
+                activeShowIdx={activeShowIdx}
+                loadShow={loadShow}
+              />
+            )}
+          </>
         )}
       </div>
     </div>
