@@ -339,7 +339,7 @@ const DEFAULT_LABELY_DB_BATCHES = Array.from({ length: LABELY_DB_BATCH_COUNT }, 
   slideshowCount: 1,
 }));
 
-/** One folder per physical phone; each folder gets one unique video per batch 1–6 (Labely food DB / Valcoin iPhone pack; clips not reused across folders). */
+/** Default target for large iPhone packs; export itself scales to the saved gallery. */
 const GALLERY_IPHONE_DEVICE_COUNT = 20;
 
 /** Valcoin gallery export: 6 batches × 20 unique slideshows = 120 (same iPhone ZIP layout as Labely food DB). */
@@ -347,7 +347,9 @@ const VALCOIN_IPHONE_SLIDESHOWS_PER_BATCH = 20;
 const VALCOIN_IPHONE_PACK_TOTAL = LABELY_DB_BATCH_COUNT * VALCOIN_IPHONE_SLIDESHOWS_PER_BATCH;
 
 /**
- * Batch-gallery export: one ZIP per `iPhone 1` … `iPhone 20`, each holding six videos (batches 1–6).
+ * Batch-gallery export: one ZIP per iPhone folder, using whatever batch-generated
+ * shows are currently saved. Each iPhone gets one slideshow from each available
+ * batch when present; uneven batches still export their remaining items.
  * @returns {null | { error: string } | { zipPlans: { iphoneNumber: number, jobs: { zipRelPath: string, show: object }[] }[] }}
  */
 function tryBuildIphoneBatchZipPlan(savedSlideshows) {
@@ -399,26 +401,23 @@ function tryBuildIphoneBatchZipPlan(savedSlideshows) {
     });
   }
 
-  const need = GALLERY_IPHONE_DEVICE_COUNT;
-  for (let b = 1; b <= LABELY_DB_BATCH_COUNT; b++) {
-    const n = groups.get(b).length;
-    if (n < need) {
-      return {
-        error: `Batch ${b} has ${n} video(s); need at least ${need} unique videos per batch for iPhone pack export (${need} phones × ${LABELY_DB_BATCH_COUNT} batches). Increase slideshow count for that batch and regenerate.`,
-      };
-    }
-  }
+  const activeBatches = Array.from({ length: LABELY_DB_BATCH_COUNT }, (_, i) => i + 1)
+    .filter((b) => groups.get(b).length > 0);
+  if (activeBatches.length === 0) return null;
+
+  const phoneCount = Math.max(...activeBatches.map((b) => groups.get(b).length));
 
   const zipPlans = [];
   let encodeOrdinal = 0;
-  for (let phone = 0; phone < need; phone++) {
+  for (let phone = 0; phone < phoneCount; phone++) {
     const jobs = [];
-    for (let b = 1; b <= LABELY_DB_BATCH_COUNT; b++) {
+    for (const b of activeBatches) {
       const row = groups.get(b)[phone];
+      if (!row) continue;
       const filename = sequentialRandomMp4Name(encodeOrdinal++, row.show);
       jobs.push({ zipRelPath: filename, show: row.show });
     }
-    zipPlans.push({ iphoneNumber: phone + 1, jobs });
+    if (jobs.length > 0) zipPlans.push({ iphoneNumber: phone + 1, jobs });
   }
 
   return { zipPlans };
@@ -3302,7 +3301,7 @@ ${SHARED_RULES_OUTRO}`;
           setExportStatus("Nothing encoded — ZIP export cancelled.");
         } else {
           setExportProgress(100);
-          setExportStatus(`Done! Downloaded ${downloadedZipCount} iPhone ZIPs (${LABELY_DB_BATCH_COUNT} videos each).`);
+          setExportStatus(`Done! Downloaded ${downloadedZipCount} iPhone ZIPs.`);
         }
         return downloadedZipCount > 0;
       } catch (e) {
