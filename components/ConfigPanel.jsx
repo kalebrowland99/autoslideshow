@@ -492,7 +492,7 @@ export default function ConfigPanel({
   const isValcoin = brand.appId === "valcoin";
   const isLabely = brand.appId === "labely";
   const labelyUseSelfieImage = isLabely && !!config.labelyUseSelfieImage;
-  const labelyUseFoodDatabasePhotos = isLabely && !!config.labelyUseFoodDatabasePhotos && !labelyUseSelfieImage;
+  const labelyUseFoodDatabasePhotos = isLabely && !!config.labelyUseFoodDatabasePhotos;
   const isLabelyFoodDbBatchMode = isLabely && !!config.labelyAiProducts && labelyUseFoodDatabasePhotos;
   const isValcoinIphonePackBatchMode = isValcoin && isLabelyScanTourFormat(config);
   const labelyUploadsLocked = isLabely && !!config.labelyAiProducts;
@@ -1406,6 +1406,7 @@ ${SHARED_RULES_OUTRO}`;
       typeof opts.foodDatabaseImageUrl === "string" && opts.foodDatabaseImageUrl.trim()
         ? opts.foodDatabaseImageUrl.trim()
         : "";
+    const useSelfieImage = opts.useSelfieImage === true;
     try {
       const res = await fetch("/api/labely", {
         method: "POST",
@@ -1413,8 +1414,8 @@ ${SHARED_RULES_OUTRO}`;
         signal: abortRef.current?.signal,
         body: JSON.stringify({
           ...(seedHint?.trim() ? { seedHint: seedHint.trim() } : {}),
-          useFoodDatabasePhoto: !!labelyUseFoodDatabasePhotos,
-          useSelfieImage: !!labelyUseSelfieImage,
+          useFoodDatabasePhoto: !!labelyUseFoodDatabasePhotos && !useSelfieImage,
+          useSelfieImage,
           ...(foodDatabaseImageUrl ? { foodDatabaseImageUrl } : {}),
           ...(opts.includeShelfIntro ? { includeShelfIntro: true } : {}),
         }),
@@ -1565,14 +1566,18 @@ ${SHARED_RULES_OUTRO}`;
               ? weightedPool[Math.floor(Math.random() * weightedPool.length)]
               : null;
           const includeShelfIntro = index === 0 && isLabelyScanTourFormat(config);
-          const foodDatabaseImageUrl = labelyUseFoodDatabasePhotos ? foodDbImageUrlForItem(hint) : "";
+          const useSelfieForSlot = labelyUseSelfieImage && index === 0;
+          const foodDatabaseImageUrl = labelyUseFoodDatabasePhotos && !useSelfieForSlot
+            ? foodDbImageUrlForItem(hint)
+            : "";
           const ly = await fillLabelyFromAi(hint, index, {
             includeShelfIntro,
             foodDatabaseImageUrl,
+            useSelfieImage: useSelfieForSlot,
           });
           if (ly?.name) {
             const shelfIntroUrl = ly.shelfIntroDataUrl || (includeShelfIntro
-              && !labelyUseSelfieImage
+              && !useSelfieForSlot
               ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
               : null);
             updateSlot(index, {
@@ -2007,15 +2012,20 @@ ${SHARED_RULES_OUTRO}`;
           let ly;
           const includeShelfIntro = i === 0 && isLabelyScanTourFormat(config);
           if (config.labelyAiProducts) {
-            ly = await fillLabelyFromAi(brandItem, i, { includeShelfIntro });
+            const useSelfieForSlot = labelyUseSelfieImage && i === 0;
+            ly = await fillLabelyFromAi(brandItem, i, {
+              includeShelfIntro,
+              useSelfieImage: useSelfieForSlot,
+            });
           } else {
             const slot = config.slots[i];
             const url = (batchImageDataUrls[i] ?? slot.imageUrl)?.trim();
             ly = await fillLabelyFromImage(url, { includeShelfIntro });
           }
           if (ly?.name) {
+            const useSelfieForSlot = config.labelyAiProducts && labelyUseSelfieImage && i === 0;
             const shelfIntroUrl = ly.shelfIntroDataUrl || (includeShelfIntro
-              && !labelyUseSelfieImage
+              && !useSelfieForSlot
               ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
               : null);
             const patch = {
@@ -2322,16 +2332,18 @@ ${SHARED_RULES_OUTRO}`;
             slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
           });
           const includeShelfIntro = si === 0 && isLabelyScanTourFormat(config);
-          const foodDatabaseImageUrl = labelyUseFoodDatabasePhotos
+          const useSelfieForSlot = labelyUseSelfieImage && si === 0;
+          const foodDatabaseImageUrl = labelyUseFoodDatabasePhotos && !useSelfieForSlot
             ? foodDbImageUrlForItem(brandItem, sourceFoodDbMatches)
             : "";
           const ly = await fillLabelyFromAi(brandItem, si, {
             includeShelfIntro,
             foodDatabaseImageUrl,
+            useSelfieImage: useSelfieForSlot,
           });
           if (ly?.name) {
             const shelfIntroUrl = ly.shelfIntroDataUrl || (includeShelfIntro
-              && !labelyUseSelfieImage
+              && !useSelfieForSlot
               ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
               : null);
             localSlots[si] = {
@@ -3718,7 +3730,9 @@ ${SHARED_RULES_OUTRO}`;
             {isLabely
               ? config.labelyAiProducts
                 ? labelyUseSelfieImage
-                  ? "Selfie AI image prompt is active; scanner readout stays fictional."
+                  ? labelyUseFoodDatabasePhotos
+                    ? "First photo uses the pilates selfie prompt; remaining photos use Open Food Facts."
+                    : "First photo uses the pilates selfie prompt; remaining photos use generated pack shots."
                   : labelyUseFoodDatabasePhotos
                     ? "Open Food Facts pack photos when possible; no AI image gen in that mode."
                     : "AI pack shots from your food list; scanner readout stays fictional."
@@ -3768,7 +3782,7 @@ ${SHARED_RULES_OUTRO}`;
                     setConfig((prev) => ({
                       ...prev,
                       labelyUseSelfieImage: next,
-                      ...(next ? { labelyUseFoodDatabasePhotos: false } : {}),
+                      ...(next ? { labelyUseFoodDatabasePhotos: true } : {}),
                     }));
                   }}
                   className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors ${
@@ -3782,9 +3796,9 @@ ${SHARED_RULES_OUTRO}`;
                   />
                 </button>
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs font-semibold text-white/90">Use gym selfie AI image</div>
+                  <div className="text-xs font-semibold text-white/90">Use pilates selfie first image</div>
                   <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-                    Replaces the generated food pack art with the full-body MMA gym mirror selfie prompt. Labely still generates the product name, score, and scanner copy.
+                    Replaces only slot 1 with the luxury pilates mirror selfie prompt. The rest of the slideshow keeps using the normal food database photo flow.
                   </p>
                 </div>
               </div>
@@ -3802,7 +3816,6 @@ ${SHARED_RULES_OUTRO}`;
                     setConfig((prev) => ({
                       ...prev,
                       labelyUseFoodDatabasePhotos: next,
-                      ...(next ? { labelyUseSelfieImage: false } : {}),
                     }));
                   }}
                   className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors ${
@@ -3879,10 +3892,12 @@ ${SHARED_RULES_OUTRO}`;
               </div>
             </div>
             <p className="text-white/35 text-[10px] mb-2 leading-relaxed">
-              {labelyUseFoodDatabasePhotos
+              {labelyUseSelfieImage && labelyUseFoodDatabasePhotos
+                ? "Slot 1 uses the pilates selfie image. Slots 2+ use selected Open Food Facts package photos."
+                : labelyUseFoodDatabasePhotos
                 ? "Search Open Food Facts, choose the exact package match, then it is added to this list."
                 : labelyUseSelfieImage
-                  ? "One real packaged product per line. Generate picks from this list for the Labely name, score, and scanner copy; the image uses the gym selfie prompt."
+                  ? "One real packaged product per line. Slot 1 uses the pilates selfie image; remaining slots use generated pack art."
                   : "One real packaged product per line — same idea as Thrifty's brand list. Generate picks from this list (shuffled); GPT uses that real SKU for name/brand/pack image while analysis still uses fictional scanner compound names."}
             </p>
             {isLabelyFoodDbBatchMode ? (

@@ -85,7 +85,7 @@ export const defaultConfig = {
   labelyAiProducts: false,
   /** Labely AI-products only: use Open Food Facts package photos before falling back to generated images. */
   labelyUseFoodDatabasePhotos: false,
-  /** Labely AI-products only: use the gym mirror selfie prompt instead of generated pack art. */
+  /** Labely AI-products only: use the pilates mirror selfie prompt for the first generated photo. */
   labelyUseSelfieImage: false,
   /** Labely DB photo mode: six isolated generation batches. */
   labelyFoodDbBatches: Array.from({ length: 6 }, (_, i) => ({

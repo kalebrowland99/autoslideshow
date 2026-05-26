@@ -23,19 +23,96 @@ Trash-can scene (CRITICAL — every image):
 `.trim();
 
 const LABELY_SELFIE_IMAGE_PROMPT = `
-Create a realistic 9:16 modern smartphone mirror selfie.
-
-Subject: a fit young adult woman taking a full-body mirror selfie while standing on gym mats. Her face is covered by a silver or light-colored iPhone held vertically. Blonde hair in a high messy ponytail with loose face-framing strands.
-
-Clothing: black scoop-neck sports bra with a minimal athletic design, tight fit; black high-waisted flared yoga pants fitted through the thighs and flared at the hem; white ankle socks.
-
-Accessories: white smartwatch band on the left wrist and a thin delicate chain necklace.
-
-Photography: standing eye-level reflection, full-body vertical shot, sharp realistic focus, natural daylight contrast, realistic textures, soft shadows. No text overlays, no captions, no watermarks.
-
-Background: industrial MMA gym interior with white exposed concrete walls, interlocking red and black foam jigsaw gym mats, black industrial pendant cage lights, exposed white concrete ceiling with pipes, a large black industrial fan on the left, a wooden slat bench in the immediate foreground, a black textured foam roller on the floor, a crumpled blue denim shirt and keys on the bench, and a blurred MMA cage with chain-link fencing in the background.
-
-Atmosphere: authentic training environment, gritty but bright, natural daylight from large windows on the left mixed with overhead gym lights.
+{
+  "subject": {
+    "description": "A fit young woman taking a realistic mirror selfie in a warm, minimal luxury fitness / pilates studio",
+    "age": "young adult",
+    "pose": "natural mirror selfie pose, standing or seated on a yoga mat, relaxed confident posture, full-body or nearly full-body framing",
+    "expression": "not visible because phone completely covers face",
+    "hair": {
+      "color": "black",
+      "style": "long dark hair, slightly tousled, either worn down or loosely tied back with soft strands"
+    },
+    "clothing": {
+      "top": {
+        "type": "sports bra",
+        "color": "black",
+        "details": "scoop neck, minimal athletic design, tight fit, clean premium activewear look"
+      },
+      "bottom": {
+        "type": "leggings",
+        "color": "black",
+        "details": "high-waisted, fitted through the legs, smooth athletic fabric, flattering silhouette"
+      },
+      "shoes": "barefoot or minimal white ankle socks"
+    },
+    "face": {
+      "visibility": "completely covered by smartphone from forehead to chin",
+      "preserve_original": false,
+      "makeup": "not visible"
+    }
+  },
+  "accessories": {
+    "jewelry": {
+      "wrist": "subtle watch or slim bracelet on one wrist",
+      "neck": "thin delicate chain necklace"
+    },
+    "device": {
+      "type": "smartphone",
+      "color": "black or dark gray",
+      "details": "held vertically directly in front of the face, fully blocking all facial features"
+    }
+  },
+  "photography": {
+    "camera_style": "modern smartphone mirror selfie",
+    "angle": "eye-level reflection, natural social media selfie angle",
+    "shot_type": "vertical 9:16 photo, full-body or nearly full-body composition",
+    "quality": "photorealistic, sharp focus, natural phone-camera realism, soft shadows, realistic skin and fabric texture",
+    "mood": "minimal, expensive, wellness-focused, calm, feminine, polished"
+  },
+  "background": {
+    "setting": "high-end pilates, yoga, or luxury fitness studio",
+    "style": "warm wood, minimal architecture, soft golden lighting, clean luxury wellness aesthetic",
+    "elements": [
+      "vertical wood slat wall or smooth warm wood panel wall",
+      "large mirror selfie setup",
+      "black yoga or pilates mats",
+      "soft LED strip lighting along the wall or floor",
+      "minimal dumbbells, pilates ball, or small workout props in the background",
+      "light wood floors",
+      "optional potted plant",
+      "optional curved arch mirror or soft plaster wall"
+    ],
+    "atmosphere": "clean, warm, quiet, upscale, natural, not gritty or industrial",
+    "lighting": "soft warm ambient lighting with gentle highlights, similar to boutique pilates studio lighting"
+  },
+  "composition_rules": {
+    "include": [
+      "black hair",
+      "black sports bra",
+      "black high-waisted leggings",
+      "phone fully covering face",
+      "mirror selfie",
+      "warm wood studio aesthetic",
+      "luxury fitness / pilates vibe"
+    ],
+    "exclude": [
+      "any text on the image",
+      "captions",
+      "search bar",
+      "carousel dots",
+      "arrows",
+      "UI overlay elements",
+      "visible face",
+      "blonde hair",
+      "industrial MMA gym",
+      "chain-link fencing",
+      "red and black puzzle mats",
+      "messy clutter",
+      "logos or brand names"
+    ]
+  }
+}
 `.trim();
 
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
@@ -616,7 +693,7 @@ export async function POST(req) {
     const uploadHint = sanitizeUploadHint(body.uploadHint);
     const useFoodDatabasePhoto = body.useFoodDatabasePhoto === true;
     const foodDatabaseImageUrl = typeof body.foodDatabaseImageUrl === "string" ? body.foodDatabaseImageUrl.trim() : "";
-    const useSelfieImage = body.useSelfieImage === true && !useFoodDatabasePhoto;
+    const useSelfieImage = body.useSelfieImage === true;
     const includeShelfIntro = body.includeShelfIntro === true;
 
     if (imageDataUrl) {
@@ -655,7 +732,7 @@ export async function POST(req) {
     const base = await generateLabelyJson({ openaiApiKey, seedHint });
     let shelfIntroDataUrl = null;
     let outImage = null;
-    if (useFoodDatabasePhoto) {
+    if (useFoodDatabasePhoto && !useSelfieImage) {
       try {
         outImage = foodDatabaseImageUrl ? await imageUrlToDataUrl(foodDatabaseImageUrl) : null;
         if (!outImage) {
