@@ -491,7 +491,9 @@ export default function ConfigPanel({
   const brand = getBrand(config);
   const isValcoin = brand.appId === "valcoin";
   const isLabely = brand.appId === "labely";
-  const isLabelyFoodDbBatchMode = isLabely && !!config.labelyAiProducts && !!config.labelyUseFoodDatabasePhotos;
+  const labelyUseSelfieImage = isLabely && !!config.labelyUseSelfieImage;
+  const labelyUseFoodDatabasePhotos = isLabely && !!config.labelyUseFoodDatabasePhotos && !labelyUseSelfieImage;
+  const isLabelyFoodDbBatchMode = isLabely && !!config.labelyAiProducts && labelyUseFoodDatabasePhotos;
   const isValcoinIphonePackBatchMode = isValcoin && isLabelyScanTourFormat(config);
   const labelyUploadsLocked = isLabely && !!config.labelyAiProducts;
   const savedForCurrentApp = useMemo(() => {
@@ -713,10 +715,10 @@ export default function ConfigPanel({
   const foodDbSuggestionCacheRef = useRef(new Map());
   const foodDbKeyFor = (value) => String(value || "").trim().toLowerCase();
   const foodDbSuggestionKey = useMemo(() => (
-    isLabely && config.labelyAiProducts && config.labelyUseFoodDatabasePhotos
+    isLabely && config.labelyAiProducts && labelyUseFoodDatabasePhotos
       ? brandItems.slice(0, 20).join("\n")
       : ""
-  ), [isLabely, config.labelyAiProducts, config.labelyUseFoodDatabasePhotos, brandItemsRaw]); // eslint-disable-line react-hooks/exhaustive-deps
+  ), [isLabely, config.labelyAiProducts, labelyUseFoodDatabasePhotos, brandItemsRaw]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!foodDbSuggestionKey) {
@@ -813,7 +815,7 @@ export default function ConfigPanel({
   };
   const runFoodDbSearch = async () => {
     const q = foodDbSearch.trim();
-    if (!isLabely || !config.labelyAiProducts || !config.labelyUseFoodDatabasePhotos || q.length < 2) {
+    if (!isLabely || !config.labelyAiProducts || !labelyUseFoodDatabasePhotos || q.length < 2) {
       setFoodDbSearchOptions([]);
       setFoodDbSearchStatus("idle");
       return;
@@ -1411,7 +1413,8 @@ ${SHARED_RULES_OUTRO}`;
         signal: abortRef.current?.signal,
         body: JSON.stringify({
           ...(seedHint?.trim() ? { seedHint: seedHint.trim() } : {}),
-          useFoodDatabasePhoto: !!config.labelyUseFoodDatabasePhotos,
+          useFoodDatabasePhoto: !!labelyUseFoodDatabasePhotos,
+          useSelfieImage: !!labelyUseSelfieImage,
           ...(foodDatabaseImageUrl ? { foodDatabaseImageUrl } : {}),
           ...(opts.includeShelfIntro ? { includeShelfIntro: true } : {}),
         }),
@@ -1562,13 +1565,14 @@ ${SHARED_RULES_OUTRO}`;
               ? weightedPool[Math.floor(Math.random() * weightedPool.length)]
               : null;
           const includeShelfIntro = index === 0 && isLabelyScanTourFormat(config);
-          const foodDatabaseImageUrl = foodDbImageUrlForItem(hint);
+          const foodDatabaseImageUrl = labelyUseFoodDatabasePhotos ? foodDbImageUrlForItem(hint) : "";
           const ly = await fillLabelyFromAi(hint, index, {
             includeShelfIntro,
             foodDatabaseImageUrl,
           });
           if (ly?.name) {
             const shelfIntroUrl = ly.shelfIntroDataUrl || (includeShelfIntro
+              && !labelyUseSelfieImage
               ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
               : null);
             updateSlot(index, {
@@ -2011,6 +2015,7 @@ ${SHARED_RULES_OUTRO}`;
           }
           if (ly?.name) {
             const shelfIntroUrl = ly.shelfIntroDataUrl || (includeShelfIntro
+              && !labelyUseSelfieImage
               ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
               : null);
             const patch = {
@@ -2317,13 +2322,16 @@ ${SHARED_RULES_OUTRO}`;
             slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
           });
           const includeShelfIntro = si === 0 && isLabelyScanTourFormat(config);
-          const foodDatabaseImageUrl = foodDbImageUrlForItem(brandItem, sourceFoodDbMatches);
+          const foodDatabaseImageUrl = labelyUseFoodDatabasePhotos
+            ? foodDbImageUrlForItem(brandItem, sourceFoodDbMatches)
+            : "";
           const ly = await fillLabelyFromAi(brandItem, si, {
             includeShelfIntro,
             foodDatabaseImageUrl,
           });
           if (ly?.name) {
             const shelfIntroUrl = ly.shelfIntroDataUrl || (includeShelfIntro
+              && !labelyUseSelfieImage
               ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
               : null);
             localSlots[si] = {
@@ -3709,9 +3717,11 @@ ${SHARED_RULES_OUTRO}`;
           <div className={`mt-1 ${isValcoin ? "text-amber-100/75" : "text-emerald-100/70"}`}>
             {isLabely
               ? config.labelyAiProducts
-                ? config.labelyUseFoodDatabasePhotos
-                  ? "Open Food Facts pack photos when possible; no AI image gen in that mode."
-                  : "AI pack shots from your food list; scanner readout stays fictional."
+                ? labelyUseSelfieImage
+                  ? "Selfie AI image prompt is active; scanner readout stays fictional."
+                  : labelyUseFoodDatabasePhotos
+                    ? "Open Food Facts pack photos when possible; no AI image gen in that mode."
+                    : "AI pack shots from your food list; scanner readout stays fictional."
                 : "Vision reads your uploaded pack photos."
               : isValcoin
                 ? "Free public-domain coin photos from Wikimedia Commons — no API key required, no AI coin images."
@@ -3747,20 +3757,61 @@ ${SHARED_RULES_OUTRO}`;
             </div>
           </div>
           {config.labelyAiProducts ? (
+            <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2.5">
+              <div className="flex items-start gap-3">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={!!labelyUseSelfieImage}
+                  onClick={() => {
+                    const next = !labelyUseSelfieImage;
+                    setConfig((prev) => ({
+                      ...prev,
+                      labelyUseSelfieImage: next,
+                      ...(next ? { labelyUseFoodDatabasePhotos: false } : {}),
+                    }));
+                  }}
+                  className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors ${
+                    labelyUseSelfieImage ? "bg-sky-500" : "bg-white/15"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1 left-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                      labelyUseSelfieImage ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-semibold text-white/90">Use gym selfie AI image</div>
+                  <p className="mt-1 text-[10px] leading-relaxed text-white/45">
+                    Replaces the generated food pack art with the full-body MMA gym mirror selfie prompt. Labely still generates the product name, score, and scanner copy.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          {config.labelyAiProducts ? (
             <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5">
               <div className="flex items-start gap-3">
                 <button
                   type="button"
                   role="switch"
-                  aria-checked={!!config.labelyUseFoodDatabasePhotos}
-                  onClick={() => updateConfig("labelyUseFoodDatabasePhotos", !config.labelyUseFoodDatabasePhotos)}
+                  aria-checked={!!labelyUseFoodDatabasePhotos}
+                  onClick={() => {
+                    const next = !labelyUseFoodDatabasePhotos;
+                    setConfig((prev) => ({
+                      ...prev,
+                      labelyUseFoodDatabasePhotos: next,
+                      ...(next ? { labelyUseSelfieImage: false } : {}),
+                    }));
+                  }}
                   className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors ${
-                    config.labelyUseFoodDatabasePhotos ? "bg-emerald-500" : "bg-white/15"
+                    labelyUseFoodDatabasePhotos ? "bg-emerald-500" : "bg-white/15"
                   }`}
                 >
                   <span
                     className={`absolute top-1 left-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                      config.labelyUseFoodDatabasePhotos ? "translate-x-5" : "translate-x-0"
+                      labelyUseFoodDatabasePhotos ? "translate-x-5" : "translate-x-0"
                     }`}
                   />
                 </button>
@@ -3828,9 +3879,11 @@ ${SHARED_RULES_OUTRO}`;
               </div>
             </div>
             <p className="text-white/35 text-[10px] mb-2 leading-relaxed">
-              {config.labelyUseFoodDatabasePhotos
+              {labelyUseFoodDatabasePhotos
                 ? "Search Open Food Facts, choose the exact package match, then it is added to this list."
-                : "One real packaged product per line — same idea as Thrifty's brand list. Generate picks from this list (shuffled); GPT uses that real SKU for name/brand/pack image while analysis still uses fictional scanner compound names."}
+                : labelyUseSelfieImage
+                  ? "One real packaged product per line. Generate picks from this list for the Labely name, score, and scanner copy; the image uses the gym selfie prompt."
+                  : "One real packaged product per line — same idea as Thrifty's brand list. Generate picks from this list (shuffled); GPT uses that real SKU for name/brand/pack image while analysis still uses fictional scanner compound names."}
             </p>
             {isLabelyFoodDbBatchMode ? (
               <div className="space-y-2">
@@ -3975,7 +4028,7 @@ ${SHARED_RULES_OUTRO}`;
                   </div>
                 ))}
               </div>
-            ) : config.labelyUseFoodDatabasePhotos ? (
+            ) : labelyUseFoodDatabasePhotos ? (
               <div className="space-y-2">
                 <div className="relative">
                   <input
@@ -4068,7 +4121,7 @@ ${SHARED_RULES_OUTRO}`;
             </p>
               </>
             )}
-            {config.labelyUseFoodDatabasePhotos && !isLabelyFoodDbBatchMode ? (
+            {labelyUseFoodDatabasePhotos && !isLabelyFoodDbBatchMode ? (
               <div className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-500/8 p-2">
                 <div className="mb-1 flex items-center justify-between gap-2">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-200/80">

@@ -22,6 +22,22 @@ Trash-can scene (CRITICAL — every image):
 - **Framing (not a macro):** Medium-wide iPhone distance — include a clear slice of the **can rim, bag, and bin context**; the hero pack should read at roughly **half to two-thirds** of the 9:16 frame height, **not** an ultra-tight crop that fills the entire frame edge-to-edge.
 `.trim();
 
+const LABELY_SELFIE_IMAGE_PROMPT = `
+Create a realistic 9:16 modern smartphone mirror selfie.
+
+Subject: a fit young adult woman taking a full-body mirror selfie while standing on gym mats. Her face is covered by a silver or light-colored iPhone held vertically. Blonde hair in a high messy ponytail with loose face-framing strands.
+
+Clothing: black scoop-neck sports bra with a minimal athletic design, tight fit; black high-waisted flared yoga pants fitted through the thighs and flared at the hem; white ankle socks.
+
+Accessories: white smartwatch band on the left wrist and a thin delicate chain necklace.
+
+Photography: standing eye-level reflection, full-body vertical shot, sharp realistic focus, natural daylight contrast, realistic textures, soft shadows. No text overlays, no captions, no watermarks.
+
+Background: industrial MMA gym interior with white exposed concrete walls, interlocking red and black foam jigsaw gym mats, black industrial pendant cage lights, exposed white concrete ceiling with pipes, a large black industrial fan on the left, a wooden slat bench in the immediate foreground, a black textured foam roller on the floor, a crumpled blue denim shirt and keys on the bench, and a blurred MMA cage with chain-link fencing in the background.
+
+Atmosphere: authentic training environment, gritty but bright, natural daylight from large windows on the left mixed with overhead gym lights.
+`.trim();
+
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 const OPEN_FOOD_FACTS_SEARCH = "https://world.openfoodfacts.org/cgi/search.pl";
 
@@ -432,6 +448,23 @@ async function generateProductImage({ imagePrompt, name, brand }) {
   return null;
 }
 
+async function generateSelfieImage() {
+  const result = await runImageGenerationPipeline({
+    prompt: LABELY_SELFIE_IMAGE_PROMPT,
+    referenceFile: null,
+    referenceInline: undefined,
+    referenceRoot: undefined,
+    model: "gpt-image-1",
+  });
+
+  if (result.error) {
+    console.error("[labely] selfie image pipeline", result.error);
+    return null;
+  }
+  if (result.b64) return `data:image/png;base64,${result.b64}`;
+  return null;
+}
+
 async function generateShelfIntroImage({ name, brand }) {
   const prompt = buildLabelyShelfScenePrompt({ name, brand });
   const result = await runImageGenerationPipeline({
@@ -583,6 +616,7 @@ export async function POST(req) {
     const uploadHint = sanitizeUploadHint(body.uploadHint);
     const useFoodDatabasePhoto = body.useFoodDatabasePhoto === true;
     const foodDatabaseImageUrl = typeof body.foodDatabaseImageUrl === "string" ? body.foodDatabaseImageUrl.trim() : "";
+    const useSelfieImage = body.useSelfieImage === true && !useFoodDatabasePhoto;
     const includeShelfIntro = body.includeShelfIntro === true;
 
     if (imageDataUrl) {
@@ -619,9 +653,7 @@ export async function POST(req) {
     }
 
     const base = await generateLabelyJson({ openaiApiKey, seedHint });
-    const shelfIntroDataUrl = includeShelfIntro
-      ? await generateShelfIntroImage({ name: base.name, brand: base.brand })
-      : null;
+    let shelfIntroDataUrl = null;
     let outImage = null;
     if (useFoodDatabasePhoto) {
       try {
@@ -642,15 +674,23 @@ export async function POST(req) {
       // `useFoodDatabasePhoto` is true but OFF fetch / proxy / MIME sniff failed (previously
       // we incorrectly skipped AI entirely in that case, yielding blank slides).
       if (!outImage) {
-        outImage = await generateProductImage({
-          imagePrompt: base.imagePrompt,
-          name: base.name,
-          brand: base.brand,
-        });
+        outImage = useSelfieImage
+          ? await generateSelfieImage()
+          : await generateProductImage({
+              imagePrompt: base.imagePrompt,
+              name: base.name,
+              brand: base.brand,
+            });
       }
     } catch (e) {
       console.error("[labely] image generation failed", e);
       outImage = null;
+    }
+
+    if (includeShelfIntro) {
+      shelfIntroDataUrl = useSelfieImage
+        ? outImage
+        : await generateShelfIntroImage({ name: base.name, brand: base.brand });
     }
 
     return NextResponse.json({
