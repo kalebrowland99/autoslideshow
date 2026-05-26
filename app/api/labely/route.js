@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
+import { readFile } from "fs/promises";
+import { join } from "path";
 import { runImageGenerationPipeline } from "@/lib/imageGenerationBackend";
+import { mimeFromPath } from "@/lib/imageGenerationBackend";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
-import { listPublicReferenceImageRelPaths } from "@/lib/referenceImages";
+import { listPublicReferenceImageRelPaths, publicReferenceDirForAppId } from "@/lib/referenceImages";
 import { BAD_LABELY_VERDICT, normalizeBadLabelyScore, randomBadLabelyScore } from "@/lib/labelyRating";
 import { extractOpenFoodFactsImage, sniffImageMimeFromBytes } from "@/lib/openFoodFactsProductImage";
 
@@ -32,6 +35,18 @@ Make only a slight realistic adjustment: polish the image just enough to feel li
 
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
 const OPEN_FOOD_FACTS_SEARCH = "https://world.openfoodfacts.org/cgi/search.pl";
+
+async function selfieReferenceDataUrl(refFile) {
+  if (!refFile) return null;
+  try {
+    const filePath = join(publicReferenceDirForAppId("labely-selfie"), refFile);
+    const bytes = await readFile(filePath);
+    return `data:${mimeFromPath(refFile)};base64,${bytes.toString("base64")}`;
+  } catch (e) {
+    console.error("[labely] selfie reference fallback failed", e);
+    return null;
+  }
+}
 
 /** Same prompt skeleton as ConfigPanel starter-pack / Valcoin branch → POST /api/generate-image. */
 function buildLabelyPackPromptWithReference({ name, brand, imagePrompt }) {
@@ -123,8 +138,8 @@ IMPORTANT RULES:
 - The tone should feel like a modern health app: direct, simple, slightly cautionary.
 
 Scoring guide:
-0-20 = Avoid
-21-45 = Limit
+1-30 = Avoid
+31-45 = Limit
 46-60 = Okay Occasionally
 61-80 = Good
 81-100 = Great
@@ -276,7 +291,7 @@ Output ONLY valid JSON (no markdown fences). Exact keys:
 
 **rating** must be exactly "Avoid".
 
-Integer **score** must be 0–20.
+Integer **score** must be a random number from 1–30.
 
 analysis_title must be exactly "Labely's Analysis".
 
@@ -361,7 +376,7 @@ Output ONLY valid JSON (no markdown fences). Exact keys:
 
 **rating** must be exactly "Avoid".
 
-Integer **score** must be 0–20.
+Integer **score** must be a random number from 1–30.
 
 analysis_title must be exactly "Labely's Analysis".
 
@@ -458,10 +473,10 @@ async function generateSelfieImage() {
 
   if (result.error) {
     console.error("[labely] selfie image pipeline", result.error);
-    return null;
+    return selfieReferenceDataUrl(refFile);
   }
   if (result.b64) return `data:image/png;base64,${result.b64}`;
-  return null;
+  return selfieReferenceDataUrl(refFile);
 }
 
 async function generateShelfIntroImage({ name, brand }) {

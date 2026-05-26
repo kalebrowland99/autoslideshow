@@ -12,7 +12,7 @@ import { BAD_LABELY_SCORE, BAD_LABELY_VERDICT, MAX_BAD_LABELY_SCORE, MIN_BAD_LAB
 /** Score dot + default verdict label */
 function scoreTheme(score) {
   const s = clampLabelyScore(score);
-  if (s <= 20) return { dot: "bg-[#E54D42]", verdict: ratingLabelFromScore(s) };
+  if (s <= 30) return { dot: "bg-[#E54D42]", verdict: ratingLabelFromScore(s) };
   if (s <= 45) return { dot: "bg-[#FF6B35]", verdict: ratingLabelFromScore(s) };
   if (s <= 60) return { dot: "bg-[#FFB01A]", verdict: ratingLabelFromScore(s) };
   if (s <= 80) return { dot: "bg-[#9CCC65]", verdict: ratingLabelFromScore(s) };
