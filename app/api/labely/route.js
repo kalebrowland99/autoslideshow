@@ -528,16 +528,16 @@ async function generateProductImage({ imagePrompt, name, brand }) {
   return null;
 }
 
-function buildSelfiePromptWithReference(referenceDescription) {
+function buildSelfiePromptWithReference(referenceDescription, hasReferenceImage = false) {
   const desc = String(referenceDescription || "").trim();
-  if (!desc) return LABELY_SELFIE_IMAGE_PROMPT;
+  if (!hasReferenceImage) return LABELY_SELFIE_IMAGE_PROMPT;
   return `${LABELY_SELFIE_IMAGE_PROMPT}
 
 Reference photo guidance:
-Use the selected reference image as the strongest visual guide while preserving every constraint in the JSON prompt above.
-Vision description of the selected reference: ${desc}
+The attached reference image is the source photo to edit. Keep it as close to the original as possible: same person/body pose, crop, mirror angle, phone placement, outfit silhouette, lighting, background layout, and overall composition. Make only subtle adjustments needed to satisfy the JSON prompt above, especially ensuring the phone fully covers the face and the scene reads as a polished luxury pilates/wellness mirror selfie.
+${desc ? `Vision notes about the attached reference: ${desc}` : ""}
 
-Generate a new realistic photo, not a direct copy. Match the reference photo's pose, crop, camera angle, phone placement, outfit silhouette, lighting, mirror setup, and studio/background cues as closely as possible. The phone must still completely cover the face.`;
+Do not reinvent the image. Do not switch to a different pose, room, crop, camera angle, outfit shape, or body framing. Preserve the attached reference photo first, then apply only slight realistic refinements.`;
 }
 
 async function describeSelfieReferenceImage({ refFile, openaiApiKey }) {
@@ -570,7 +570,7 @@ async function describeSelfieReferenceImage({ refFile, openaiApiKey }) {
               {
                 type: "text",
                 text:
-                  "Describe this reference photo for generating a new luxury pilates mirror selfie. Focus only on visual traits to copy: pose, crop, camera angle, phone placement, body framing, outfit silhouette/colors, hair silhouette, mirror setup, room/studio details, and lighting. Do not identify the person. If any face is visible, say the generated image must cover it fully with the phone. Keep it under 90 words.",
+                  "Describe this reference photo as source-image edit instructions for a luxury pilates mirror selfie. Focus only on visual traits to preserve exactly: pose, crop, camera angle, phone placement, body framing, outfit silhouette/colors, hair silhouette, mirror setup, room/studio details, and lighting. Do not identify the person. If any face is visible, say the edited image must cover it fully with the phone. Keep it under 90 words.",
               },
             ],
           },
@@ -601,7 +601,7 @@ async function generateSelfieImage({ openaiApiKey } = {}) {
     console.log(`[labely] selfie reference: ${refFile}${referenceDescription ? " + vision" : ""}`);
   }
   const result = await runImageGenerationPipeline({
-    prompt: buildSelfiePromptWithReference(referenceDescription),
+    prompt: buildSelfiePromptWithReference(referenceDescription, Boolean(refFile)),
     referenceFile: refFile,
     referenceInline: undefined,
     referenceRoot: refFile ? "labely/selfie-references" : undefined,
