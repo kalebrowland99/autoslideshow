@@ -3817,7 +3817,7 @@ ${SHARED_RULES_OUTRO}`;
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-semibold text-white/90">Use pilates selfie intro</div>
                   <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-                    Adds the luxury pilates mirror selfie as slide 1 only. The following scan/result pairs still use normal food package photos.
+                    Adds the luxury pilates mirror selfie as slide 1 only. Drop reference photos in public/labely/selfie-references/ to randomize the selfie source.
                   </p>
                 </div>
               </div>

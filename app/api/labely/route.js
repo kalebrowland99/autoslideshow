@@ -526,11 +526,13 @@ async function generateProductImage({ imagePrompt, name, brand }) {
 }
 
 async function generateSelfieImage() {
+  const refs = await listPublicReferenceImageRelPaths("labely-selfie");
+  const refFile = refs.length > 0 ? refs[Math.floor(Math.random() * refs.length)] : null;
   const result = await runImageGenerationPipeline({
     prompt: LABELY_SELFIE_IMAGE_PROMPT,
-    referenceFile: null,
+    referenceFile: refFile,
     referenceInline: undefined,
-    referenceRoot: undefined,
+    referenceRoot: refFile ? "labely/selfie-references" : undefined,
     model: "gpt-image-1",
   });
 
