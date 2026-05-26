@@ -434,6 +434,34 @@ function uniqueRandomZipPngName(usedNames) {
   return name;
 }
 
+function uniqueZipPngPath(usedNames, dir = "", orderIndex = null) {
+  const cleanDir = String(dir || "").replace(/^\/+|\/+$/g, "");
+  if (!cleanDir) return uniqueRandomZipPngName(usedNames);
+  let name;
+  do {
+    const prefix = Number.isFinite(orderIndex)
+      ? `${String(orderIndex + 1).padStart(3, "0")}-`
+      : "";
+    name = `${cleanDir}/${prefix}${randomExportHex(10)}.png`;
+  } while (usedNames.has(name));
+  usedNames.add(name);
+  return name;
+}
+
+function iphoneFolderName(iphoneNumber) {
+  return `iPhone ${String(iphoneNumber).padStart(2, "0")}`;
+}
+
+function slideshowFolderName(orderIndexZeroBased, show = null, fallback = "") {
+  const batch = Number(show?.batchNumber);
+  const foodToken =
+    sanitizeFileToken(show?.batchFoodName)
+    || sanitizeFileToken(fallback)
+    || (String(show?.appId || "").trim() === "valcoin" ? "coins" : "food");
+  const batchPrefix = Number.isFinite(batch) && batch > 0 ? `batch-${batch}-` : "";
+  return `Slideshow ${String(orderIndexZeroBased + 1).padStart(2, "0")} ${batchPrefix}${foodToken}`.trim();
+}
+
 /** Per-file ZIP metadata (fflate): variable mod time + short internal comment. */
 function randomZipEntryOptions() {
   const skewMs = Math.floor(Math.random() * (4 * 365.25 * 24 * 3600 * 1000));
@@ -3406,95 +3434,206 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
-  const handleExportAllPNGs = async () => {
-    setIsExporting(true);
-    setExportProgress(0);
-    setExportStatus("Capturing slides…");
+  const addCanvasPngEntry = async (pngEntries, usedZipEntryNames, canvas, dir, orderIndex) => {
+    const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
+    if (!blob) throw new Error("no PNG blob");
+    const arr = new Uint8Array(await blob.arrayBuffer());
+    pngEntries[uniqueZipPngPath(usedZipEntryNames, dir, orderIndex)] = [arr, randomZipEntryOptions()];
+  };
 
-    if (needsExportImageInlining(config)) {
-      setExportStatus("Preparing images for export…");
-      const cfg = await ensureExportImageUrls(config);
-      flushSync(() => setConfig((prev) => ({ ...prev, slots: cfg.slots })));
+  const capturePngEntriesForConfig = async (
+    exportCfg,
+    {
+      pngEntries,
+      usedZipEntryNames,
+      baseDir = "",
+      statusPrefix = "",
+      progressBase = 0,
+      progressSpan = 85,
+    } = {},
+  ) => {
+    let cfg = exportCfg;
+    flushSync(() => setConfig(cfg));
+    flushSync(() => setCurrentSlide(0));
+    await waitForPreviewPaint();
+
+    if (needsExportImageInlining(cfg)) {
+      setExportStatus(`${statusPrefix}Preparing images for export…`);
+      cfg = await ensureExportImageUrls(cfg);
+      flushSync(() => setConfig(cfg));
       await waitForPreviewPaint();
       await waitForImagesDecoded(getCaptureNode());
     }
 
-    if ((config.outputFormat ?? "standard") === "starterPack") {
-      setExportStatus("Generating starter pack text…");
+    if ((cfg.outputFormat ?? "standard") === "starterPack") {
+      setExportStatus(`${statusPrefix}Generating starter pack text…`);
       const sp = await ensureStarterPackAutofill();
-      setExportStatus("Generating starter pack images…");
-      await ensureStarterPackImages(sp?.imagePrompts ?? sp?.items);
-      setExportStatus("Capturing slides…");
+      setExportStatus(`${statusPrefix}Generating starter pack images…`);
+      await ensureStarterPackImages(sp?.imagePrompts ?? sp?.items, cfg);
+      setExportStatus(`${statusPrefix}Capturing slides…`);
     }
 
+    const slidesCount = getTotalSlides(cfg);
     const previewNode = getCaptureNode();
     const fontEmbedCSS = previewNode ? await getFontEmbedCSS(previewNode) : undefined;
+    let entryIndex = 0;
 
-    const pngEntries = {};
-    const usedZipEntryNames = new Set();
-
-    for (let i = 0; i < totalSlides; i++) {
+    for (let i = 0; i < slidesCount; i++) {
+      await waitWhilePaused();
+      if (cancelGenRef.current) break;
       flushSync(() => {
         setCurrentSlide(i);
       });
       await waitForPreviewPaint();
       await new Promise((r) => setTimeout(r, 80));
 
-      const info = getSlideInfo(config, i);
+      const info = getSlideInfo(cfg, i);
       const bg =
         info.type === "collage"    ? "#111111"
         : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "labelyShelfIntro" ? "#000000"
         : "#ffffff";
       const shouldIncludeScanSourcePng =
-        (config.outputFormat ?? "standard") === "labelyScan" &&
-        ["labely", "valcoin"].includes(config.appId ?? "thrifty") &&
-        (info.type === "labely" || (info.type === "thrifty" && (config.appId ?? "thrifty") === "valcoin"));
+        (cfg.outputFormat ?? "standard") === "labelyScan" &&
+        ["labely", "valcoin"].includes(cfg.appId ?? "thrifty") &&
+        (info.type === "labely" || (info.type === "thrifty" && (cfg.appId ?? "thrifty") === "valcoin"));
 
       if (shouldIncludeScanSourcePng) {
         try {
-          const slotNow = info.slot ?? config.slots?.[info.itemIndex ?? 0];
+          const slotNow = info.slot ?? cfg.slots?.[info.itemIndex ?? 0];
           const productDataUrl =
             typeof slotNow?.imageUrl === "string" ? slotNow.imageUrl.trim() : "";
           const scanCanvas = await captureScanSourceCanvas(
             productDataUrl,
-            (config.jitterSeed ?? 0) + (info.itemIndex ?? i) * 9973,
+            (cfg.jitterSeed ?? 0) + (info.itemIndex ?? i) * 9973,
           );
-          const blob = await new Promise((res) => scanCanvas.toBlob(res, "image/png"));
-          if (!blob) throw new Error("no scan source blob");
-          const arr = new Uint8Array(await blob.arrayBuffer());
-          pngEntries[uniqueRandomZipPngName(usedZipEntryNames)] = [arr, randomZipEntryOptions()];
+          await addCanvasPngEntry(pngEntries, usedZipEntryNames, scanCanvas, baseDir, entryIndex++);
         } catch (e) {
           console.warn("Skipping scan source PNG", i, e);
         }
       }
 
       if (info.type === "starterPack") {
-        // Export final phase (all 4 cards visible) as a single PNG
         setConfig((prev) => ({ ...prev, _spPhase: 4 }));
         await new Promise((r) => setTimeout(r, 120));
         try {
           const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
           if (!canvas) throw new Error("no canvas");
-          const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
-          const arr = new Uint8Array(await blob.arrayBuffer());
-          pngEntries[uniqueRandomZipPngName(usedZipEntryNames)] = [arr, randomZipEntryOptions()];
+          await addCanvasPngEntry(pngEntries, usedZipEntryNames, canvas, baseDir, entryIndex++);
         } catch (e) { console.warn("Skipping starterPack slide", e); }
         setConfig((prev) => ({ ...prev, _spPhase: -1 }));
       } else {
         try {
           const canvas = await captureSlideCanvas(bg, fontEmbedCSS);
           if (!canvas) throw new Error("no canvas");
-          const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
-          const arr = new Uint8Array(await blob.arrayBuffer());
-          pngEntries[uniqueRandomZipPngName(usedZipEntryNames)] = [arr, randomZipEntryOptions()];
+          await addCanvasPngEntry(pngEntries, usedZipEntryNames, canvas, baseDir, entryIndex++);
         } catch (e) {
           console.warn("Skipping slide", i, e);
         }
       }
 
-      setExportProgress(Math.round(((i + 1) / totalSlides) * 85));
-      setExportStatus(`Captured ${i + 1} / ${totalSlides}…`);
+      setExportProgress(Math.round(progressBase + ((i + 1) / slidesCount) * progressSpan));
+      setExportStatus(`${statusPrefix}Captured ${i + 1} / ${slidesCount}…`);
     }
+  };
+
+  const exportIphonePngZipPlans = async (shows, restoreConfig) => {
+    const zipPlan = tryBuildIphoneBatchZipPlan(shows);
+    if (zipPlan?.error) {
+      alert(zipPlan.error);
+      return true;
+    }
+    if (!zipPlan?.zipPlans?.length) return false;
+
+    const zipPlans = zipPlan.zipPlans;
+    const zipFilePrefix =
+      String(shows[0]?.appId || "").trim() === "valcoin" ? "valcoin-iphone-png-" : "labely-iphone-png-";
+    const totalJobs = zipPlans.reduce((sum, plan) => sum + plan.jobs.length, 0);
+    let completedJobs = 0;
+    cancelGenRef.current = false;
+    setIsExporting(true);
+    setExportProgress(0);
+    setExportStatus(`Exporting PNG folders for ${zipPlans.length} iPhones…`);
+
+    try {
+      const { zipSync } = await import("fflate");
+      let downloadedZipCount = 0;
+
+      for (const plan of zipPlans) {
+        if (cancelGenRef.current) break;
+        const zipEntries = {};
+        const usedZipEntryNames = new Set();
+        const iphoneDir = iphoneFolderName(plan.iphoneNumber);
+
+        for (let i = 0; i < plan.jobs.length; i++) {
+          await waitWhilePaused();
+          if (cancelGenRef.current) break;
+          const { zipRelPath, show } = plan.jobs[i];
+          const showDir = `${iphoneDir}/${slideshowFolderName(i, show, zipRelPath)}`;
+          const exportCfg = galleryShowToExportConfig(restoreConfig, show);
+          setExportStatus(`iPhone ${plan.iphoneNumber}: capturing slideshow ${i + 1} / ${plan.jobs.length}…`);
+          await capturePngEntriesForConfig(exportCfg, {
+            pngEntries: zipEntries,
+            usedZipEntryNames,
+            baseDir: showDir,
+            statusPrefix: `iPhone ${plan.iphoneNumber} · Slideshow ${i + 1}: `,
+            progressBase: Math.round((completedJobs / totalJobs) * 85),
+            progressSpan: Math.max(1, 85 / totalJobs),
+          });
+          completedJobs++;
+          setExportProgress(Math.round((completedJobs / totalJobs) * 90));
+        }
+
+        if (cancelGenRef.current) break;
+        if (Object.keys(zipEntries).length === 0) continue;
+
+        setExportStatus(`Building PNG ZIP ${plan.iphoneNumber} / ${zipPlans.length}…`);
+        const zipData = zipSync(zipEntries, { level: 1 });
+        const blob = new Blob([zipData], { type: "application/zip" });
+        triggerZipDownload(blob, `${zipFilePrefix}${String(plan.iphoneNumber).padStart(2, "0")}-${randomExportHex(10)}.zip`);
+        downloadedZipCount++;
+        await new Promise((r) => setTimeout(r, 650));
+      }
+
+      if (downloadedZipCount === 0) {
+        setExportStatus("Nothing exported — PNG ZIP export cancelled.");
+      } else {
+        setExportProgress(100);
+        setExportStatus(`Done! Downloaded ${downloadedZipCount} iPhone PNG ZIPs.`);
+      }
+      return true;
+    } catch (e) {
+      console.error(e);
+      setExportStatus("iPhone PNG ZIP export failed — see console.");
+      return true;
+    } finally {
+      flushSync(() => setConfig(restoreConfig));
+      flushSync(() => setCurrentSlide(0));
+      setIsExporting(false);
+      setTimeout(() => {
+        setExportStatus("");
+        setExportProgress(0);
+      }, 5000);
+    }
+  };
+
+  const handleExportAllPNGs = async () => {
+    const restoreConfig = {
+      ...config,
+      slots: (config.slots ?? []).map((s) => ({ ...s })),
+    };
+    const aid = config.appId ?? "thrifty";
+    if (aid === "labely" || aid === "valcoin") {
+      const gallery = savedSlideshows.filter((s) => savedShowMatchesApp(s, aid));
+      if (await exportIphonePngZipPlans(gallery, restoreConfig)) return;
+    }
+
+    setIsExporting(true);
+    setExportProgress(0);
+    setExportStatus("Capturing slides…");
+
+    const pngEntries = {};
+    const usedZipEntryNames = new Set();
+    await capturePngEntriesForConfig(config, { pngEntries, usedZipEntryNames });
 
     if (Object.keys(pngEntries).length === 0) {
       setIsExporting(false);
