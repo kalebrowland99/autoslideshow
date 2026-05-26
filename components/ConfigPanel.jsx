@@ -1608,6 +1608,16 @@ ${SHARED_RULES_OUTRO}`;
             useSelfieImage: useSelfieForSlot,
           });
           if (ly?.name) {
+            if (useSelfieForSlot && !ly.shelfIntroDataUrl) {
+              setGenAllProgress({
+                total: slotCount,
+                done: si,
+                current: si,
+                phase: `Show ${showIndex + 1}/${totalShows} failed: Pilates selfie intro was not generated. Try again.`,
+                slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
+              });
+              return null;
+            }
             const shelfIntroUrl = ly.shelfIntroDataUrl || (includeShelfIntro
               && !useSelfieForSlot
               ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
@@ -2060,6 +2070,18 @@ ${SHARED_RULES_OUTRO}`;
           }
           if (ly?.name) {
             const useSelfieForSlot = config.labelyAiProducts && labelyUseSelfieImage && i === 0;
+            if (useSelfieForSlot && includeShelfIntro && !ly.shelfIntroDataUrl) {
+              failedCount++;
+              setGenAllProgress({
+                total,
+                done: slotsDone.size,
+                current: i,
+                phase: `Slot ${stepLabel} failed: Pilates selfie intro was not generated. Try again.`,
+                slotsDone: new Set(slotsDone),
+              });
+              await new Promise((r) => setTimeout(r, 2500));
+              continue;
+            }
             const shelfIntroUrl = ly.shelfIntroDataUrl || (includeShelfIntro
               && !useSelfieForSlot
               ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")

@@ -28,7 +28,7 @@ Trash-can scene (CRITICAL — every image):
 const LABELY_SELFIE_IMAGE_PROMPT = `
 Create a new AI-generated photorealistic luxury pilates / wellness mirror selfie based on the attached reference photo.
 
-Use the reference for pose, crop, mirror angle, phone placement, outfit silhouette, hair silhouette, lighting, room layout, and overall composition, but do not output the original photo unchanged. Make it a new generated photo with a subtle polished wellness aesthetic.
+Use the reference for pose, crop, mirror angle, phone placement, outfit silhouette, hair silhouette, lighting, room layout, and overall composition, but do not output the original photo unchanged. If no reference is attached, create a new polished luxury pilates mirror selfie in this same style.
 
 Remove every piece of text from the image. No captions, quotes, UI overlays, logos, watermarks, usernames, stickers, or readable writing anywhere. If the reference has text, replace that area with clean wall, mirror, or background texture. The phone must fully cover the face.
 `.trim();
@@ -477,26 +477,32 @@ async function generateProductImage({ imagePrompt, name, brand }) {
 
 async function generateSelfieImage() {
   const refs = await listPublicReferenceImageRelPaths("labely-selfie");
-  const refFile = refs.length > 0 ? refs[Math.floor(Math.random() * refs.length)] : null;
-  const referenceInline = await sanitizedSelfieReferenceInline(refFile);
-  if (refFile) {
-    console.log(`[labely] selfie reference: ${refFile}${referenceInline ? " (sanitized)" : ""}`);
-  } else {
+  const shuffledRefs = [...refs].sort(() => Math.random() - 0.5);
+  const attempts = shuffledRefs.length > 0 ? shuffledRefs.slice(0, Math.min(4, shuffledRefs.length)) : [null];
+  if (shuffledRefs.length === 0) {
     console.warn("[labely] no selfie reference images found in public/labely/selfie-references");
   }
-  const result = await runImageGenerationPipeline({
-    prompt: LABELY_SELFIE_IMAGE_PROMPT,
-    referenceFile: referenceInline ? null : refFile,
-    referenceInline,
-    referenceRoot: !referenceInline && refFile ? "labely/selfie-references" : undefined,
-    model: "gpt-image-1",
-  });
 
-  if (result.error) {
-    console.error("[labely] selfie image pipeline", result.error);
-    return null;
+  for (const refFile of attempts) {
+    const referenceInline = await sanitizedSelfieReferenceInline(refFile);
+    if (refFile) {
+      console.log(`[labely] selfie reference: ${refFile}${referenceInline ? " (sanitized)" : " (no sanitized inline)"}`);
+    }
+    const result = await runImageGenerationPipeline({
+      prompt: LABELY_SELFIE_IMAGE_PROMPT,
+      referenceFile: null,
+      referenceInline,
+      referenceRoot: undefined,
+      model: "gpt-image-1",
+    });
+
+    if (result.error) {
+      console.error("[labely] selfie image pipeline", result.error);
+      continue;
+    }
+    if (result.b64) return `data:image/png;base64,${result.b64}`;
   }
-  if (result.b64) return `data:image/png;base64,${result.b64}`;
+
   return null;
 }
 
