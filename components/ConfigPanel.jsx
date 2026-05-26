@@ -1567,7 +1567,7 @@ ${SHARED_RULES_OUTRO}`;
               : null;
           const includeShelfIntro = index === 0 && isLabelyScanTourFormat(config);
           const useSelfieForSlot = labelyUseSelfieImage && index === 0;
-          const foodDatabaseImageUrl = labelyUseFoodDatabasePhotos && !useSelfieForSlot
+          const foodDatabaseImageUrl = labelyUseFoodDatabasePhotos
             ? foodDbImageUrlForItem(hint)
             : "";
           const ly = await fillLabelyFromAi(hint, index, {
@@ -2333,7 +2333,7 @@ ${SHARED_RULES_OUTRO}`;
           });
           const includeShelfIntro = si === 0 && isLabelyScanTourFormat(config);
           const useSelfieForSlot = labelyUseSelfieImage && si === 0;
-          const foodDatabaseImageUrl = labelyUseFoodDatabasePhotos && !useSelfieForSlot
+          const foodDatabaseImageUrl = labelyUseFoodDatabasePhotos
             ? foodDbImageUrlForItem(brandItem, sourceFoodDbMatches)
             : "";
           const ly = await fillLabelyFromAi(brandItem, si, {
@@ -3731,8 +3731,8 @@ ${SHARED_RULES_OUTRO}`;
               ? config.labelyAiProducts
                 ? labelyUseSelfieImage
                   ? labelyUseFoodDatabasePhotos
-                    ? "First photo uses the pilates selfie prompt; remaining photos use Open Food Facts."
-                    : "First photo uses the pilates selfie prompt; remaining photos use generated pack shots."
+                    ? "The intro uses the pilates selfie prompt; every scan/result uses Open Food Facts."
+                    : "The intro uses the pilates selfie prompt; scan/result slides use generated pack shots."
                   : labelyUseFoodDatabasePhotos
                     ? "Open Food Facts pack photos when possible; no AI image gen in that mode."
                     : "AI pack shots from your food list; scanner readout stays fictional."
@@ -3796,9 +3796,9 @@ ${SHARED_RULES_OUTRO}`;
                   />
                 </button>
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs font-semibold text-white/90">Use pilates selfie first image</div>
+                  <div className="text-xs font-semibold text-white/90">Use pilates selfie intro</div>
                   <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-                    Replaces only slot 1 with the luxury pilates mirror selfie prompt. The rest of the slideshow keeps using the normal food database photo flow.
+                    Adds the luxury pilates mirror selfie as slide 1 only. The following scan/result pairs still use normal food package photos.
                   </p>
                 </div>
               </div>
@@ -3893,11 +3893,11 @@ ${SHARED_RULES_OUTRO}`;
             </div>
             <p className="text-white/35 text-[10px] mb-2 leading-relaxed">
               {labelyUseSelfieImage && labelyUseFoodDatabasePhotos
-                ? "Slot 1 uses the pilates selfie image. Slots 2+ use selected Open Food Facts package photos."
+                ? "Slide 1 uses the pilates selfie image. All scan/result pairs use selected Open Food Facts package photos."
                 : labelyUseFoodDatabasePhotos
                 ? "Search Open Food Facts, choose the exact package match, then it is added to this list."
                 : labelyUseSelfieImage
-                  ? "One real packaged product per line. Slot 1 uses the pilates selfie image; remaining slots use generated pack art."
+                  ? "One real packaged product per line. Slide 1 uses the pilates selfie image; scan/result pairs use generated pack art."
                   : "One real packaged product per line — same idea as Thrifty's brand list. Generate picks from this list (shuffled); GPT uses that real SKU for name/brand/pack image while analysis still uses fictional scanner compound names."}
             </p>
             {isLabelyFoodDbBatchMode ? (

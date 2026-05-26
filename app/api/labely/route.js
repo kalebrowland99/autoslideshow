@@ -732,7 +732,7 @@ export async function POST(req) {
     const base = await generateLabelyJson({ openaiApiKey, seedHint });
     let shelfIntroDataUrl = null;
     let outImage = null;
-    if (useFoodDatabasePhoto && !useSelfieImage) {
+    if (useFoodDatabasePhoto) {
       try {
         outImage = foodDatabaseImageUrl ? await imageUrlToDataUrl(foodDatabaseImageUrl) : null;
         if (!outImage) {
@@ -751,13 +751,11 @@ export async function POST(req) {
       // `useFoodDatabasePhoto` is true but OFF fetch / proxy / MIME sniff failed (previously
       // we incorrectly skipped AI entirely in that case, yielding blank slides).
       if (!outImage) {
-        outImage = useSelfieImage
-          ? await generateSelfieImage()
-          : await generateProductImage({
-              imagePrompt: base.imagePrompt,
-              name: base.name,
-              brand: base.brand,
-            });
+        outImage = await generateProductImage({
+          imagePrompt: base.imagePrompt,
+          name: base.name,
+          brand: base.brand,
+        });
       }
     } catch (e) {
       console.error("[labely] image generation failed", e);
@@ -766,7 +764,7 @@ export async function POST(req) {
 
     if (includeShelfIntro) {
       shelfIntroDataUrl = useSelfieImage
-        ? outImage
+        ? await generateSelfieImage()
         : await generateShelfIntroImage({ name: base.name, brand: base.brand });
     }
 
