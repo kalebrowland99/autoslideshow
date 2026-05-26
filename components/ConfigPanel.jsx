@@ -13,7 +13,7 @@ import {
   scanTourSlotCount,
   LABELY_SCAN_TOUR_SLOTS,
 } from "@/lib/slideLayout";
-import { buildLabelyScanFrameSequence, captureShelfIntroCanvas } from "@/lib/labelyScanExport";
+import { buildLabelyScanFrameSequence, captureScanSourceCanvas, captureShelfIntroCanvas } from "@/lib/labelyScanExport";
 import { ensureExportImageUrls, needsExportImageInlining } from "@/lib/ensureExportImageUrls";
 import { inlineRemoteImagesInElement } from "@/lib/exportImagePrepare";
 import { getBrand } from "@/lib/brand";
@@ -3445,6 +3445,28 @@ ${SHARED_RULES_OUTRO}`;
         info.type === "collage"    ? "#111111"
         : info.type === "fullBleed" || info.type === "imessage" || info.type === "starterPack" || info.type === "labelyShelfIntro" ? "#000000"
         : "#ffffff";
+      const shouldIncludeScanSourcePng =
+        (config.outputFormat ?? "standard") === "labelyScan" &&
+        ["labely", "valcoin"].includes(config.appId ?? "thrifty") &&
+        (info.type === "labely" || (info.type === "thrifty" && (config.appId ?? "thrifty") === "valcoin"));
+
+      if (shouldIncludeScanSourcePng) {
+        try {
+          const slotNow = info.slot ?? config.slots?.[info.itemIndex ?? 0];
+          const productDataUrl =
+            typeof slotNow?.imageUrl === "string" ? slotNow.imageUrl.trim() : "";
+          const scanCanvas = await captureScanSourceCanvas(
+            productDataUrl,
+            (config.jitterSeed ?? 0) + (info.itemIndex ?? i) * 9973,
+          );
+          const blob = await new Promise((res) => scanCanvas.toBlob(res, "image/png"));
+          if (!blob) throw new Error("no scan source blob");
+          const arr = new Uint8Array(await blob.arrayBuffer());
+          pngEntries[uniqueRandomZipPngName(usedZipEntryNames)] = [arr, randomZipEntryOptions()];
+        } catch (e) {
+          console.warn("Skipping scan source PNG", i, e);
+        }
+      }
 
       if (info.type === "starterPack") {
         // Export final phase (all 4 cards visible) as a single PNG

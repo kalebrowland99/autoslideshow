@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
-import { readFile } from "fs/promises";
-import { join } from "path";
 import { runImageGenerationPipeline } from "@/lib/imageGenerationBackend";
-import { mimeFromPath } from "@/lib/imageGenerationBackend";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
-import { listPublicReferenceImageRelPaths, publicReferenceDirForAppId } from "@/lib/referenceImages";
+import { listPublicReferenceImageRelPaths } from "@/lib/referenceImages";
 import { BAD_LABELY_VERDICT, normalizeBadLabelyScore, randomBadLabelyScore } from "@/lib/labelyRating";
 import { extractOpenFoodFactsImage, sniffImageMimeFromBytes } from "@/lib/openFoodFactsProductImage";
 
@@ -26,96 +23,11 @@ Trash-can scene (CRITICAL — every image):
 `.trim();
 
 const LABELY_SELFIE_IMAGE_PROMPT = `
-{
-  "subject": {
-    "description": "A fit young woman taking a realistic mirror selfie in a warm, minimal luxury fitness / pilates studio",
-    "age": "young adult",
-    "pose": "natural mirror selfie pose, standing or seated on a yoga mat, relaxed confident posture, full-body or nearly full-body framing",
-    "expression": "not visible because phone completely covers face",
-    "hair": {
-      "color": "black",
-      "style": "long dark hair, slightly tousled, either worn down or loosely tied back with soft strands"
-    },
-    "clothing": {
-      "top": {
-        "type": "sports bra",
-        "color": "black",
-        "details": "scoop neck, minimal athletic design, tight fit, clean premium activewear look"
-      },
-      "bottom": {
-        "type": "leggings",
-        "color": "black",
-        "details": "high-waisted, fitted through the legs, smooth athletic fabric, flattering silhouette"
-      },
-      "shoes": "barefoot or minimal white ankle socks"
-    },
-    "face": {
-      "visibility": "completely covered by smartphone from forehead to chin",
-      "preserve_original": false,
-      "makeup": "not visible"
-    }
-  },
-  "accessories": {
-    "jewelry": {
-      "wrist": "subtle watch or slim bracelet on one wrist",
-      "neck": "thin delicate chain necklace"
-    },
-    "device": {
-      "type": "smartphone",
-      "color": "black or dark gray",
-      "details": "held vertically directly in front of the face, fully blocking all facial features"
-    }
-  },
-  "photography": {
-    "camera_style": "modern smartphone mirror selfie",
-    "angle": "eye-level reflection, natural social media selfie angle",
-    "shot_type": "vertical 9:16 photo, full-body or nearly full-body composition",
-    "quality": "photorealistic, sharp focus, natural phone-camera realism, soft shadows, realistic skin and fabric texture",
-    "mood": "minimal, expensive, wellness-focused, calm, feminine, polished"
-  },
-  "background": {
-    "setting": "high-end pilates, yoga, or luxury fitness studio",
-    "style": "warm wood, minimal architecture, soft golden lighting, clean luxury wellness aesthetic",
-    "elements": [
-      "vertical wood slat wall or smooth warm wood panel wall",
-      "large mirror selfie setup",
-      "black yoga or pilates mats",
-      "soft LED strip lighting along the wall or floor",
-      "minimal dumbbells, pilates ball, or small workout props in the background",
-      "light wood floors",
-      "optional potted plant",
-      "optional curved arch mirror or soft plaster wall"
-    ],
-    "atmosphere": "clean, warm, quiet, upscale, natural, not gritty or industrial",
-    "lighting": "soft warm ambient lighting with gentle highlights, similar to boutique pilates studio lighting"
-  },
-  "composition_rules": {
-    "include": [
-      "black hair",
-      "black sports bra",
-      "black high-waisted leggings",
-      "phone fully covering face",
-      "mirror selfie",
-      "warm wood studio aesthetic",
-      "luxury fitness / pilates vibe"
-    ],
-    "exclude": [
-      "any text on the image",
-      "captions",
-      "search bar",
-      "carousel dots",
-      "arrows",
-      "UI overlay elements",
-      "visible face",
-      "blonde hair",
-      "industrial MMA gym",
-      "chain-link fencing",
-      "red and black puzzle mats",
-      "messy clutter",
-      "logos or brand names"
-    ]
-  }
-}
+Copy the attached reference photo as exactly as possible.
+
+Preserve the same person/body, pose, crop, mirror angle, phone placement, outfit, hair, lighting, room, background, and overall composition. Do not invent a new photo, new room, new pose, new outfit, or new body framing.
+
+Make only a slight realistic adjustment: polish the image just enough to feel like a clean luxury pilates / wellness mirror selfie while keeping the original reference photo almost unchanged. If the face is visible in the reference, adjust the phone position so the phone fully covers the face. No text, captions, UI overlays, logos, or watermarks.
 `.trim();
 
 const OPENAI_CHAT = "https://api.openai.com/v1/chat/completions";
@@ -528,80 +440,16 @@ async function generateProductImage({ imagePrompt, name, brand }) {
   return null;
 }
 
-function buildSelfiePromptWithReference(referenceDescription, hasReferenceImage = false) {
-  const desc = String(referenceDescription || "").trim();
-  if (!hasReferenceImage) return LABELY_SELFIE_IMAGE_PROMPT;
-  return `${LABELY_SELFIE_IMAGE_PROMPT}
-
-Reference photo guidance:
-The attached reference image is the source photo to edit. Keep it as close to the original as possible: same person/body pose, crop, mirror angle, phone placement, outfit silhouette, lighting, background layout, and overall composition. Make only subtle adjustments needed to satisfy the JSON prompt above, especially ensuring the phone fully covers the face and the scene reads as a polished luxury pilates/wellness mirror selfie.
-${desc ? `Vision notes about the attached reference: ${desc}` : ""}
-
-Do not reinvent the image. Do not switch to a different pose, room, crop, camera angle, outfit shape, or body framing. Preserve the attached reference photo first, then apply only slight realistic refinements.`;
-}
-
-async function describeSelfieReferenceImage({ refFile, openaiApiKey }) {
-  if (!refFile || !openaiApiKey?.trim()) return "";
-  try {
-    const filePath = join(publicReferenceDirForAppId("labely-selfie"), refFile);
-    const bytes = await readFile(filePath);
-    const mimeType = mimeFromPath(refFile);
-    const res = await fetch(OPENAI_CHAT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${openaiApiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o",
-        temperature: 0.15,
-        max_tokens: 180,
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "image_url",
-                image_url: {
-                  url: `data:${mimeType};base64,${bytes.toString("base64")}`,
-                  detail: "high",
-                },
-              },
-              {
-                type: "text",
-                text:
-                  "Describe this reference photo as source-image edit instructions for a luxury pilates mirror selfie. Focus only on visual traits to preserve exactly: pose, crop, camera angle, phone placement, body framing, outfit silhouette/colors, hair silhouette, mirror setup, room/studio details, and lighting. Do not identify the person. If any face is visible, say the edited image must cover it fully with the phone. Keep it under 90 words.",
-              },
-            ],
-          },
-        ],
-      }),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      console.error("[labely] selfie reference vision failed", body?.error?.message || res.status);
-      return "";
-    }
-    const data = await res.json();
-    return String(data.choices?.[0]?.message?.content || "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 900);
-  } catch (e) {
-    console.error("[labely] selfie reference vision failed", e);
-    return "";
-  }
-}
-
-async function generateSelfieImage({ openaiApiKey } = {}) {
+async function generateSelfieImage() {
   const refs = await listPublicReferenceImageRelPaths("labely-selfie");
   const refFile = refs.length > 0 ? refs[Math.floor(Math.random() * refs.length)] : null;
-  const referenceDescription = await describeSelfieReferenceImage({ refFile, openaiApiKey });
   if (refFile) {
-    console.log(`[labely] selfie reference: ${refFile}${referenceDescription ? " + vision" : ""}`);
+    console.log(`[labely] selfie reference: ${refFile}`);
+  } else {
+    console.warn("[labely] no selfie reference images found in public/labely/selfie-references");
   }
   const result = await runImageGenerationPipeline({
-    prompt: buildSelfiePromptWithReference(referenceDescription, Boolean(refFile)),
+    prompt: LABELY_SELFIE_IMAGE_PROMPT,
     referenceFile: refFile,
     referenceInline: undefined,
     referenceRoot: refFile ? "labely/selfie-references" : undefined,
@@ -837,7 +685,7 @@ export async function POST(req) {
 
     if (includeShelfIntro) {
       shelfIntroDataUrl = useSelfieImage
-        ? await generateSelfieImage({ openaiApiKey })
+        ? await generateSelfieImage()
         : await generateShelfIntroImage({ name: base.name, brand: base.brand });
     }
 
