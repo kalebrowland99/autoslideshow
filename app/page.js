@@ -16,6 +16,7 @@ import {
 import { initFirebaseWebAnalytics, isFirebaseConfigured } from "@/lib/firebaseClient";
 import { firebaseFriendlyError } from "@/lib/firebaseFriendlyError";
 import { savedShowMatchesApp } from "@/lib/showAppId";
+import { pruneBlankSavedSlideshows } from "@/lib/galleryShow";
 export const emptySlot = (i) => ({
   imageUrl: null,
   prompt: "",
@@ -137,20 +138,25 @@ export default function Home() {
       setConfig(merged);
     }
     if (Array.isArray(raw.savedSlideshows)) {
-      setSavedSlideshows(
-        raw.savedSlideshows.map((s) => ({
-          ...s,
-          slots: Array.isArray(s?.slots) ? s.slots.map((slot) => ({ ...slot })) : s?.slots,
-        })),
+      const cloned = raw.savedSlideshows.map((s) => ({
+        ...s,
+        slots: Array.isArray(s?.slots) ? s.slots.map((slot) => ({ ...slot })) : s?.slots,
+      }));
+      const { shows, activeShowIdx: prunedActive } = pruneBlankSavedSlideshows(
+        cloned,
+        raw.activeShowIdx,
       );
+      setSavedSlideshows(shows);
+      if (typeof prunedActive === "number" && prunedActive >= 0) {
+        setActiveShowIdx(prunedActive);
+      } else {
+        setActiveShowIdx(null);
+      }
     }
     const maxSlide = Math.max(0, getTotalSlides(merged) - 1);
     const cs = typeof raw.currentSlide === "number" ? raw.currentSlide : 0;
     setCurrentSlide(Math.min(Math.max(0, cs), maxSlide));
-    if (typeof raw.activeShowIdx === "number" && raw.activeShowIdx >= 0) {
-      const n = Array.isArray(raw.savedSlideshows) ? raw.savedSlideshows.length : 0;
-      setActiveShowIdx(n > 0 ? Math.min(raw.activeShowIdx, n - 1) : null);
-    } else {
+    if (!Array.isArray(raw.savedSlideshows)) {
       setActiveShowIdx(null);
     }
     if (typeof raw.numSlideshows === "number" && raw.numSlideshows >= 1 && raw.numSlideshows <= 120) {
@@ -166,23 +172,26 @@ export default function Home() {
   const applyGalleryAndBatchOnly = useCallback((raw) => {
     if (!raw || typeof raw !== "object") return;
     if (Array.isArray(raw.savedSlideshows)) {
-      setSavedSlideshows(
-        raw.savedSlideshows.map((s) => ({
-          ...s,
-          slots: Array.isArray(s?.slots) ? s.slots.map((slot) => ({ ...slot })) : s?.slots,
-        })),
+      const cloned = raw.savedSlideshows.map((s) => ({
+        ...s,
+        slots: Array.isArray(s?.slots) ? s.slots.map((slot) => ({ ...slot })) : s?.slots,
+      }));
+      const { shows, activeShowIdx: prunedActive } = pruneBlankSavedSlideshows(
+        cloned,
+        raw.activeShowIdx,
       );
+      setSavedSlideshows(shows);
+      if (typeof prunedActive === "number" && prunedActive >= 0) {
+        setActiveShowIdx(prunedActive);
+      } else {
+        setActiveShowIdx(null);
+      }
     } else {
       setSavedSlideshows([]);
+      setActiveShowIdx(null);
     }
     if (Array.isArray(raw.batchImageDataUrls)) {
       setBatchImageDataUrls(raw.batchImageDataUrls.map((x) => (typeof x === "string" && x.trim() ? x : null)));
-    }
-    if (typeof raw.activeShowIdx === "number" && raw.activeShowIdx >= 0) {
-      const n = Array.isArray(raw.savedSlideshows) ? raw.savedSlideshows.length : 0;
-      setActiveShowIdx(n > 0 ? Math.min(raw.activeShowIdx, n - 1) : null);
-    } else {
-      setActiveShowIdx(null);
     }
   }, []);
 

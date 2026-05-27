@@ -1,20 +1,9 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { galleryThumbUrl } from "@/lib/galleryShow";
 
 const COMPACT_THRESHOLD = 20;
-
-/** First usable preview URL for a saved show. */
-function galleryThumbUrl(show) {
-  const ps = String(show?.previewScreenshot || "").trim();
-  if (ps) return ps;
-  const slots = Array.isArray(show?.slots) ? show.slots : [];
-  for (const s of slots) {
-    const u = String(s?.imageUrl || "").trim();
-    if (u) return u;
-  }
-  return null;
-}
 
 /**
  * Right-rail gallery: stays within viewport height; compact rows for large batches;

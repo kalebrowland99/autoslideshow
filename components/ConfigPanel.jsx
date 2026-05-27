@@ -2682,14 +2682,14 @@ ${SHARED_RULES_OUTRO}`;
         }
         if (!cancelGenRef.current) {
           setGenAllProgress((p) => p
-            ? { ...p, phase: `✓ ${generatedShows.length} slideshow${generatedShows.length > 1 ? "s" : ""} saved. Auto-exporting iPhone ZIPs…`, done: 6 }
+            ? { ...p, phase: `✓ ${generatedShows.length} slideshow${generatedShows.length > 1 ? "s" : ""} saved. Auto-exporting slide PNG ZIPs…`, done: 6 }
             : null
           );
           const restoreConfig = {
             ...config,
             slots: (config.slots ?? []).map((s) => ({ ...s })),
           };
-          await exportIphoneZipPlans(generatedShows, restoreConfig, { auto: true });
+          await exportIphonePngZipPlans(generatedShows, restoreConfig, { auto: true });
         } else {
           setGenAllProgress((p) => p
             ? { ...p, phase: `Stopped after ${generatedShows.length} slideshow${generatedShows.length === 1 ? "" : "s"}.`, done: 6 }
@@ -2741,14 +2741,14 @@ ${SHARED_RULES_OUTRO}`;
         }
         if (!cancelGenRef.current) {
           setGenAllProgress((p) => p
-            ? { ...p, phase: `✓ ${generatedShows.length} slideshow${generatedShows.length > 1 ? "s" : ""} saved. Auto-exporting iPhone ZIPs…`, done: 6 }
+            ? { ...p, phase: `✓ ${generatedShows.length} slideshow${generatedShows.length > 1 ? "s" : ""} saved. Auto-exporting slide PNG ZIPs…`, done: 6 }
             : null
           );
           const restoreConfig = {
             ...config,
             slots: (config.slots ?? []).map((s) => ({ ...s })),
           };
-          await exportIphoneZipPlans(generatedShows, restoreConfig, { auto: true });
+          await exportIphonePngZipPlans(generatedShows, restoreConfig, { auto: true });
         } else {
           setGenAllProgress((p) => p
             ? { ...p, phase: `Stopped after ${generatedShows.length} slideshow${generatedShows.length === 1 ? "" : "s"}.`, done: 6 }
@@ -3352,11 +3352,11 @@ ${SHARED_RULES_OUTRO}`;
     const aid = config.appId ?? "thrifty";
     if (aid === "labely") {
       const labelyGallery = savedSlideshows.filter((s) => savedShowMatchesApp(s, "labely"));
-      if (await exportIphoneZipPlans(labelyGallery, restoreConfig)) return;
+      if (await exportIphonePngZipPlans(labelyGallery, restoreConfig)) return;
     }
     if (aid === "valcoin") {
       const valcoinGallery = savedSlideshows.filter((s) => savedShowMatchesApp(s, "valcoin"));
-      if (await exportIphoneZipPlans(valcoinGallery, restoreConfig)) return;
+      if (await exportIphonePngZipPlans(valcoinGallery, restoreConfig)) return;
     }
 
     const videos = savedSlideshows.filter((s) => savedShowMatchesApp(s, aid));
@@ -3559,11 +3559,12 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
-  const exportIphonePngZipPlans = async (shows, restoreConfig) => {
+  const exportIphonePngZipPlans = async (shows, restoreConfig, { auto = false } = {}) => {
     const zipPlan = tryBuildIphoneBatchZipPlan(shows);
     if (zipPlan?.error) {
-      alert(zipPlan.error);
-      return true;
+      if (auto) setExportStatus(zipPlan.error);
+      else alert(zipPlan.error);
+      return auto ? false : true;
     }
     if (!zipPlan?.zipPlans?.length) return false;
 
@@ -3575,7 +3576,7 @@ ${SHARED_RULES_OUTRO}`;
     cancelGenRef.current = false;
     setIsExporting(true);
     setExportProgress(0);
-    setExportStatus(`Exporting PNG folders for ${zipPlans.length} iPhones…`);
+    setExportStatus(`${auto ? "Auto-export: " : ""}Exporting PNG folders for ${zipPlans.length} iPhones…`);
 
     try {
       const { zipSync } = await import("fflate");
@@ -3593,12 +3594,12 @@ ${SHARED_RULES_OUTRO}`;
           const { zipRelPath, show } = plan.jobs[i];
           const showDir = `${iphoneDir}/${slideshowFolderName(i, show, zipRelPath)}`;
           const exportCfg = galleryShowToExportConfig(restoreConfig, show);
-          setExportStatus(`iPhone ${plan.iphoneNumber}: capturing slideshow ${i + 1} / ${plan.jobs.length}…`);
+          setExportStatus(`${auto ? "Auto-export: " : ""}iPhone ${plan.iphoneNumber}: capturing slideshow ${i + 1} / ${plan.jobs.length}…`);
           await capturePngEntriesForConfig(exportCfg, {
             pngEntries: zipEntries,
             usedZipEntryNames,
             baseDir: showDir,
-            statusPrefix: `iPhone ${plan.iphoneNumber} · Slideshow ${i + 1}: `,
+            statusPrefix: `${auto ? "Auto-export: " : ""}iPhone ${plan.iphoneNumber} · Slideshow ${i + 1}: `,
             progressBase: Math.round((completedJobs / totalJobs) * 85),
             progressSpan: Math.max(1, 85 / totalJobs),
           });
@@ -3609,7 +3610,7 @@ ${SHARED_RULES_OUTRO}`;
         if (cancelGenRef.current) break;
         if (Object.keys(zipEntries).length === 0) continue;
 
-        setExportStatus(`Building PNG ZIP ${plan.iphoneNumber} / ${zipPlans.length}…`);
+        setExportStatus(`${auto ? "Auto-export: " : ""}Building PNG ZIP ${plan.iphoneNumber} / ${zipPlans.length}…`);
         const zipData = zipSync(zipEntries, { level: 1 });
         const blob = new Blob([zipData], { type: "application/zip" });
         triggerZipDownload(blob, `${zipFilePrefix}${String(plan.iphoneNumber).padStart(2, "0")}-${randomExportHex(10)}.zip`);
@@ -3623,11 +3624,11 @@ ${SHARED_RULES_OUTRO}`;
         setExportProgress(100);
         setExportStatus(`Done! Downloaded ${downloadedZipCount} iPhone PNG ZIPs.`);
       }
-      return true;
+      return downloadedZipCount > 0;
     } catch (e) {
       console.error(e);
       setExportStatus("iPhone PNG ZIP export failed — see console.");
-      return true;
+      return auto ? false : true;
     } finally {
       flushSync(() => setConfig(restoreConfig));
       flushSync(() => setCurrentSlide(0));
@@ -3732,7 +3733,7 @@ ${SHARED_RULES_OUTRO}`;
           <div className="rounded-xl border border-violet-500/25 bg-violet-500/10 px-3 py-2.5 text-[11px] text-white/80">
             <div className="font-semibold text-white">6-coin collage → scan ×6 → Valcoin slide-up</div>
             <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-              {`Opens on a 6-coin collage, then each coin gets a scan animation and the Valcoin app slides up — same slide-up choreography as Labely. Coin photos come from Wikimedia Commons (public domain); upload your own in the image rows below if you prefer. Batch generate builds ${VALCOIN_IPHONE_PACK_TOTAL} slideshows (6 batches × ${VALCOIN_IPHONE_SLIDESHOWS_PER_BATCH}) and auto-exports ${GALLERY_IPHONE_DEVICE_COUNT} iPhone ZIPs (${LABELY_DB_BATCH_COUNT} videos each), same folder layout as Labely.`}
+              {`Opens on a 6-coin collage, then each coin gets a scan animation and the Valcoin app slides up — same slide-up choreography as Labely. Coin photos come from Wikimedia Commons (public domain); upload your own in the image rows below if you prefer. Batch generate builds ${VALCOIN_IPHONE_PACK_TOTAL} slideshows (6 batches × ${VALCOIN_IPHONE_SLIDESHOWS_PER_BATCH}) and auto-exports ${GALLERY_IPHONE_DEVICE_COUNT} iPhone ZIPs of slide PNGs (${LABELY_DB_BATCH_COUNT} slideshows per ZIP), same folder layout as Labely.`}
             </p>
           </div>
         ) : (
@@ -4786,7 +4787,7 @@ ${SHARED_RULES_OUTRO}`;
 
         {savedForCurrentApp.length >= 2 ? (
           <p className="text-white/25 text-[10px] text-center leading-relaxed">
-            Gallery export runs each saved thumbnail for <span className="text-white/45">{brand.appName}</span> as its own video, unless batch metadata triggers the multi-ZIP iPhone pack (Labely food DB or Valcoin {VALCOIN_IPHONE_PACK_TOTAL}-slideshow batch).
+            Gallery export runs each saved thumbnail for <span className="text-white/45">{brand.appName}</span> as its own video, unless batch metadata triggers the multi-ZIP iPhone PNG pack (Labely food DB or Valcoin {VALCOIN_IPHONE_PACK_TOTAL}-slideshow batch).
           </p>
         ) : null}
 
