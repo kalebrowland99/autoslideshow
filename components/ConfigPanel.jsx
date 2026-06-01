@@ -210,6 +210,27 @@ function triggerZipDownload(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
+/** ISO BMFF / MP4 — `ftyp` box at byte offset 4. */
+function isMp4Bytes(bytes) {
+  return (
+    bytes.length >= 12
+    && bytes[4] === 0x66
+    && bytes[5] === 0x74
+    && bytes[6] === 0x79
+    && bytes[7] === 0x70
+  );
+}
+
+function isPngBytes(bytes) {
+  return (
+    bytes.length >= 8
+    && bytes[0] === 0x89
+    && bytes[1] === 0x50
+    && bytes[2] === 0x4e
+    && bytes[3] === 0x47
+  );
+}
+
 /** Rows for food DB search dropdowns — label text + optional Open Food Facts front photo. */
 function foodDbDropdownRowsFromSuggestionRow(row) {
   if (!row) return [];
@@ -2689,7 +2710,7 @@ ${SHARED_RULES_OUTRO}`;
             ...config,
             slots: (config.slots ?? []).map((s) => ({ ...s })),
           };
-          await exportIphoneZipPlans(generatedShows, restoreConfig, { auto: true });
+          await exportIphoneMp4ZipPlans(generatedShows, restoreConfig, { auto: true });
         } else {
           setGenAllProgress((p) => p
             ? { ...p, phase: `Stopped after ${generatedShows.length} slideshow${generatedShows.length === 1 ? "" : "s"}.`, done: 6 }
@@ -2748,7 +2769,7 @@ ${SHARED_RULES_OUTRO}`;
             ...config,
             slots: (config.slots ?? []).map((s) => ({ ...s })),
           };
-          await exportIphoneZipPlans(generatedShows, restoreConfig, { auto: true });
+          await exportIphoneMp4ZipPlans(generatedShows, restoreConfig, { auto: true });
         } else {
           setGenAllProgress((p) => p
             ? { ...p, phase: `Stopped after ${generatedShows.length} slideshow${generatedShows.length === 1 ? "" : "s"}.`, done: 6 }
@@ -3262,7 +3283,8 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
-  const exportIphoneZipPlans = async (shows, restoreConfig, { auto = false } = {}) => {
+  /** Batch + gallery iPhone packs: one H.264 .mp4 per slideshow inside each ZIP (never PNG). */
+  const exportIphoneMp4ZipPlans = async (shows, restoreConfig, { auto = false } = {}) => {
     const zipPlan = tryBuildIphoneBatchZipPlan(shows);
     if (zipPlan?.error) {
       if (auto) setExportStatus(zipPlan.error);
@@ -3273,13 +3295,16 @@ ${SHARED_RULES_OUTRO}`;
     if (zipPlan?.zipPlans?.length) {
       const zipPlans = zipPlan.zipPlans;
       const zipFilePrefix =
-        String(shows[0]?.appId || "").trim() === "valcoin" ? "valcoin-iphone-" : "labely-iphone-";
+        String(shows[0]?.appId || "").trim() === "valcoin"
+          ? "valcoin-iphone-mp4-"
+          : "labely-iphone-mp4-";
       const totalJobs = zipPlans.reduce((sum, plan) => sum + plan.jobs.length, 0);
       let completedJobs = 0;
+      let encodedMp4Count = 0;
       cancelGenRef.current = false;
       setIsExporting(true);
       setExportProgress(0);
-      setExportStatus(`${auto ? "Auto-export: " : ""}Encoding ${totalJobs} videos into ${zipPlans.length} ZIPs…`);
+      setExportStatus(`${auto ? "Auto-export: " : ""}Encoding ${totalJobs} MP4 videos into ${zipPlans.length} ZIPs…`);
       try {
         const { zipSync } = await import("fflate");
         let downloadedZipCount = 0;
@@ -3291,7 +3316,10 @@ ${SHARED_RULES_OUTRO}`;
             await waitWhilePaused();
             if (cancelGenRef.current) break;
             const { zipRelPath, show } = plan.jobs[i];
-            setExportStatus(`${auto ? "Auto-export: " : ""}iPhone ${plan.iphoneNumber}: encoding video ${i + 1} / ${plan.jobs.length}…`);
+            const mp4Path = String(zipRelPath || "").toLowerCase().endsWith(".mp4")
+              ? zipRelPath
+              : `${zipRelPath}.mp4`;
+            setExportStatus(`${auto ? "Auto-export: " : ""}iPhone ${plan.iphoneNumber}: encoding MP4 ${i + 1} / ${plan.jobs.length}…`);
             const exportCfg = galleryShowToExportConfig(restoreConfig, show);
             flushSync(() => setConfig(exportCfg));
             flushSync(() => setCurrentSlide(0));
@@ -3300,7 +3328,16 @@ ${SHARED_RULES_OUTRO}`;
             if (cancelGenRef.current) break;
             if (blob) {
               const arr = new Uint8Array(await blob.arrayBuffer());
-              zipEntries[zipRelPath] = [arr, randomZipEntryOptions()];
+              if (isPngBytes(arr)) {
+                console.error("Refusing PNG bytes in MP4 ZIP entry", mp4Path);
+                setExportStatus(`Skipped ${mp4Path} — got PNG instead of MP4 (stale build or encoder bug). Hard-refresh and retry.`);
+              } else if (!isMp4Bytes(arr)) {
+                console.error("Invalid MP4 payload for ZIP entry", mp4Path, arr.slice(0, 16));
+                setExportStatus(`Skipped ${mp4Path} — file is not a valid MP4. Use Chrome or Safari 16+.`);
+              } else {
+                zipEntries[mp4Path] = [arr, randomZipEntryOptions()];
+                encodedMp4Count++;
+              }
             }
             completedJobs++;
             setExportProgress(Math.round((completedJobs / totalJobs) * 95));
@@ -3311,7 +3348,7 @@ ${SHARED_RULES_OUTRO}`;
 
           if (Object.keys(zipEntries).length === 0) continue;
 
-          setExportStatus(`${auto ? "Auto-export: " : ""}Building ZIP ${plan.iphoneNumber} / ${zipPlans.length}…`);
+          setExportStatus(`${auto ? "Auto-export: " : ""}Building MP4 ZIP ${plan.iphoneNumber} / ${zipPlans.length}…`);
           const zipData = zipSync(zipEntries, { level: 1 });
           const blob = new Blob([zipData], { type: "application/zip" });
           triggerZipDownload(blob, `${zipFilePrefix}${String(plan.iphoneNumber).padStart(2, "0")}-${randomExportHex(10)}.zip`);
@@ -3320,10 +3357,14 @@ ${SHARED_RULES_OUTRO}`;
         }
 
         if (downloadedZipCount === 0) {
-          setExportStatus("Nothing encoded — ZIP export cancelled.");
+          setExportStatus(
+            encodedMp4Count === 0
+              ? "No MP4 videos encoded — use Chrome or Safari 16+ with WebCodecs, then run export again."
+              : "Nothing encoded — ZIP export cancelled.",
+          );
         } else {
           setExportProgress(100);
-          setExportStatus(`Done! Downloaded ${downloadedZipCount} iPhone ZIPs.`);
+          setExportStatus(`Done! Downloaded ${downloadedZipCount} iPhone ZIPs (${encodedMp4Count} MP4 videos).`);
         }
         return downloadedZipCount > 0;
       } catch (e) {
@@ -3352,11 +3393,11 @@ ${SHARED_RULES_OUTRO}`;
     const aid = config.appId ?? "thrifty";
     if (aid === "labely") {
       const labelyGallery = savedSlideshows.filter((s) => savedShowMatchesApp(s, "labely"));
-      if (await exportIphoneZipPlans(labelyGallery, restoreConfig)) return;
+      if (await exportIphoneMp4ZipPlans(labelyGallery, restoreConfig)) return;
     }
     if (aid === "valcoin") {
       const valcoinGallery = savedSlideshows.filter((s) => savedShowMatchesApp(s, "valcoin"));
-      if (await exportIphoneZipPlans(valcoinGallery, restoreConfig)) return;
+      if (await exportIphoneMp4ZipPlans(valcoinGallery, restoreConfig)) return;
     }
 
     const videos = savedSlideshows.filter((s) => savedShowMatchesApp(s, aid));
@@ -3559,12 +3600,12 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
-  const exportIphonePngZipPlans = async (shows, restoreConfig, { auto = false } = {}) => {
+  /** Manual export only (Export → “All slides → ZIP (PNG)”). Never used after batch generate. */
+  const exportIphonePngZipPlans = async (shows, restoreConfig) => {
     const zipPlan = tryBuildIphoneBatchZipPlan(shows);
     if (zipPlan?.error) {
-      if (auto) setExportStatus(zipPlan.error);
-      else alert(zipPlan.error);
-      return auto ? false : true;
+      alert(zipPlan.error);
+      return true;
     }
     if (!zipPlan?.zipPlans?.length) return false;
 
@@ -3576,7 +3617,7 @@ ${SHARED_RULES_OUTRO}`;
     cancelGenRef.current = false;
     setIsExporting(true);
     setExportProgress(0);
-    setExportStatus(`${auto ? "Auto-export: " : ""}Exporting PNG folders for ${zipPlans.length} iPhones…`);
+    setExportStatus(`Exporting PNG folders for ${zipPlans.length} iPhones…`);
 
     try {
       const { zipSync } = await import("fflate");
@@ -3594,12 +3635,12 @@ ${SHARED_RULES_OUTRO}`;
           const { zipRelPath, show } = plan.jobs[i];
           const showDir = `${iphoneDir}/${slideshowFolderName(i, show, zipRelPath)}`;
           const exportCfg = galleryShowToExportConfig(restoreConfig, show);
-          setExportStatus(`${auto ? "Auto-export: " : ""}iPhone ${plan.iphoneNumber}: capturing slideshow ${i + 1} / ${plan.jobs.length}…`);
+          setExportStatus(`iPhone ${plan.iphoneNumber}: capturing slideshow ${i + 1} / ${plan.jobs.length}…`);
           await capturePngEntriesForConfig(exportCfg, {
             pngEntries: zipEntries,
             usedZipEntryNames,
             baseDir: showDir,
-            statusPrefix: `${auto ? "Auto-export: " : ""}iPhone ${plan.iphoneNumber} · Slideshow ${i + 1}: `,
+            statusPrefix: `iPhone ${plan.iphoneNumber} · Slideshow ${i + 1}: `,
             progressBase: Math.round((completedJobs / totalJobs) * 85),
             progressSpan: Math.max(1, 85 / totalJobs),
           });
@@ -3610,7 +3651,7 @@ ${SHARED_RULES_OUTRO}`;
         if (cancelGenRef.current) break;
         if (Object.keys(zipEntries).length === 0) continue;
 
-        setExportStatus(`${auto ? "Auto-export: " : ""}Building PNG ZIP ${plan.iphoneNumber} / ${zipPlans.length}…`);
+        setExportStatus(`Building PNG ZIP ${plan.iphoneNumber} / ${zipPlans.length}…`);
         const zipData = zipSync(zipEntries, { level: 1 });
         const blob = new Blob([zipData], { type: "application/zip" });
         triggerZipDownload(blob, `${zipFilePrefix}${String(plan.iphoneNumber).padStart(2, "0")}-${randomExportHex(10)}.zip`);
@@ -3628,7 +3669,7 @@ ${SHARED_RULES_OUTRO}`;
     } catch (e) {
       console.error(e);
       setExportStatus("iPhone PNG ZIP export failed — see console.");
-      return auto ? false : true;
+      return true;
     } finally {
       flushSync(() => setConfig(restoreConfig));
       flushSync(() => setCurrentSlide(0));
