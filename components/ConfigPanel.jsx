@@ -2682,14 +2682,14 @@ ${SHARED_RULES_OUTRO}`;
         }
         if (!cancelGenRef.current) {
           setGenAllProgress((p) => p
-            ? { ...p, phase: `✓ ${generatedShows.length} slideshow${generatedShows.length > 1 ? "s" : ""} saved. Auto-exporting slide PNG ZIPs…`, done: 6 }
+            ? { ...p, phase: `✓ ${generatedShows.length} slideshow${generatedShows.length > 1 ? "s" : ""} saved. Auto-exporting iPhone ZIPs…`, done: 6 }
             : null
           );
           const restoreConfig = {
             ...config,
             slots: (config.slots ?? []).map((s) => ({ ...s })),
           };
-          await exportIphonePngZipPlans(generatedShows, restoreConfig, { auto: true });
+          await exportIphoneZipPlans(generatedShows, restoreConfig, { auto: true });
         } else {
           setGenAllProgress((p) => p
             ? { ...p, phase: `Stopped after ${generatedShows.length} slideshow${generatedShows.length === 1 ? "" : "s"}.`, done: 6 }
@@ -2741,14 +2741,14 @@ ${SHARED_RULES_OUTRO}`;
         }
         if (!cancelGenRef.current) {
           setGenAllProgress((p) => p
-            ? { ...p, phase: `✓ ${generatedShows.length} slideshow${generatedShows.length > 1 ? "s" : ""} saved. Auto-exporting slide PNG ZIPs…`, done: 6 }
+            ? { ...p, phase: `✓ ${generatedShows.length} slideshow${generatedShows.length > 1 ? "s" : ""} saved. Auto-exporting iPhone ZIPs…`, done: 6 }
             : null
           );
           const restoreConfig = {
             ...config,
             slots: (config.slots ?? []).map((s) => ({ ...s })),
           };
-          await exportIphonePngZipPlans(generatedShows, restoreConfig, { auto: true });
+          await exportIphoneZipPlans(generatedShows, restoreConfig, { auto: true });
         } else {
           setGenAllProgress((p) => p
             ? { ...p, phase: `Stopped after ${generatedShows.length} slideshow${generatedShows.length === 1 ? "" : "s"}.`, done: 6 }
@@ -3352,11 +3352,11 @@ ${SHARED_RULES_OUTRO}`;
     const aid = config.appId ?? "thrifty";
     if (aid === "labely") {
       const labelyGallery = savedSlideshows.filter((s) => savedShowMatchesApp(s, "labely"));
-      if (await exportIphonePngZipPlans(labelyGallery, restoreConfig)) return;
+      if (await exportIphoneZipPlans(labelyGallery, restoreConfig)) return;
     }
     if (aid === "valcoin") {
       const valcoinGallery = savedSlideshows.filter((s) => savedShowMatchesApp(s, "valcoin"));
-      if (await exportIphonePngZipPlans(valcoinGallery, restoreConfig)) return;
+      if (await exportIphoneZipPlans(valcoinGallery, restoreConfig)) return;
     }
 
     const videos = savedSlideshows.filter((s) => savedShowMatchesApp(s, aid));
@@ -3733,7 +3733,7 @@ ${SHARED_RULES_OUTRO}`;
           <div className="rounded-xl border border-violet-500/25 bg-violet-500/10 px-3 py-2.5 text-[11px] text-white/80">
             <div className="font-semibold text-white">6-coin collage → scan ×6 → Valcoin slide-up</div>
             <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-              {`Opens on a 6-coin collage, then each coin gets a scan animation and the Valcoin app slides up — same slide-up choreography as Labely. Coin photos come from Wikimedia Commons (public domain); upload your own in the image rows below if you prefer. Batch generate builds ${VALCOIN_IPHONE_PACK_TOTAL} slideshows (6 batches × ${VALCOIN_IPHONE_SLIDESHOWS_PER_BATCH}) and auto-exports ${GALLERY_IPHONE_DEVICE_COUNT} iPhone ZIPs of slide PNGs (${LABELY_DB_BATCH_COUNT} slideshows per ZIP), same folder layout as Labely.`}
+              {`Opens on a 6-coin collage, then each coin gets a scan animation and the Valcoin app slides up — same slide-up choreography as Labely. Coin photos come from Wikimedia Commons (public domain); upload your own in the image rows below if you prefer. Batch generate builds ${VALCOIN_IPHONE_PACK_TOTAL} slideshows (6 batches × ${VALCOIN_IPHONE_SLIDESHOWS_PER_BATCH}) and auto-exports ${GALLERY_IPHONE_DEVICE_COUNT} iPhone ZIPs (${LABELY_DB_BATCH_COUNT} videos each), same folder layout as Labely.`}
             </p>
           </div>
         ) : (
@@ -4787,7 +4787,7 @@ ${SHARED_RULES_OUTRO}`;
 
         {savedForCurrentApp.length >= 2 ? (
           <p className="text-white/25 text-[10px] text-center leading-relaxed">
-            Gallery export runs each saved thumbnail for <span className="text-white/45">{brand.appName}</span> as its own video, unless batch metadata triggers the multi-ZIP iPhone PNG pack (Labely food DB or Valcoin {VALCOIN_IPHONE_PACK_TOTAL}-slideshow batch).
+            Gallery export runs each saved thumbnail for <span className="text-white/45">{brand.appName}</span> as its own video, unless batch metadata triggers the multi-ZIP iPhone pack (Labely food DB or Valcoin {VALCOIN_IPHONE_PACK_TOTAL}-slideshow batch).
           </p>
         ) : null}
 
