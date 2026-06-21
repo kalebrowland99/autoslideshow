@@ -7,6 +7,10 @@ const AUDIO_ACCEPT = "audio/mpeg,audio/wav,audio/mp4,audio/aac,audio/ogg";
 const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp,image/gif";
 const MAX_SOURCE_VIDEOS = 3;
 const DEFAULT_COPIES = 20;
+const MAX_SOURCE_FILE_MB = 250;
+const FFMPEG_CORE_VERSION = "0.12.6";
+const DRAWTEXT_FONT_URL =
+  "https://raw.githubusercontent.com/ffmpegwasm/testdata/master/arial.ttf";
 
 const DEFAULT_SETTINGS = {
   noise: true,
@@ -134,7 +138,7 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
-function getVideoDuration(file) {
+function getVideoMeta(file) {
   return new Promise((resolve) => {
     const video = document.createElement("video");
     const url = URL.createObjectURL(file);
@@ -143,10 +147,79 @@ function getVideoDuration(file) {
       resolve(value);
     };
     video.preload = "metadata";
-    video.onloadedmetadata = () => done(Number.isFinite(video.duration) ? video.duration : 0);
-    video.onerror = () => done(0);
+    video.onloadedmetadata = () => {
+      const hasAudio =
+        (typeof video.audioTracks !== "undefined" && video.audioTracks.length > 0) ||
+        Boolean(video.mozHasAudio) ||
+        (typeof video.webkitAudioDecodedByteCount === "number" && video.webkitAudioDecodedByteCount > 0);
+      done({
+        duration: Number.isFinite(video.duration) ? video.duration : 0,
+        hasAudio,
+      });
+    };
+    video.onerror = () => done({ duration: 0, hasAudio: false });
     video.src = url;
   });
+}
+
+function formatFfmpegError(error, ffmpegLog) {
+  const message = String(error?.message || error || "");
+  if (error?.name === "ErrnoError" || message.includes("FS error")) {
+    if (ffmpegLog) return `FFmpeg failed: ${ffmpegLog}`;
+    return "FFmpeg ran out of browser memory or could not read/write a file. Try a smaller/shorter video or fewer copies.";
+  }
+  return message || "Video uniqueizer failed. Check the browser console for details.";
+}
+
+async function loadFfmpegCore(ffmpeg, toBlobURL) {
+  const localBase = `${window.location.origin}/ffmpeg`;
+  const cdnBase = `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${FFMPEG_CORE_VERSION}/dist/umd`;
+  const candidates = [localBase, cdnBase];
+
+  let lastError = null;
+  for (const baseURL of candidates) {
+    try {
+      const sameOrigin = baseURL.startsWith(window.location.origin);
+      if (sameOrigin) {
+        await ffmpeg.load({
+          coreURL: `${baseURL}/ffmpeg-core.js`,
+          wasmURL: `${baseURL}/ffmpeg-core.wasm`,
+        });
+      } else {
+        await ffmpeg.load({
+          coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
+          wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
+        });
+      }
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("Could not load FFmpeg engine.");
+}
+
+async function ensureDrawtextFont(ffmpeg, fetchFile, fontLoadedRef) {
+  if (fontLoadedRef.current) return "/arial.ttf";
+  await ffmpeg.writeFile("/arial.ttf", await fetchFile(DRAWTEXT_FONT_URL));
+  fontLoadedRef.current = true;
+  return "/arial.ttf";
+}
+
+async function mountSourceVideo(ffmpeg, file, mountId) {
+  const mountDir = `/source-${mountId}`;
+  const inputName = `source.${extensionFor(file, "mp4")}`;
+  const sourceFile = new File([file], inputName, { type: file.type || "video/mp4" });
+  await ffmpeg.createDir(mountDir);
+  await ffmpeg.mount("WORKERFS", { files: [sourceFile] }, mountDir);
+  return { mountDir, inputName: `${mountDir}/${inputName}` };
+}
+
+async function unmountSourceVideo(ffmpeg, mountDir) {
+  try {
+    await ffmpeg.unmount(mountDir);
+  } catch {}
 }
 
 function buildPlan({ item, copyIndex, settings, phrases, hasWatermarks, hasAudio, hasComboVideos }) {
@@ -230,7 +303,7 @@ function buildAudioFilters(plan) {
   return filters;
 }
 
-function buildFilterGraph({ plan, settings, comboInputIndex, watermarkInputIndex, audioInputIndex }) {
+function buildFilterGraph({ plan, settings, comboInputIndex, watermarkInputIndex, audioInputIndex, sourceHasAudio, fontPath }) {
   const chains = [];
   let current = "vbase";
   let labelIndex = 0;
@@ -270,16 +343,16 @@ function buildFilterGraph({ plan, settings, comboInputIndex, watermarkInputIndex
   if (settings.framerate) filters.push(`fps=${plan.fps}`);
   applyVideoFilters(filters);
 
-  if (settings.staticText) {
+  if (settings.staticText && fontPath) {
     const end = plan.staticTextStart + plan.staticTextDuration;
     applyVideoFilters([
-      `drawtext=text='${escapeDrawtextText(plan.staticText)}':fontcolor=${colorValue(plan.staticTextColor)}@${plan.staticTextOpacity}:fontsize=${plan.staticTextSize}:box=1:boxcolor=${colorValue(plan.staticTextBg)}@0.35:boxborderw=12:x=(w-tw)*${plan.staticTextX}:y=(h-th)*${plan.staticTextY}:enable='between(t,${plan.staticTextStart},${end})'`,
+      `drawtext=fontfile=${fontPath}:text='${escapeDrawtextText(plan.staticText)}':fontcolor=${colorValue(plan.staticTextColor)}@${plan.staticTextOpacity}:fontsize=${plan.staticTextSize}:box=1:boxcolor=${colorValue(plan.staticTextBg)}@0.35:boxborderw=12:x=(w-tw)*${plan.staticTextX}:y=(h-th)*${plan.staticTextY}:enable='between(t,${plan.staticTextStart},${end})'`,
     ]);
   }
 
-  if (settings.runningLine) {
+  if (settings.runningLine && fontPath) {
     applyVideoFilters([
-      `drawtext=text='${escapeDrawtextText(plan.runningText)}':fontcolor=${colorValue(plan.runningTextColor)}@0.86:fontsize=${plan.runningTextSize}:box=1:boxcolor=0x000000@0.28:boxborderw=8:x=w-mod(t*${plan.runningLineSpeed}\\,w+tw):y=(h-th)*${plan.runningLineY}`,
+      `drawtext=fontfile=${fontPath}:text='${escapeDrawtextText(plan.runningText)}':fontcolor=${colorValue(plan.runningTextColor)}@0.86:fontsize=${plan.runningTextSize}:box=1:boxcolor=0x000000@0.28:boxborderw=8:x=w-mod(t*${plan.runningLineSpeed}\\,w+tw):y=(h-th)*${plan.runningLineY}`,
     ]);
   }
 
@@ -297,20 +370,26 @@ function buildFilterGraph({ plan, settings, comboInputIndex, watermarkInputIndex
 
   chains.push(`[${current}]format=yuv420p[vout]`);
 
-  let audioMap = ["-map", "0:a?"];
+  let audioMap = [];
   let audioArgs = [];
   const audioFilters = buildAudioFilters(plan);
 
   if (plan.addAudio && audioInputIndex != null && plan.addAudioMode === "replace") {
     audioMap = ["-map", `${audioInputIndex}:a:0`];
     audioArgs = audioFilters.length ? ["-filter:a", audioFilters.join(",")] : [];
-  } else if (plan.addAudio && audioInputIndex != null && plan.addAudioMode === "overlay") {
+  } else if (plan.addAudio && audioInputIndex != null && plan.addAudioMode === "overlay" && sourceHasAudio) {
     chains.push(`[0:a]${audioFilters.join(",")}[a0]`);
     chains.push(`[${audioInputIndex}:a]volume=${plan.audioOverlayVolume}[a1]`);
     chains.push("[a0][a1]amix=inputs=2:duration=first:dropout_transition=0[aout]");
     audioMap = ["-map", "[aout]"];
-  } else {
+  } else if (plan.addAudio && audioInputIndex != null && plan.addAudioMode === "overlay") {
+    audioMap = ["-map", `${audioInputIndex}:a:0`];
+    audioArgs = [`-filter:a`, `volume=${plan.audioOverlayVolume}`];
+  } else if (sourceHasAudio) {
+    audioMap = ["-map", "0:a?"];
     audioArgs = audioFilters.length ? ["-filter:a", audioFilters.join(",")] : [];
+  } else {
+    audioArgs = ["-an"];
   }
 
   return {
@@ -337,6 +416,9 @@ async function encodeUniqueVideo({
   watermarkFile,
   audioFile,
   comboFile,
+  sourceHasAudio,
+  fontPath,
+  onLog,
 }) {
   const args = ["-hide_banner", "-loglevel", "error", "-y"];
   if (plan.trimStart > 0) args.push("-ss", plan.trimStart.toFixed(3));
@@ -383,6 +465,8 @@ async function encodeUniqueVideo({
     comboInputIndex,
     watermarkInputIndex,
     audioInputIndex,
+    sourceHasAudio,
+    fontPath,
   });
 
   args.push("-filter_complex", graph.filter);
@@ -425,7 +509,10 @@ async function encodeUniqueVideo({
   );
 
   try {
-    await ffmpeg.exec(args);
+    const exitCode = await ffmpeg.exec(args);
+    if (exitCode !== 0) {
+      throw new Error(onLog?.() || `FFmpeg exited with code ${exitCode}`);
+    }
     const data = await ffmpeg.readFile(outputName);
     return data instanceof Uint8Array ? data : new Uint8Array(data);
   } finally {
@@ -470,6 +557,8 @@ export default function VideoUniqueizer() {
   const [running, setRunning] = useState(false);
   const [ffmpegLog, setFfmpegLog] = useState("");
   const ffmpegRef = useRef(null);
+  const ffmpegLogRef = useRef("");
+  const fontLoadedRef = useRef(false);
   const cancelRef = useRef(false);
 
   const phrases = useMemo(() => parsePhrases(phraseText), [phraseText]);
@@ -491,13 +580,11 @@ export default function VideoUniqueizer() {
     ]);
     const ffmpeg = new FFmpeg();
     ffmpeg.on("log", ({ message }) => {
-      if (message) setFfmpegLog(message.slice(0, 260));
+      if (!message) return;
+      ffmpegLogRef.current = message.slice(0, 260);
+      setFfmpegLog(ffmpegLogRef.current);
     });
-    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
-    await ffmpeg.load({
-      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
-      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
-    });
+    await loadFfmpegCore(ffmpeg, toBlobURL);
     ffmpegRef.current = ffmpeg;
     return ffmpeg;
   };
@@ -506,15 +593,27 @@ export default function VideoUniqueizer() {
     const picked = Array.from(files || [])
       .filter((file) => file?.type?.startsWith("video/") || /\.(mp4|mov|m4v|webm)$/i.test(file?.name || ""))
       .slice(0, MAX_SOURCE_VIDEOS);
+
+    const oversized = picked.find((file) => file.size > MAX_SOURCE_FILE_MB * 1024 * 1024);
+    if (oversized) {
+      setStatus(`"${oversized.name}" is over ${MAX_SOURCE_FILE_MB} MB. Use a smaller file for browser FFmpeg.`);
+      return;
+    }
+
     const next = await Promise.all(
-      picked.map(async (file) => ({
-        id: `${Date.now()}-${randomHex(4)}`,
-        file,
-        copies: DEFAULT_COPIES,
-        duration: await getVideoDuration(file),
-      })),
+      picked.map(async (file) => {
+        const meta = await getVideoMeta(file);
+        return {
+          id: `${Date.now()}-${randomHex(4)}`,
+          file,
+          copies: DEFAULT_COPIES,
+          duration: meta.duration,
+          hasAudio: meta.hasAudio,
+        };
+      }),
     );
     setSourceItems(next);
+    setStatus(next.length ? `Loaded ${next.length} source video${next.length === 1 ? "" : "s"}.` : "");
   };
 
   const updateCopies = (id, value) => {
@@ -540,6 +639,8 @@ export default function VideoUniqueizer() {
     setRunning(true);
     setProgress(0);
     setFfmpegLog("");
+    ffmpegLogRef.current = "";
+    fontLoadedRef.current = false;
     const manifest = [];
 
     try {
@@ -548,15 +649,16 @@ export default function VideoUniqueizer() {
         import("fflate"),
       ]);
       const ffmpeg = await ensureFfmpeg();
+      const needsFont = settings.staticText || settings.runningLine;
+      const fontPath = needsFont ? await ensureDrawtextFont(ffmpeg, fetchFile, fontLoadedRef) : null;
       const zipEntries = {};
       let completed = 0;
 
       for (let sourceIndex = 0; sourceIndex < sourceItems.length; sourceIndex++) {
         const item = sourceItems[sourceIndex];
         if (cancelRef.current) break;
-        const inputName = `source-${sourceIndex}-${randomHex(4)}.${extensionFor(item.file, "mp4")}`;
         setStatus(`Loading ${item.file.name}...`);
-        await ffmpeg.writeFile(inputName, await fetchFile(item.file));
+        const { mountDir, inputName } = await mountSourceVideo(ffmpeg, item.file, `${sourceIndex}-${randomHex(4)}`);
 
         try {
           const copies = clampNumber(item.copies, 1, 60, DEFAULT_COPIES);
@@ -585,6 +687,9 @@ export default function VideoUniqueizer() {
               watermarkFile: watermarkFiles.length ? pick(watermarkFiles) : null,
               audioFile: audioFiles.length ? pick(audioFiles) : null,
               comboFile: comboFiles.length ? pick(comboFiles) : null,
+              sourceHasAudio: item.hasAudio,
+              fontPath,
+              onLog: () => ffmpegLogRef.current,
             });
             zipEntries[zipName] = [
               bytes,
@@ -605,7 +710,7 @@ export default function VideoUniqueizer() {
             await new Promise((resolve) => setTimeout(resolve, 0));
           }
         } finally {
-          await safeDelete(ffmpeg, inputName);
+          await unmountSourceVideo(ffmpeg, mountDir);
         }
       }
 
@@ -628,7 +733,7 @@ export default function VideoUniqueizer() {
       setStatus(
         cancelRef.current
           ? "Export stopped."
-          : error?.message || "Video uniqueizer failed. Check the browser console for details.",
+          : formatFfmpegError(error, ffmpegLogRef.current),
       );
     } finally {
       setRunning(false);
@@ -658,8 +763,8 @@ export default function VideoUniqueizer() {
               </p>
             </div>
             <div className="rounded-2xl border border-amber-300/20 bg-amber-400/10 px-4 py-3 text-xs leading-5 text-amber-100/75 lg:max-w-sm">
-              Use this only for content you own or have permission to repurpose. Browser FFmpeg is CPU-heavy, so 60 exports
-              can take a while and may use significant RAM.
+              Use this only for content you own or have permission to repurpose. Browser FFmpeg is CPU-heavy, so many
+              exports can take a while. Keep each source video under {MAX_SOURCE_FILE_MB} MB for reliable processing.
             </div>
           </div>
         </section>
