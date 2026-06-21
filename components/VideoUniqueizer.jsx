@@ -9,8 +9,7 @@ const MAX_SOURCE_VIDEOS = 3;
 const DEFAULT_COPIES = 20;
 const MAX_SOURCE_FILE_MB = 250;
 const FFMPEG_CORE_VERSION = "0.12.6";
-const DRAWTEXT_FONT_URL =
-  "https://raw.githubusercontent.com/ffmpegwasm/testdata/master/arial.ttf";
+const DRAWTEXT_FONT_PATH = "/fonts/arial.ttf";
 
 const DEFAULT_SETTINGS = {
   noise: true,
@@ -200,9 +199,13 @@ async function loadFfmpegCore(ffmpeg, toBlobURL) {
   throw lastError || new Error("Could not load FFmpeg engine.");
 }
 
-async function ensureDrawtextFont(ffmpeg, fetchFile, fontLoadedRef) {
+async function ensureDrawtextFont(ffmpeg, fontLoadedRef) {
   if (fontLoadedRef.current) return "/arial.ttf";
-  await ffmpeg.writeFile("/arial.ttf", await fetchFile(DRAWTEXT_FONT_URL));
+  const response = await fetch(DRAWTEXT_FONT_PATH);
+  if (!response.ok) {
+    throw new Error("Could not load drawtext font from this site.");
+  }
+  await ffmpeg.writeFile("/arial.ttf", new Uint8Array(await response.arrayBuffer()));
   fontLoadedRef.current = true;
   return "/arial.ttf";
 }
@@ -650,7 +653,7 @@ export default function VideoUniqueizer() {
       ]);
       const ffmpeg = await ensureFfmpeg();
       const needsFont = settings.staticText || settings.runningLine;
-      const fontPath = needsFont ? await ensureDrawtextFont(ffmpeg, fetchFile, fontLoadedRef) : null;
+      const fontPath = needsFont ? await ensureDrawtextFont(ffmpeg, fontLoadedRef) : null;
       const zipEntries = {};
       let completed = 0;
 
