@@ -7,6 +7,9 @@ import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImpe
 import { listPublicReferenceImageRelPaths, publicReferenceDirForAppId } from "@/lib/referenceImages";
 import { BAD_LABELY_VERDICT, normalizeBadLabelyScore, randomBadLabelyScore } from "@/lib/labelyRating";
 import { extractOpenFoodFactsImage, sniffImageMimeFromBytes } from "@/lib/openFoodFactsProductImage";
+import { searchBraveFoodImages } from "@/lib/braveFoodImage";
+import { fetchRemoteImageDataUrl } from "@/lib/fetchRemoteImageDataUrl";
+import { getBraveUsageSnapshot } from "@/lib/braveUsage";
 
 export const maxDuration = 300;
 
@@ -641,6 +644,33 @@ async function findOpenFoodFactsImage({ name, brand, seedHint }) {
   return null;
 }
 
+async function findBraveFoodImage({ name, brand, seedHint }) {
+  const queries = [
+    [brand, name].filter(Boolean).join(" "),
+    [seedHint, brand].filter(Boolean).join(" "),
+    seedHint,
+    name,
+  ]
+    .map((q) => q.trim())
+    .filter(Boolean);
+
+  const seen = new Set();
+  for (const rawQuery of queries) {
+    const key = normalizeFoodText(rawQuery);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+
+    const { items } = await searchBraveFoodImages(rawQuery, { count: 20 });
+    const shuffled = [...items].sort(() => Math.random() - 0.5);
+    for (const item of shuffled) {
+      const dataUrl = await fetchRemoteImageDataUrl(item.link);
+      if (dataUrl) return { dataUrl, sourceUrl: item.link };
+    }
+  }
+
+  return null;
+}
+
 export async function POST(req) {
   try {
     const openaiApiKey = process.env.OPENAI_API_KEY?.trim() || "";
@@ -658,6 +688,10 @@ export async function POST(req) {
     const imageLookupBrand = typeof body.brand === "string" ? body.brand.trim() : "";
     const uploadHint = sanitizeUploadHint(body.uploadHint);
     const useFoodDatabasePhoto = body.useFoodDatabasePhoto === true;
+    const useBraveImages =
+      body.useBraveImages === true
+      || body.useBingImages === true
+      || body.useGoogleImages === true;
     const foodDatabaseImageUrl = typeof body.foodDatabaseImageUrl === "string" ? body.foodDatabaseImageUrl.trim() : "";
     const useSelfieImage = body.useSelfieImage === true;
     const includeShelfIntro = body.includeShelfIntro === true;
@@ -682,34 +716,76 @@ export async function POST(req) {
 
     if (imageOnly) {
       let exactImage = null;
+      let braveImageUrl = useBraveImages && foodDatabaseImageUrl ? foodDatabaseImageUrl : "";
       try {
-        exactImage = foodDatabaseImageUrl ? await imageUrlToDataUrl(foodDatabaseImageUrl) : null;
+        if (foodDatabaseImageUrl) {
+          exactImage = useBraveImages
+            ? await fetchRemoteImageDataUrl(foodDatabaseImageUrl)
+            : await imageUrlToDataUrl(foodDatabaseImageUrl);
+        }
       } catch {
         exactImage = null;
       }
-      const searchedImage = exactImage || await findOpenFoodFactsImage({
-        name: imageLookupName,
-        brand: imageLookupBrand,
-        seedHint,
+      let searchedImage = exactImage;
+      if (!searchedImage) {
+        if (useBraveImages) {
+          const found = await findBraveFoodImage({
+            name: imageLookupName,
+            brand: imageLookupBrand,
+            seedHint,
+          });
+          if (found) {
+            searchedImage = found.dataUrl;
+            braveImageUrl = found.sourceUrl || braveImageUrl;
+          }
+        } else {
+          searchedImage = await findOpenFoodFactsImage({
+            name: imageLookupName,
+            brand: imageLookupBrand,
+            seedHint,
+          });
+        }
+      }
+      const braveUsage = useBraveImages ? await getBraveUsageSnapshot() : null;
+      return NextResponse.json({
+        imageDataUrl: searchedImage,
+        ...(useBraveImages && braveImageUrl ? { braveImageUrl } : {}),
+        braveUsage,
       });
-      return NextResponse.json({ imageDataUrl: searchedImage });
     }
 
     const base = await generateLabelyJson({ openaiApiKey, seedHint });
     let shelfIntroDataUrl = null;
     let outImage = null;
+    let braveImageUrl = useBraveImages && foodDatabaseImageUrl ? foodDatabaseImageUrl : "";
     if (useFoodDatabasePhoto) {
       try {
-        outImage = foodDatabaseImageUrl ? await imageUrlToDataUrl(foodDatabaseImageUrl) : null;
+        if (foodDatabaseImageUrl) {
+          outImage = useBraveImages
+            ? await fetchRemoteImageDataUrl(foodDatabaseImageUrl)
+            : await imageUrlToDataUrl(foodDatabaseImageUrl);
+        }
         if (!outImage) {
-          outImage = await findOpenFoodFactsImage({
-            name: base.name,
-            brand: base.brand,
-            seedHint,
-          });
+          if (useBraveImages) {
+            const found = await findBraveFoodImage({
+              name: base.name,
+              brand: base.brand,
+              seedHint,
+            });
+            if (found) {
+              outImage = found.dataUrl;
+              braveImageUrl = found.sourceUrl || braveImageUrl;
+            }
+          } else {
+            outImage = await findOpenFoodFactsImage({
+              name: base.name,
+              brand: base.brand,
+              seedHint,
+            });
+          }
         }
       } catch (e) {
-        console.error("[labely] Open Food Facts lookup failed", e);
+        console.error("[labely] food database image lookup failed", e);
       }
     }
     try {
@@ -730,6 +806,9 @@ export async function POST(req) {
     if (includeShelfIntro) {
       if (useSelfieImage) {
         shelfIntroDataUrl = await generateSelfieImage();
+      } else if (useFoodDatabasePhoto && outImage) {
+        // Scan tour intro should use the same real database/Brave photo, not AI shelf art.
+        shelfIntroDataUrl = outImage;
       } else {
         shelfIntroDataUrl = await generateShelfIntroImage({ name: base.name, brand: base.brand });
       }
@@ -745,6 +824,8 @@ export async function POST(req) {
       labelyLegalNote: base.labelyLegalNote,
       imageDataUrl: outImage,
       shelfIntroDataUrl,
+      ...(useBraveImages && braveImageUrl ? { braveImageUrl } : {}),
+      ...(useBraveImages ? { braveUsage: await getBraveUsageSnapshot() } : {}),
     });
   } catch (err) {
     console.error("[labely]", err);

@@ -5,6 +5,7 @@ import VideoPreview from "@/components/VideoPreview";
 import LabelyScanSequencePreview from "@/components/LabelyScanSequencePreview";
 import ConfigPanel from "@/components/ConfigPanel";
 import GlobalJobBar from "@/components/GlobalJobBar";
+import BraveSearchUsageBar from "@/components/BraveSearchUsageBar";
 import GalleryRail from "@/components/GalleryRail";
 import VideoUniqueizer from "@/components/VideoUniqueizer";
 import { getTotalSlides, normalizeValcoinOutputFormat, LABELY_SCAN_TOUR_SLOTS } from "@/lib/slideLayout";
@@ -86,6 +87,8 @@ export const defaultConfig = {
   labelyAiProducts: false,
   /** Labely AI-products only: use Open Food Facts package photos before falling back to generated images. */
   labelyUseFoodDatabasePhotos: false,
+  /** Labely food-database mode: use Brave Image Search instead of Open Food Facts (requires BRAVE_SEARCH_API_KEY). */
+  labelyUseBraveImages: false,
   /** Labely AI-products only: use the pilates mirror selfie prompt for the first generated photo. */
   labelyUseSelfieImage: false,
   /** Labely scan tour: number of food scan/result pairs in the current saved slideshow. */
@@ -616,6 +619,9 @@ export default function Home() {
       </header>
 
       <GlobalJobBar />
+      {config.appId === "labely" && config.labelyUseBraveImages ? (
+        <BraveSearchUsageBar enabled compact className="shrink-0 border-b border-white/10 rounded-none" />
+      ) : null}
 
       <div className="flex-1 flex overflow-hidden min-h-0">
         {isVideoUniqueizer ? (

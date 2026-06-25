@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { extractOpenFoodFactsImage } from "@/lib/openFoodFactsProductImage";
+import { braveImagesConfigured, searchBraveFoodImages } from "@/lib/braveFoodImage";
+import { getBraveUsageSnapshot } from "@/lib/braveUsage";
+import { getUsedBraveImageUrls, normalizeBraveImageUrl } from "@/lib/braveUsedImages";
 
 export const maxDuration = 300;
 
@@ -98,6 +101,32 @@ function candidateDetailsFromRanked(ranked, candidateLabels) {
   }));
 }
 
+async function lookupFoodBrave(query) {
+  const q = String(query || "").trim();
+  if (!q) return { query: q, status: "empty" };
+  if (!braveImagesConfigured()) {
+    return { query: q, status: "error", error: "Brave Image Search is not configured on the server." };
+  }
+
+  const { items } = await searchBraveFoodImages(q, { count: 20 });
+  if (!items.length) return { query: q, status: "missing" };
+
+  const used = await getUsedBraveImageUrls();
+  const candidateDetails = items.slice(0, 20).map((item, i) => ({
+    label: item.title || `${q} (${i + 1})`,
+    imageUrl: item.link,
+  })).filter((d) => !used.has(normalizeBraveImageUrl(d.imageUrl)));
+  if (!candidateDetails.length) return { query: q, status: "missing" };
+  const candidates = candidateDetails.map((d) => d.label);
+  return {
+    query: q,
+    status: "found",
+    match: candidates[0] || q,
+    candidates,
+    candidateDetails,
+  };
+}
+
 async function lookupFood(query) {
   const q = String(query || "").trim();
   if (!q) return { query: q, status: "empty" };
@@ -146,9 +175,18 @@ export async function POST(req) {
   try {
     const body = await req.json().catch(() => ({}));
     const items = Array.isArray(body.items) ? body.items : [];
+    const useBraveImages =
+      body.useBraveImages === true
+      || body.useBingImages === true
+      || body.useGoogleImages === true;
     const unique = [...new Set(items.map((x) => String(x || "").trim()).filter(Boolean))].slice(0, 20);
-    const results = await Promise.all(unique.map((item) => lookupFood(item)));
-    return NextResponse.json({ results });
+    const results = await Promise.all(
+      unique.map((item) => (useBraveImages ? lookupFoodBrave(item) : lookupFood(item))),
+    );
+    const braveUsage = useBraveImages && braveImagesConfigured()
+      ? await getBraveUsageSnapshot()
+      : null;
+    return NextResponse.json({ results, braveUsage });
   } catch (err) {
     console.error("[labely-food-suggestions]", err);
     return NextResponse.json(

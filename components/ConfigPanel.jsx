@@ -17,6 +17,8 @@ import { buildLabelyScanFrameSequence, captureScanSourceCanvas, captureShelfIntr
 import { ensureExportImageUrls, needsExportImageInlining } from "@/lib/ensureExportImageUrls";
 import { inlineRemoteImagesInElement } from "@/lib/exportImagePrepare";
 import { getBrand } from "@/lib/brand";
+import BraveSearchUsageBar, { dispatchBraveUsageUpdated } from "@/components/BraveSearchUsageBar";
+import { markExportedBraveImagesUsed, markExportedBraveImageUrl } from "@/lib/markExportedBraveImages";
 import { savedShowMatchesApp } from "@/lib/showAppId";
 import {
   fileToDisplayableDataUrl,
@@ -231,9 +233,21 @@ function isPngBytes(bytes) {
   );
 }
 
+const FOOD_DB_DROPDOWN_MAX = 20;
+
 /** Rows for food DB search dropdowns — label text + optional Open Food Facts front photo. */
 function foodDbDropdownRowsFromSuggestionRow(row) {
   if (!row) return [];
+  const details = Array.isArray(row.candidateDetails) ? row.candidateDetails : [];
+  if (details.length > 0) {
+    return details
+      .slice(0, FOOD_DB_DROPDOWN_MAX)
+      .map((d) => ({
+        label: String(d?.label || "").trim(),
+        imageUrl: String(d?.imageUrl || "").trim(),
+      }))
+      .filter((d) => d.label);
+  }
   const labels = [
     ...new Set(
       [
@@ -242,7 +256,7 @@ function foodDbDropdownRowsFromSuggestionRow(row) {
         row.suggestion,
       ].filter(Boolean),
     ),
-  ];
+  ].slice(0, FOOD_DB_DROPDOWN_MAX);
   const detailMap = new Map(
     (Array.isArray(row.candidateDetails) ? row.candidateDetails : []).map((d) => [
       d.label,
@@ -260,7 +274,7 @@ function persistedFoodDbRowForSelection(label, option = null, sourceRow = null) 
     name,
     ...(Array.isArray(sourceRow?.candidates) ? sourceRow.candidates : []),
   ].filter(Boolean);
-  const uniqueCandidates = [...new Set(candidates)].slice(0, 12);
+  const uniqueCandidates = [...new Set(candidates)].slice(0, FOOD_DB_DROPDOWN_MAX);
   const existingDetails = Array.isArray(sourceRow?.candidateDetails) ? sourceRow.candidateDetails : [];
   const detailsByLabel = new Map(
     existingDetails
@@ -287,12 +301,12 @@ function FoodDbDropdownRowThumb({ row }) {
     <img
       src={url}
       alt=""
-      className="h-11 w-11 shrink-0 rounded-md border border-white/10 bg-white object-contain"
+      className="h-[132px] w-[132px] shrink-0 rounded-md border border-white/10 bg-white object-contain"
       loading="lazy"
     />
   ) : (
     <div
-      className="h-11 w-11 shrink-0 rounded-md border border-dashed border-white/15 bg-white/5"
+      className="h-[132px] w-[132px] shrink-0 rounded-md border border-dashed border-white/15 bg-white/5"
       aria-hidden
     />
   );
@@ -328,6 +342,11 @@ function galleryShowToExportConfig(workspace, show) {
 
 function badLabelyPatch(score) {
   return { labelyScore: normalizeBadLabelyScore(score), labelyVerdict: BAD_LABELY_VERDICT };
+}
+
+function slotLabelyDbImageUrl(ly, foodDatabaseImageUrl = "") {
+  const remote = String(ly?.braveImageUrl || foodDatabaseImageUrl || "").trim();
+  return /^https?:\/\//i.test(remote) ? remote : "";
 }
 
 function labelyShelfScenePrompt(itemName, brandName = "") {
@@ -544,7 +563,12 @@ export default function ConfigPanel({
   const isLabely = brand.appId === "labely";
   const labelyUseSelfieImage = isLabely && !!config.labelyUseSelfieImage;
   const labelyUseFoodDatabasePhotos = isLabely && !!config.labelyUseFoodDatabasePhotos;
+  const labelyUseBraveImages = isLabely && !!config.labelyUseBraveImages;
   const isLabelyFoodDbBatchMode = isLabely && !!config.labelyAiProducts && labelyUseFoodDatabasePhotos;
+  const foodImageLookupBody = () => (
+    labelyUseBraveImages ? { useBraveImages: true } : {}
+  );
+  const foodImageSourceLabel = labelyUseBraveImages ? "Brave Images" : "Open Food Facts";
   const isValcoinIphonePackBatchMode = isValcoin && isLabelyScanTourFormat(config);
   const labelyUploadsLocked = isLabely && !!config.labelyAiProducts;
   const savedForCurrentApp = useMemo(() => {
@@ -794,7 +818,7 @@ export default function ConfigPanel({
         const res = await fetch("/api/labely-food-suggestions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: missingItems }),
+          body: JSON.stringify({ items: missingItems, ...foodImageLookupBody() }),
         });
         const body = await res.json().catch(() => ({}));
         if (cancelled) return;
@@ -816,6 +840,7 @@ export default function ConfigPanel({
           return [...prevByQuery.values()].filter((row) => requested.has(row.query));
         });
         setFoodDbSuggestionStatus(res.ok ? "done" : "error");
+        if (body?.braveUsage) dispatchBraveUsageUpdated(body.braveUsage);
       } catch {
         if (!cancelled) {
           setFoodDbSuggestionStatus("error");
@@ -879,13 +904,14 @@ export default function ConfigPanel({
       const res = await fetch("/api/labely-food-suggestions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: [q] }),
+        body: JSON.stringify({ items: [q], ...foodImageLookupBody() }),
       });
       const body = await res.json().catch(() => ({}));
       const row = Array.isArray(body.results) ? body.results[0] : null;
       if (row?.query) foodDbSuggestionCacheRef.current.set(foodDbKeyFor(row.query), row);
       setFoodDbSearchOptions(foodDbDropdownRowsFromSuggestionRow(row));
       setFoodDbSearchStatus(res.ok ? "done" : "error");
+      if (body?.braveUsage) dispatchBraveUsageUpdated(body.braveUsage);
     } catch {
       setFoodDbSearchOptions([]);
       setFoodDbSearchStatus("error");
@@ -954,13 +980,14 @@ export default function ConfigPanel({
       const res = await fetch("/api/labely-food-suggestions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: [q] }),
+        body: JSON.stringify({ items: [q], ...foodImageLookupBody() }),
       });
       const body = await res.json().catch(() => ({}));
       const row = Array.isArray(body.results) ? body.results[0] : null;
       if (row?.query) foodDbSuggestionCacheRef.current.set(foodDbKeyFor(row.query), row);
       setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: foodDbDropdownRowsFromSuggestionRow(row) }));
       setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: res.ok ? "done" : "error" }));
+      if (body?.braveUsage) dispatchBraveUsageUpdated(body.braveUsage);
     } catch {
       setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: [] }));
       setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: "error" }));
@@ -1027,6 +1054,7 @@ export default function ConfigPanel({
       body: JSON.stringify({
         imageOnly: true,
         useFoodDatabasePhoto: true,
+        ...foodImageLookupBody(),
         name: slot?.itemName || "",
         brand: slot?.labelyBrand || "",
         seedHint: slot?.labelyDbSeedHint || slot?.itemName || "",
@@ -1034,6 +1062,7 @@ export default function ConfigPanel({
       }),
     });
     const body = await res.json().catch(() => ({}));
+    if (body?.braveUsage) dispatchBraveUsageUpdated(body.braveUsage);
     return res.ok && typeof body.imageDataUrl === "string" && body.imageDataUrl ? body.imageDataUrl : "";
   };
 
@@ -1398,6 +1427,15 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
+  /** Scan tour slide 0 — prefer API shelf intro, else real food-db photo, else AI shelf scene. */
+  const resolveLabelyShelfIntroUrl = async (ly, { includeShelfIntro, useSelfieForSlot = false }) => {
+    if (!includeShelfIntro || !ly?.name) return null;
+    if (ly.shelfIntroDataUrl) return ly.shelfIntroDataUrl;
+    if (useSelfieForSlot) return null;
+    if (labelyUseFoodDatabasePhotos && ly.imageDataUrl) return ly.imageDataUrl;
+    return generateLabelyShelfIntroImage(ly.name, ly.brand ?? "");
+  };
+
   const fillLabelyFromImage = async (imageDataUrl, opts = {}) => {
     const uploadHint =
       typeof opts.uploadHint === "string" && opts.uploadHint.trim()
@@ -1468,6 +1506,7 @@ ${SHARED_RULES_OUTRO}`;
         body: JSON.stringify({
           ...(seedHint?.trim() ? { seedHint: seedHint.trim() } : {}),
           useFoodDatabasePhoto: !!labelyUseFoodDatabasePhotos,
+          ...foodImageLookupBody(),
           useSelfieImage,
           ...(foodDatabaseImageUrl ? { foodDatabaseImageUrl } : {}),
           ...(opts.includeShelfIntro ? { includeShelfIntro: true } : {}),
@@ -1481,6 +1520,7 @@ ${SHARED_RULES_OUTRO}`;
         }
         return null;
       }
+      if (body?.braveUsage) dispatchBraveUsageUpdated(body.braveUsage);
       return body;
     } catch (e) {
       if (typeof errorSlotIdx === "number") {
@@ -1639,10 +1679,10 @@ ${SHARED_RULES_OUTRO}`;
               });
               return null;
             }
-            const shelfIntroUrl = ly.shelfIntroDataUrl || (includeShelfIntro
-              && !useSelfieForSlot
-              ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
-              : null);
+            const shelfIntroUrl = await resolveLabelyShelfIntroUrl(ly, {
+              includeShelfIntro,
+              useSelfieForSlot,
+            });
             updateSlot(index, {
               itemName: ly.name,
               labelyBrand: ly.brand ?? "",
@@ -1651,7 +1691,9 @@ ${SHARED_RULES_OUTRO}`;
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
               labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
               ...(hint ? { labelyDbSeedHint: hint } : {}),
-              ...(foodDatabaseImageUrl ? { labelyDbImageUrl: foodDatabaseImageUrl } : {}),
+              ...(slotLabelyDbImageUrl(ly, foodDatabaseImageUrl)
+                ? { labelyDbImageUrl: slotLabelyDbImageUrl(ly, foodDatabaseImageUrl) }
+                : {}),
               ...(ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
               ...(shelfIntroUrl ? { labelyShelfImageUrl: shelfIntroUrl } : {}),
             });
@@ -2103,10 +2145,10 @@ ${SHARED_RULES_OUTRO}`;
               await new Promise((r) => setTimeout(r, 2500));
               continue;
             }
-            const shelfIntroUrl = ly.shelfIntroDataUrl || (includeShelfIntro
-              && !useSelfieForSlot
-              ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
-              : null);
+            const shelfIntroUrl = await resolveLabelyShelfIntroUrl(ly, {
+              includeShelfIntro,
+              useSelfieForSlot,
+            });
             const patch = {
               itemName: ly.name,
               labelyBrand: ly.brand ?? "",
@@ -2114,6 +2156,10 @@ ${SHARED_RULES_OUTRO}`;
               labelyAnalysis: ly.analysis ?? "",
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
               labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
+              ...(brandItem ? { labelyDbSeedHint: brandItem } : {}),
+              ...(slotLabelyDbImageUrl(ly, foodDatabaseImageUrl)
+                ? { labelyDbImageUrl: slotLabelyDbImageUrl(ly, foodDatabaseImageUrl) }
+                : {}),
               ...(config.labelyAiProducts && ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
               ...(shelfIntroUrl ? { labelyShelfImageUrl: shelfIntroUrl } : {}),
             };
@@ -2426,10 +2472,10 @@ ${SHARED_RULES_OUTRO}`;
             useSelfieImage: useSelfieForSlot,
           });
           if (ly?.name) {
-            const shelfIntroUrl = ly.shelfIntroDataUrl || (includeShelfIntro
-              && !useSelfieForSlot
-              ? await generateLabelyShelfIntroImage(ly.name, ly.brand ?? "")
-              : null);
+            const shelfIntroUrl = await resolveLabelyShelfIntroUrl(ly, {
+              includeShelfIntro,
+              useSelfieForSlot,
+            });
             localSlots[si] = {
               ...localSlots[si],
               itemName: ly.name,
@@ -2439,7 +2485,9 @@ ${SHARED_RULES_OUTRO}`;
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
               labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
               ...(brandItem ? { labelyDbSeedHint: brandItem } : {}),
-              ...(foodDatabaseImageUrl ? { labelyDbImageUrl: foodDatabaseImageUrl } : {}),
+              ...(slotLabelyDbImageUrl(ly, foodDatabaseImageUrl)
+                ? { labelyDbImageUrl: slotLabelyDbImageUrl(ly, foodDatabaseImageUrl) }
+                : {}),
               ...(ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
               ...(shelfIntroUrl ? { labelyShelfImageUrl: shelfIntroUrl } : {}),
             };
@@ -3271,6 +3319,7 @@ ${SHARED_RULES_OUTRO}`;
       const blob = await encodeWorkspaceVideoToBlob(config);
       if (blob) {
         triggerMp4Download(blob, `${randomExportHex(14)}.mp4`);
+        await markExportedBraveImagesUsed(config);
         setExportProgress(100);
         setExportStatus("Done! Video downloaded.");
       }
@@ -3353,6 +3402,9 @@ ${SHARED_RULES_OUTRO}`;
           const blob = new Blob([zipData], { type: "application/zip" });
           triggerZipDownload(blob, `${zipFilePrefix}${String(plan.iphoneNumber).padStart(2, "0")}-${randomExportHex(10)}.zip`);
           downloadedZipCount++;
+          await markExportedBraveImagesUsed(
+            plan.jobs.map((job) => galleryShowToExportConfig(restoreConfig, job.show)),
+          );
           await new Promise((r) => setTimeout(r, 650));
         }
 
@@ -3421,6 +3473,7 @@ ${SHARED_RULES_OUTRO}`;
         if (cancelGenRef.current) break;
         if (blob) {
           triggerMp4Download(blob, sequentialRandomMp4Name(i, show));
+          await markExportedBraveImagesUsed(exportCfg);
           await new Promise((r) => setTimeout(r, 400));
         }
         setExportProgress(Math.round(((i + 1) / videos.length) * 100));
@@ -3477,21 +3530,22 @@ ${SHARED_RULES_OUTRO}`;
       const canvas = await captureSlideCanvas(capBg, fontEmbedCSS);
       if (!canvas) throw new Error("Preview node not found");
       setExportProgress(80);
-      canvas.toBlob((blob) => {
-        if (!blob) {
-          setIsExporting(false);
-          setExportProgress(0);
-          return;
-        }
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `slide-${currentSlide + 1}.png`;
-        a.click();
-        URL.revokeObjectURL(url);
-        setExportProgress(100);
-        setTimeout(() => { setIsExporting(false); setExportProgress(0); }, 600);
-      });
+      const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
+      if (!blob) {
+        setIsExporting(false);
+        setExportProgress(0);
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `slide-${currentSlide + 1}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+      const slideUrl = String(config.slots?.[currentSlide]?.labelyDbImageUrl || "").trim();
+      if (slideUrl) await markExportedBraveImageUrl(slideUrl);
+      setExportProgress(100);
+      setTimeout(() => { setIsExporting(false); setExportProgress(0); }, 600);
     } catch (err) {
       setIsExporting(false);
       setExportProgress(0);
@@ -3656,6 +3710,9 @@ ${SHARED_RULES_OUTRO}`;
         const blob = new Blob([zipData], { type: "application/zip" });
         triggerZipDownload(blob, `${zipFilePrefix}${String(plan.iphoneNumber).padStart(2, "0")}-${randomExportHex(10)}.zip`);
         downloadedZipCount++;
+        await markExportedBraveImagesUsed(
+          plan.jobs.map((job) => galleryShowToExportConfig(restoreConfig, job.show)),
+        );
         await new Promise((r) => setTimeout(r, 650));
       }
 
@@ -3718,6 +3775,8 @@ ${SHARED_RULES_OUTRO}`;
     a.download = `${randomExportHex(12)}.zip`;
     a.click();
     URL.revokeObjectURL(url);
+
+    await markExportedBraveImagesUsed(config);
 
     setIsExporting(false);
     setExportProgress(100);
@@ -3976,10 +4035,14 @@ ${SHARED_RULES_OUTRO}`;
               ? config.labelyAiProducts
                 ? labelyUseSelfieImage
                   ? labelyUseFoodDatabasePhotos
-                    ? "The intro uses the pilates selfie prompt; every scan/result uses Open Food Facts."
+                    ? labelyUseBraveImages
+                      ? "The intro uses the pilates selfie prompt; every scan/result uses random Brave Images for that food."
+                      : "The intro uses the pilates selfie prompt; every scan/result uses Open Food Facts."
                     : "The intro uses the pilates selfie prompt; scan/result slides use generated pack shots."
                   : labelyUseFoodDatabasePhotos
-                    ? "Open Food Facts pack photos when possible; no AI image gen in that mode."
+                    ? labelyUseBraveImages
+                      ? "Random Brave Images for each food name; no AI image gen in that mode."
+                      : "Open Food Facts pack photos when possible; no AI image gen in that mode."
                     : "AI pack shots from your food list; scanner readout stays fictional."
                 : "Vision reads your uploaded pack photos."
               : isValcoin
@@ -4076,10 +4139,46 @@ ${SHARED_RULES_OUTRO}`;
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-semibold text-white/90">Use food database photos</div>
                   <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-                    Searches Open Food Facts for a real package photo from the chosen food name. If there is no usable match, the image is left blank and a similar database item is recommended below.
+                    {labelyUseBraveImages
+                      ? "Searches Brave Images for the chosen food name. Requires BRAVE_SEARCH_API_KEY on the server."
+                      : "Searches Open Food Facts for a real package photo from the chosen food name. If there is no usable match, the image is left blank and a similar database item is recommended below."}
                   </p>
               </div>
             </div>
+            </div>
+          ) : null}
+          {config.labelyAiProducts && labelyUseFoodDatabasePhotos ? (
+            <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2.5">
+              <div className="flex items-start gap-3">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={!!labelyUseBraveImages}
+                  onClick={() => {
+                    const next = !labelyUseBraveImages;
+                    setConfig((prev) => ({
+                      ...prev,
+                      labelyUseBraveImages: next,
+                    }));
+                  }}
+                  className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors ${
+                    labelyUseBraveImages ? "bg-sky-500" : "bg-white/15"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1 left-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                      labelyUseBraveImages ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-semibold text-white/90">Use Brave Images instead</div>
+                  <p className="mt-1 text-[10px] leading-relaxed text-white/45">
+                    When on, searches Brave Images for each food name and picks a random result instead of Open Food Facts package photos.
+                  </p>
+                </div>
+              </div>
+              {labelyUseBraveImages ? <BraveSearchUsageBar enabled className="mt-2" /> : null}
             </div>
           ) : null}
           </div>
@@ -4138,9 +4237,13 @@ ${SHARED_RULES_OUTRO}`;
             </div>
             <p className="text-white/35 text-[10px] mb-2 leading-relaxed">
               {labelyUseSelfieImage && labelyUseFoodDatabasePhotos
-                ? "Slide 1 uses the pilates selfie image. All scan/result pairs use selected Open Food Facts package photos."
+                ? labelyUseBraveImages
+                  ? "Slide 1 uses the pilates selfie image. All scan/result pairs use random Brave Images for each food."
+                  : "Slide 1 uses the pilates selfie image. All scan/result pairs use selected Open Food Facts package photos."
                 : labelyUseFoodDatabasePhotos
-                ? "Search Open Food Facts, choose the exact package match, then it is added to this list."
+                ? labelyUseBraveImages
+                  ? "Type food names to search Brave Images, pick a result, then add it to this list."
+                  : "Search Open Food Facts, choose the exact package match, then it is added to this list."
                 : labelyUseSelfieImage
                   ? "One real packaged product per line. Slide 1 uses the pilates selfie image; scan/result pairs use generated pack art."
                   : "One real packaged product per line — same idea as Thrifty's brand list. Generate picks from this list (shuffled); GPT uses that real SKU for name/brand/pack image while analysis still uses fictional scanner compound names."}
@@ -4198,11 +4301,11 @@ ${SHARED_RULES_OUTRO}`;
                           className="w-full rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 text-[11px] text-white outline-none placeholder-white/20 focus:border-emerald-400/60"
                         />
                         {(batchFoodDbSearch[batch.id] || "").trim().length >= 2 ? (
-                          <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-44 overflow-y-auto rounded-lg border border-emerald-500/25 bg-zinc-950 shadow-xl">
+                          <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-[min(70vh,36rem)] overflow-y-auto rounded-lg border border-emerald-500/25 bg-zinc-950 shadow-xl">
                             {(batchFoodDbSearchStatus[batch.id] || "idle") === "idle" ? (
-                              <div className="px-3 py-2 text-[10px] text-white/35">Press Enter to search Open Food Facts.</div>
+                              <div className="px-3 py-2 text-[10px] text-white/35">Press Enter to search {foodImageSourceLabel}.</div>
                             ) : (batchFoodDbSearchStatus[batch.id] || "idle") === "loading" ? (
-                              <div className="px-3 py-2 text-[10px] text-white/35">Searching Open Food Facts…</div>
+                              <div className="px-3 py-2 text-[10px] text-white/35">Searching {foodImageSourceLabel}…</div>
                             ) : (batchFoodDbSearchOptions[batch.id] || []).length > 0 ? (
                               (batchFoodDbSearchOptions[batch.id] || []).map((option) => (
                                 <button
@@ -4314,11 +4417,11 @@ ${SHARED_RULES_OUTRO}`;
                     className="w-full rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 text-xs text-white outline-none placeholder-white/15 focus:border-emerald-400/60"
                   />
                   {foodDbSearch.trim().length >= 2 ? (
-                    <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-lg border border-emerald-500/25 bg-zinc-950 shadow-xl">
+                    <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-[min(70vh,36rem)] overflow-y-auto rounded-lg border border-emerald-500/25 bg-zinc-950 shadow-xl">
                       {foodDbSearchStatus === "idle" ? (
-                        <div className="px-3 py-2 text-[10px] text-white/35">Press Enter to search Open Food Facts.</div>
+                        <div className="px-3 py-2 text-[10px] text-white/35">Press Enter to search {foodImageSourceLabel}.</div>
                       ) : foodDbSearchStatus === "loading" ? (
-                        <div className="px-3 py-2 text-[10px] text-white/35">Searching Open Food Facts…</div>
+                        <div className="px-3 py-2 text-[10px] text-white/35">Searching {foodImageSourceLabel}…</div>
                       ) : foodDbSearchOptions.length > 0 ? (
                         foodDbSearchOptions.map((option) => (
                           <button
@@ -4392,7 +4495,7 @@ ${SHARED_RULES_OUTRO}`;
                   </span>
                 </div>
                 {foodDbSuggestionStatus === "error" ? (
-                  <p className="text-[10px] text-amber-300">Could not check Open Food Facts right now.</p>
+                  <p className="text-[10px] text-amber-300">Could not check {foodImageSourceLabel} right now.</p>
                 ) : brandItems.length > 0 ? (
                   <div className="space-y-1.5">
                     {brandItems.slice(0, 10).map((item) => {
@@ -4426,7 +4529,7 @@ ${SHARED_RULES_OUTRO}`;
                     })}
                   </div>
                 ) : (
-                  <p className="text-[10px] text-white/30">Type food names to check Open Food Facts.</p>
+                  <p className="text-[10px] text-white/30">Type food names to check {foodImageSourceLabel}.</p>
                 )}
               </div>
             ) : null}
