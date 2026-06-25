@@ -4140,7 +4140,7 @@ ${SHARED_RULES_OUTRO}`;
                   <div className="text-xs font-semibold text-white/90">Use food database photos</div>
                   <p className="mt-1 text-[10px] leading-relaxed text-white/45">
                     {labelyUseBraveImages
-                      ? "Searches Brave Images for the chosen food name. Requires BRAVE_SEARCH_API_KEY on the server."
+                      ? "Searches Brave for “food name in store” photos. Requires BRAVE_SEARCH_API_KEY on the server."
                       : "Searches Open Food Facts for a real package photo from the chosen food name. If there is no usable match, the image is left blank and a similar database item is recommended below."}
                   </p>
               </div>
@@ -4174,7 +4174,7 @@ ${SHARED_RULES_OUTRO}`;
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-semibold text-white/90">Use Brave Images instead</div>
                   <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-                    When on, searches Brave Images for each food name and picks a random result instead of Open Food Facts package photos.
+                    When on, searches Brave for “food name in store” and picks a random result instead of Open Food Facts package photos.
                   </p>
                 </div>
               </div>
