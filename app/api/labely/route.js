@@ -806,9 +806,6 @@ export async function POST(req) {
     if (includeShelfIntro) {
       if (useSelfieImage) {
         shelfIntroDataUrl = await generateSelfieImage();
-      } else if (useFoodDatabasePhoto && outImage) {
-        // Scan tour intro should use the same real database/Brave photo, not AI shelf art.
-        shelfIntroDataUrl = outImage;
       } else {
         shelfIntroDataUrl = await generateShelfIntroImage({ name: base.name, brand: base.brand });
       }

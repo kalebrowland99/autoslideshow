@@ -88,7 +88,7 @@ export const defaultConfig = {
   /** Labely AI-products only: use Open Food Facts package photos before falling back to generated images. */
   labelyUseFoodDatabasePhotos: false,
   /** Labely food-database mode: use Brave Image Search instead of Open Food Facts (requires BRAVE_SEARCH_API_KEY). */
-  labelyUseBraveImages: false,
+  labelyUseBraveImages: true,
   /** Labely AI-products only: use the pilates mirror selfie prompt for the first generated photo. */
   labelyUseSelfieImage: false,
   /** Labely scan tour: number of food scan/result pairs in the current saved slideshow. */

@@ -1427,12 +1427,11 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
-  /** Scan tour slide 0 — prefer API shelf intro, else real food-db photo, else AI shelf scene. */
+  /** Scan tour slide 0 — prefer API shelf intro, else AI shelf/carousel scene. */
   const resolveLabelyShelfIntroUrl = async (ly, { includeShelfIntro, useSelfieForSlot = false }) => {
     if (!includeShelfIntro || !ly?.name) return null;
     if (ly.shelfIntroDataUrl) return ly.shelfIntroDataUrl;
     if (useSelfieForSlot) return null;
-    if (labelyUseFoodDatabasePhotos && ly.imageDataUrl) return ly.imageDataUrl;
     return generateLabelyShelfIntroImage(ly.name, ly.brand ?? "");
   };
 
