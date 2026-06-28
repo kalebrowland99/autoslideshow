@@ -39,6 +39,13 @@ import {
   writeJobHeartbeat,
 } from "@/lib/globalJobProgress";
 import { waitForPreviewPaint } from "@/lib/waitForPreviewPaint";
+import {
+  markFarmJobDone,
+  markFarmJobFailed,
+  notifyAutomationDone,
+  setFarmJobStatus,
+  uploadMp4ToFarm,
+} from "@/lib/farmBridge";
 
 function parseDataUrl(dataUrl) {
   if (!dataUrl || typeof dataUrl !== "string") return null;
@@ -557,6 +564,8 @@ export default function ConfigPanel({
   batchImageDataUrls,
   setBatchImageDataUrls,
   persistHomeSessionNow,
+  farmUpload = null,
+  autoRunBatch = false,
 }) {
   const brand = getBrand(config);
   const isValcoin = brand.appId === "valcoin";
@@ -2757,7 +2766,7 @@ ${SHARED_RULES_OUTRO}`;
             ...config,
             slots: (config.slots ?? []).map((s) => ({ ...s })),
           };
-          await exportIphoneMp4ZipPlans(generatedShows, restoreConfig, { auto: true });
+          await exportIphoneMp4ZipPlans(generatedShows, restoreConfig, { auto: true, farmUpload });
         } else {
           setGenAllProgress((p) => p
             ? { ...p, phase: `Stopped after ${generatedShows.length} slideshow${generatedShows.length === 1 ? "" : "s"}.`, done: 6 }
@@ -2767,6 +2776,7 @@ ${SHARED_RULES_OUTRO}`;
         setTimeout(() => setGenAllProgress(null), 4000);
       } catch (err) {
         console.error("Generate batch failed:", err);
+        if (farmUpload?.jobId) markFarmJobFailed(err?.message || String(err));
         setGenAllProgress((p) => p ? { ...p, phase: "Batch failed — check console for details." } : null);
         setTimeout(() => setGenAllProgress(null), 5000);
       } finally {
@@ -2816,7 +2826,7 @@ ${SHARED_RULES_OUTRO}`;
             ...config,
             slots: (config.slots ?? []).map((s) => ({ ...s })),
           };
-          await exportIphoneMp4ZipPlans(generatedShows, restoreConfig, { auto: true });
+          await exportIphoneMp4ZipPlans(generatedShows, restoreConfig, { auto: true, farmUpload });
         } else {
           setGenAllProgress((p) => p
             ? { ...p, phase: `Stopped after ${generatedShows.length} slideshow${generatedShows.length === 1 ? "" : "s"}.`, done: 6 }
@@ -2826,6 +2836,7 @@ ${SHARED_RULES_OUTRO}`;
         setTimeout(() => setGenAllProgress(null), 4000);
       } catch (err) {
         console.error("Valcoin iPhone pack batch failed:", err);
+        if (farmUpload?.jobId) markFarmJobFailed(err?.message || String(err));
         setGenAllProgress((p) => p ? { ...p, phase: "Batch failed — check console for details." } : null);
         setTimeout(() => setGenAllProgress(null), 5000);
       } finally {
@@ -2868,6 +2879,7 @@ ${SHARED_RULES_OUTRO}`;
       setTimeout(() => setGenAllProgress(null), savedCount === numSlideshows ? 4000 : 8000);
     } catch (err) {
       console.error("Generate batch failed:", err);
+      if (farmUpload?.jobId) markFarmJobFailed(err?.message || String(err));
       setGenAllProgress((p) => p ? { ...p, phase: "Batch failed — check console for details." } : null);
       setTimeout(() => setGenAllProgress(null), 5000);
     } finally {
@@ -2875,6 +2887,17 @@ ${SHARED_RULES_OUTRO}`;
       abortRef.current = null;
     }
   };
+
+  const autoRunStartedRef = useRef(false);
+  useEffect(() => {
+    if (!autoRunBatch || !farmUpload?.jobId || autoRunStartedRef.current) return;
+    autoRunStartedRef.current = true;
+    setFarmJobStatus("Starting slideshow batch…");
+    const timer = window.setTimeout(() => {
+      void handleGenerateBatch();
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [autoRunBatch, farmUpload?.jobId]);
 
   // ── Video export: capture each slide, then animate ──
   const encodeWorkspaceVideoToBlob = async (exportCfg) => {
@@ -3332,7 +3355,8 @@ ${SHARED_RULES_OUTRO}`;
   };
 
   /** Batch + gallery iPhone packs: one H.264 .mp4 per slideshow inside each ZIP (never PNG). */
-  const exportIphoneMp4ZipPlans = async (shows, restoreConfig, { auto = false } = {}) => {
+  const exportIphoneMp4ZipPlans = async (shows, restoreConfig, { auto = false, farmUpload: farmCtx = null } = {}) => {
+    const activeFarm = farmCtx || farmUpload;
     const zipPlan = tryBuildIphoneBatchZipPlan(shows);
     if (zipPlan?.error) {
       if (auto) setExportStatus(zipPlan.error);
@@ -3356,10 +3380,13 @@ ${SHARED_RULES_OUTRO}`;
       try {
         const { zipSync } = await import("fflate");
         let downloadedZipCount = 0;
+        const uploadedSlots = new Set();
+        const farmMode = !!(activeFarm?.farmUrl && activeFarm?.jobId);
 
         for (const plan of zipPlans) {
           if (cancelGenRef.current) break;
           const zipEntries = {};
+          const farmSlot = farmMode ? activeFarm.slots?.[plan.iphoneNumber - 1] : null;
           for (let i = 0; i < plan.jobs.length; i++) {
             await waitWhilePaused();
             if (cancelGenRef.current) break;
@@ -3367,7 +3394,8 @@ ${SHARED_RULES_OUTRO}`;
             const mp4Path = String(zipRelPath || "").toLowerCase().endsWith(".mp4")
               ? zipRelPath
               : `${zipRelPath}.mp4`;
-            setExportStatus(`${auto ? "Auto-export: " : ""}iPhone ${plan.iphoneNumber}: encoding MP4 ${i + 1} / ${plan.jobs.length}…`);
+            const statusPrefix = auto ? "Auto-export: " : farmMode ? "Farm upload: " : "";
+            setExportStatus(`${statusPrefix}iPhone ${plan.iphoneNumber}: encoding MP4 ${i + 1} / ${plan.jobs.length}…`);
             const exportCfg = galleryShowToExportConfig(restoreConfig, show);
             flushSync(() => setConfig(exportCfg));
             flushSync(() => setCurrentSlide(0));
@@ -3382,6 +3410,25 @@ ${SHARED_RULES_OUTRO}`;
               } else if (!isMp4Bytes(arr)) {
                 console.error("Invalid MP4 payload for ZIP entry", mp4Path, arr.slice(0, 16));
                 setExportStatus(`Skipped ${mp4Path} — file is not a valid MP4. Use Chrome or Safari 16+.`);
+              } else if (farmMode) {
+                if (!farmSlot) {
+                  console.warn("No farm slot mapped for iPhone pack", plan.iphoneNumber);
+                } else {
+                  const filename = String(mp4Path || "").split("/").pop() || "slideshow.mp4";
+                  const clearSlot = !uploadedSlots.has(farmSlot);
+                  uploadedSlots.add(farmSlot);
+                  setFarmJobStatus(`Uploading ${filename} → slot ${farmSlot}…`);
+                  await uploadMp4ToFarm({
+                    farmUrl: activeFarm.farmUrl,
+                    jobId: activeFarm.jobId,
+                    secret: activeFarm.secret,
+                    slot: farmSlot,
+                    file: blob,
+                    filename,
+                    clear: clearSlot,
+                  });
+                  encodedMp4Count++;
+                }
               } else {
                 zipEntries[mp4Path] = [arr, randomZipEntryOptions()];
                 encodedMp4Count++;
@@ -3394,6 +3441,8 @@ ${SHARED_RULES_OUTRO}`;
 
           if (cancelGenRef.current) break;
 
+          if (farmMode) continue;
+
           if (Object.keys(zipEntries).length === 0) continue;
 
           setExportStatus(`${auto ? "Auto-export: " : ""}Building MP4 ZIP ${plan.iphoneNumber} / ${zipPlans.length}…`);
@@ -3405,6 +3454,25 @@ ${SHARED_RULES_OUTRO}`;
             plan.jobs.map((job) => galleryShowToExportConfig(restoreConfig, job.show)),
           );
           await new Promise((r) => setTimeout(r, 650));
+        }
+
+        if (farmMode) {
+          if (encodedMp4Count === 0) {
+            const msg = "No MP4 videos uploaded to farm.";
+            setExportStatus(msg);
+            markFarmJobFailed(msg);
+          } else {
+            setFarmJobStatus("Starting farm batch…");
+            await notifyAutomationDone({
+              farmUrl: activeFarm.farmUrl,
+              jobId: activeFarm.jobId,
+              secret: activeFarm.secret,
+            });
+            setExportProgress(100);
+            setExportStatus(`Done! Uploaded ${encodedMp4Count} MP4(s) to farm.`);
+            markFarmJobDone();
+          }
+          return encodedMp4Count > 0;
         }
 
         if (downloadedZipCount === 0) {
@@ -3420,6 +3488,9 @@ ${SHARED_RULES_OUTRO}`;
         return downloadedZipCount > 0;
       } catch (e) {
         console.error(e);
+        if (activeFarm?.farmUrl && activeFarm?.jobId) {
+          markFarmJobFailed(e?.message || String(e));
+        }
         setExportStatus("iPhone ZIP export failed — see console.");
         return false;
       } finally {
