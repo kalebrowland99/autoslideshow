@@ -46,7 +46,8 @@ export default function AutomationRunner() {
           throw new Error("Missing jobId or farmUrl query params");
         }
         setFarmJobStatus("Loading farm defaults…");
-        const res = await fetch(`/api/farm/defaults?brand=${encodeURIComponent(brand)}`);
+        const defaultsUrl = `/api/farm/defaults?brand=${encodeURIComponent(brand)}&jobId=${encodeURIComponent(jobId)}`;
+        const res = await fetch(defaultsUrl);
         if (!res.ok) throw new Error(await res.text());
         const data = await res.json();
         if (cancelled) return;
