@@ -2712,7 +2712,7 @@ ${SHARED_RULES_OUTRO}`;
 
   const handleGenerateBatch = async () => {
     if (isLabelyFoodDbBatchMode) {
-      const plans = labelyFoodDbBatches
+      let plans = labelyFoodDbBatches
         .map((b, idx) => ({
           batchNumber: idx + 1,
           batchName: String(b.name || "").trim(),
@@ -2721,6 +2721,39 @@ ${SHARED_RULES_OUTRO}`;
           foodDbMatches: b.foodDbMatches && typeof b.foodDbMatches === "object" ? b.foodDbMatches : {},
         }))
         .filter((b) => b.slideshowCount > 0);
+      if (labelyUseBraveImages && plans.length > 0) {
+        setGenAllProgress({ phase: "Resolving unhealthy foods from Brave…", done: 0 });
+        const resolved = [];
+        for (const plan of plans) {
+          const matches = plan.foodDbMatches && typeof plan.foodDbMatches === "object" ? { ...plan.foodDbMatches } : {};
+          const missing = plan.items.filter((item) => {
+            const row = matches[item];
+            const details = Array.isArray(row?.candidateDetails) ? row.candidateDetails : [];
+            return !details.some((d) => String(d?.imageUrl || "").trim());
+          });
+          if (missing.length) {
+            try {
+              const res = await fetch("/api/labely-food-suggestions", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ items: missing, ...foodImageLookupBody() }),
+              });
+              const body = await res.json().catch(() => ({}));
+              for (const row of Array.isArray(body.results) ? body.results : []) {
+                if (row?.query) {
+                  matches[row.query] = row;
+                  foodDbSuggestionCacheRef.current.set(foodDbKeyFor(row.query), row);
+                }
+              }
+              if (body?.braveUsage) dispatchBraveUsageUpdated(body.braveUsage);
+            } catch (err) {
+              console.error("Brave food resolve failed:", err);
+            }
+          }
+          resolved.push({ ...plan, foodDbMatches: matches });
+        }
+        plans = resolved;
+      }
       const totalShows = plans.reduce((sum, p) => sum + p.slideshowCount, 0);
       if (totalShows <= 0) {
         alert("Set at least one batch slideshow count above 0.");

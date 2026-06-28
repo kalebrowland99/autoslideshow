@@ -46,11 +46,17 @@ export default function AutomationRunner() {
           throw new Error("Missing jobId or farmUrl query params");
         }
         setFarmJobStatus("Loading farm defaults…");
-        const defaultsUrl = `/api/farm/defaults?brand=${encodeURIComponent(brand)}&jobId=${encodeURIComponent(jobId)}`;
-        const res = await fetch(defaultsUrl);
+        const res = await fetch(`/api/farm/defaults?brand=${encodeURIComponent(brand)}`);
         if (!res.ok) throw new Error(await res.text());
         const data = await res.json();
         if (cancelled) return;
+        if (brand === "labely") {
+          setFarmJobStatus(
+            data.source === "brave"
+              ? "Brave picked unhealthy American foods — starting batch…"
+              : "Defaults loaded — starting batch…",
+          );
+        }
         setConfig((prev) => ({
           ...prev,
           ...(data.config || {}),
