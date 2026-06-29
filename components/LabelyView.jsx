@@ -199,7 +199,7 @@ export default function LabelyView({ fillViewport = true }) {
             top-left menu, then upload photos or use AI-generated products in the sidebar.
           </p>
           {busy ? <p className="mt-2 text-[11px] text-[#6B9080]">Analyzing packaging…</p> : null}
-          {error ? <p className="mt-2 text-[11px] text-red-600">{error}</p> : null}
+          {error ? <p className="mt-2 text-[11px] status-error">{error}</p> : null}
         </div>
 
         <div className="flex items-start gap-4">
@@ -284,7 +284,7 @@ export default function LabelyView({ fillViewport = true }) {
           ) : (
             <p className="mt-4 text-[16px] leading-[1.5] text-[#3C3C43]">
               Upload a clear photo of the front label of a packaged food or drink. Labely reads the name and brand, then
-              writes a short, realistic-style label analysis of your product with made-up compound names in bold — not real lab results.
+              writes a short label analysis of your product highlighting real concerning ingredients in bold.
             </p>
           )}
         </div>

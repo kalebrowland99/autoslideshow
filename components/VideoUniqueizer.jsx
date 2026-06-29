@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { Switch } from "@/components/ui/switch";
 
 const VIDEO_ACCEPT = "video/mp4,video/quicktime,video/x-m4v,video/webm";
 const AUDIO_ACCEPT = "audio/mpeg,audio/wav,audio/mp4,audio/aac,audio/ogg";
@@ -526,25 +527,25 @@ async function encodeUniqueVideo({
 
 function Toggle({ checked, onChange, title, detail, disabled = false }) {
   return (
-    <label
-      className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-3 transition ${
+    <div
+      className={`flex items-start gap-3 rounded-2xl border p-3 transition ${
         checked
-          ? "border-violet-400/50 bg-violet-500/12"
-          : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
+          ? "border-foreground/25 bg-foreground/5"
+          : "border-border bg-muted/30 hover:bg-muted/50"
       } ${disabled ? "opacity-45" : ""}`}
     >
-      <input
-        type="checkbox"
+      <Switch
         checked={checked}
+        onCheckedChange={onChange}
         disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
-        className="mt-1 h-4 w-4 accent-violet-500"
+        className="mt-0.5"
+        aria-label={title}
       />
       <span className="min-w-0">
-        <span className="block text-sm font-semibold text-white">{title}</span>
-        <span className="mt-0.5 block text-xs leading-relaxed text-white/45">{detail}</span>
+        <span className="block text-sm font-semibold text-foreground">{title}</span>
+        <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{detail}</span>
       </span>
-    </label>
+    </div>
   );
 }
 
@@ -752,20 +753,20 @@ export default function VideoUniqueizer() {
   const canRun = sourceItems.length > 0 && !running;
 
   return (
-    <div className="min-h-full bg-[#080808] p-6 text-white">
+    <div className="min-h-full p-2 text-foreground md:p-4">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
-        <section className="rounded-[28px] border border-white/10 bg-gradient-to-br from-white/[0.08] to-white/[0.025] p-6 shadow-2xl">
+        <section className="dash-card p-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-violet-300/80">Video Uniqueizer</p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight">Batch randomized exports for owned videos</h1>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-white/55">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Video Uniqueizer</p>
+              <h1 className="mt-2 text-3xl font-bold tracking-tighter md:text-4xl">Batch randomized exports for owned videos</h1>
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
                 Upload 1-3 source videos, choose how many variants each one needs, then generate a ZIP of locally processed
                 MP4 files. Every export gets its own random visual, audio, codec, and metadata settings. Results vary by
                 platform, account history, and content, so this tool does not guarantee any specific distribution outcome.
               </p>
             </div>
-            <div className="rounded-2xl border border-amber-300/20 bg-amber-400/10 px-4 py-3 text-xs leading-5 text-amber-100/75 lg:max-w-sm">
+            <div className="page-banner rounded-2xl px-4 py-3 text-xs leading-5 lg:max-w-sm">
               Use this only for content you own or have permission to repurpose. Browser FFmpeg is CPU-heavy, so many
               exports can take a while. Keep each source video under {MAX_SOURCE_FILE_MB} MB for reliable processing.
             </div>
@@ -774,13 +775,13 @@ export default function VideoUniqueizer() {
 
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px]">
           <div className="flex flex-col gap-5">
-            <section className="rounded-[24px] border border-white/10 bg-[#111] p-5">
+            <section className="adv-section">
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 className="text-lg font-bold">Source videos</h2>
-                  <p className="mt-1 text-xs text-white/45">Pick up to 3 videos. Set copies per video after upload.</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Pick up to 3 videos. Set copies per video after upload.</p>
                 </div>
-                <label className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-violet-500 px-4 py-2 text-sm font-bold text-white hover:bg-violet-400">
+                <label className="btn-primary inline-flex cursor-pointer px-4 py-2 text-sm font-bold">
                   Upload videos
                   <input
                     type="file"
@@ -798,22 +799,22 @@ export default function VideoUniqueizer() {
 
               <div className="mt-4 grid gap-3">
                 {sourceItems.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.03] p-6 text-center text-sm text-white/40">
+                  <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-6 text-center text-sm text-muted-foreground/80">
                     No source videos yet.
                   </div>
                 ) : (
                   sourceItems.map((item, index) => (
-                    <div key={item.id} className="grid gap-3 rounded-2xl border border-white/10 bg-black/25 p-4 md:grid-cols-[1fr_150px] md:items-center">
+                    <div key={item.id} className="grid gap-3 rounded-2xl border border-border bg-muted/40 p-4 md:grid-cols-[1fr_150px] md:items-center">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-white">
+                        <p className="truncate text-sm font-semibold text-foreground">
                           {index + 1}. {item.file.name}
                         </p>
-                        <p className="mt-1 text-xs text-white/40">
+                        <p className="mt-1 text-xs text-muted-foreground/80">
                           {(item.file.size / (1024 * 1024)).toFixed(1)} MB
                           {item.duration ? ` - ${item.duration.toFixed(1)}s` : ""}
                         </p>
                       </div>
-                      <label className="text-xs font-semibold text-white/55">
+                      <label className="text-xs font-semibold text-muted-foreground">
                         Unique exports
                         <input
                           type="number"
@@ -822,7 +823,7 @@ export default function VideoUniqueizer() {
                           value={item.copies}
                           disabled={running}
                           onChange={(e) => updateCopies(item.id, e.target.value)}
-                          className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-bold text-white outline-none focus:border-violet-400"
+                          className="mt-1 w-full rounded-xl border border-border bg-muted/50 px-3 py-2 text-sm font-bold text-foreground outline-none focus:border-ring"
                         />
                       </label>
                     </div>
@@ -831,9 +832,9 @@ export default function VideoUniqueizer() {
               </div>
             </section>
 
-            <section className="rounded-[24px] border border-white/10 bg-[#111] p-5">
+            <section className="adv-section">
               <h2 className="text-lg font-bold">Randomization layers</h2>
-              <p className="mt-1 text-xs text-white/45">
+              <p className="mt-1 text-xs text-muted-foreground">
                 These ranges are intentionally subtle by default so each export changes technically without wrecking the clip.
               </p>
               <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -851,24 +852,24 @@ export default function VideoUniqueizer() {
               </div>
             </section>
 
-            <section className="rounded-[24px] border border-white/10 bg-[#111] p-5">
+            <section className="adv-section">
               <h2 className="text-lg font-bold">Text, watermark, audio, and combo inputs</h2>
               <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                <div className="rounded-2xl border border-border bg-muted/40 p-4">
                   <div className="grid gap-3">
                     <Toggle checked={settings.runningLine} onChange={(v) => updateSetting("runningLine", v)} title="Running line" detail="Scrolls a random phrase across the video." />
                     <Toggle checked={settings.staticText} onChange={(v) => updateSetting("staticText", v)} title="Static text" detail="Shows a random phrase at random size, color, position, start, and duration." />
-                    <label className="block text-xs font-semibold text-white/55">
+                    <label className="block text-xs font-semibold text-muted-foreground">
                       Phrase list
                       <textarea
                         value={phraseText}
                         disabled={running}
                         onChange={(e) => setPhraseText(e.target.value)}
                         rows={8}
-                        className="mt-2 w-full resize-y rounded-2xl border border-white/10 bg-white/5 p-3 text-xs leading-5 text-white outline-none focus:border-violet-400"
+                        className="mt-2 w-full resize-y rounded-2xl border border-border bg-muted/50 p-3 text-xs leading-5 text-foreground outline-none focus:border-ring"
                       />
                     </label>
-                    <label className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white/75 hover:bg-white/10">
+                    <label className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-border bg-muted/50 px-3 py-2 text-xs font-bold text-foreground/80 hover:bg-white/10">
                       Load phrases .txt
                       <input
                         type="file"
@@ -886,14 +887,14 @@ export default function VideoUniqueizer() {
                 </div>
 
                 <div className="grid gap-4">
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="rounded-2xl border border-border bg-muted/40 p-4">
                     <Toggle
                       checked={settings.watermark}
                       onChange={(v) => updateSetting("watermark", v)}
                       title="Watermark"
                       detail="Overlays a random image with random opacity, size, position, and timing."
                     />
-                    <label className="mt-3 block text-xs font-semibold text-white/55">
+                    <label className="mt-3 block text-xs font-semibold text-muted-foreground">
                       Watermark images
                       <input
                         type="file"
@@ -901,13 +902,13 @@ export default function VideoUniqueizer() {
                         multiple
                         disabled={running}
                         onChange={(e) => setWatermarkFiles(Array.from(e.target.files || []))}
-                        className="mt-2 w-full text-xs text-white/50 file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-xs file:font-bold file:text-white"
+                        className="mt-2 w-full text-xs text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-xs file:font-bold file:text-foreground"
                       />
                     </label>
-                    <p className="mt-2 text-xs text-white/35">{watermarkFiles.length} image(s) loaded</p>
+                    <p className="mt-2 text-xs text-muted-foreground/70">{watermarkFiles.length} image(s) loaded</p>
                   </div>
 
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="rounded-2xl border border-border bg-muted/40 p-4">
                     <Toggle
                       checked={settings.addAudio}
                       onChange={(v) => updateSetting("addAudio", v)}
@@ -922,14 +923,14 @@ export default function VideoUniqueizer() {
                           disabled={running}
                           onClick={() => updateSetting("addAudioMode", mode)}
                           className={`rounded-xl px-3 py-2 font-bold capitalize ${
-                            settings.addAudioMode === mode ? "bg-violet-500 text-white" : "bg-white/5 text-white/55"
+                            settings.addAudioMode === mode ? "bg-foreground text-background" : "bg-muted/50 text-muted-foreground"
                           }`}
                         >
                           {mode}
                         </button>
                       ))}
                     </div>
-                    <label className="mt-3 block text-xs font-semibold text-white/55">
+                    <label className="mt-3 block text-xs font-semibold text-muted-foreground">
                       Audio files
                       <input
                         type="file"
@@ -937,20 +938,20 @@ export default function VideoUniqueizer() {
                         multiple
                         disabled={running}
                         onChange={(e) => setAudioFiles(Array.from(e.target.files || []))}
-                        className="mt-2 w-full text-xs text-white/50 file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-xs file:font-bold file:text-white"
+                        className="mt-2 w-full text-xs text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-xs file:font-bold file:text-foreground"
                       />
                     </label>
-                    <p className="mt-2 text-xs text-white/35">{audioFiles.length} audio file(s) loaded</p>
+                    <p className="mt-2 text-xs text-muted-foreground/70">{audioFiles.length} audio file(s) loaded</p>
                   </div>
 
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="rounded-2xl border border-border bg-muted/40 p-4">
                     <Toggle
                       checked={settings.verticalCombo}
                       onChange={(v) => updateSetting("verticalCombo", v)}
                       title="Vertical video combo"
                       detail="Stacks the source video on top and a random background clip below."
                     />
-                    <label className="mt-3 block text-xs font-semibold text-white/55">
+                    <label className="mt-3 block text-xs font-semibold text-muted-foreground">
                       Bottom videos
                       <input
                         type="file"
@@ -958,25 +959,25 @@ export default function VideoUniqueizer() {
                         multiple
                         disabled={running}
                         onChange={(e) => setComboFiles(Array.from(e.target.files || []))}
-                        className="mt-2 w-full text-xs text-white/50 file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-xs file:font-bold file:text-white"
+                        className="mt-2 w-full text-xs text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-xs file:font-bold file:text-foreground"
                       />
                     </label>
-                    <p className="mt-2 text-xs text-white/35">{comboFiles.length} bottom video(s) loaded</p>
+                    <p className="mt-2 text-xs text-muted-foreground/70">{comboFiles.length} bottom video(s) loaded</p>
                   </div>
                 </div>
               </div>
             </section>
           </div>
 
-          <aside className="h-fit rounded-[24px] border border-white/10 bg-[#111] p-5 xl:sticky xl:top-6">
+          <aside className="adv-section h-fit xl:sticky xl:top-6">
             <h2 className="text-lg font-bold">Export queue</h2>
             <div className="mt-4 grid grid-cols-2 gap-3">
-              <div className="rounded-2xl bg-white/[0.04] p-4">
-                <p className="text-xs uppercase tracking-widest text-white/35">Videos</p>
+              <div className="rounded-2xl bg-muted/40 p-4">
+                <p className="text-xs uppercase tracking-widest text-muted-foreground/70">Videos</p>
                 <p className="mt-1 text-2xl font-black">{sourceItems.length}</p>
               </div>
-              <div className="rounded-2xl bg-white/[0.04] p-4">
-                <p className="text-xs uppercase tracking-widest text-white/35">Exports</p>
+              <div className="rounded-2xl bg-muted/40 p-4">
+                <p className="text-xs uppercase tracking-widest text-muted-foreground/70">Exports</p>
                 <p className="mt-1 text-2xl font-black">{totalExports}</p>
               </div>
             </div>
@@ -985,7 +986,7 @@ export default function VideoUniqueizer() {
               type="button"
               disabled={!canRun}
               onClick={() => void runExports()}
-              className="mt-5 w-full rounded-2xl bg-violet-500 px-5 py-3 text-sm font-black text-white hover:bg-violet-400 disabled:pointer-events-none disabled:opacity-35"
+              className="btn-primary mt-5 w-full disabled:pointer-events-none disabled:opacity-35"
             >
               {running ? "Generating..." : "Generate unique ZIP"}
             </button>
@@ -993,22 +994,22 @@ export default function VideoUniqueizer() {
               <button
                 type="button"
                 onClick={stopRun}
-                className="mt-3 w-full rounded-2xl border border-red-400/40 bg-red-500/10 px-5 py-3 text-sm font-bold text-red-100 hover:bg-red-500/20"
+                className="btn-outline mt-3 w-full text-destructive"
               >
                 Stop
               </button>
             ) : null}
 
             <div className="mt-5">
-              <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                <div className="h-full rounded-full bg-violet-400 transition-all" style={{ width: `${progress}%` }} />
+              <div className="h-2 overflow-hidden rounded-full bg-muted border border-border/50">
+                <div className="h-full rounded-full bg-foreground transition-all" style={{ width: `${progress}%` }} />
               </div>
-              <p className="mt-3 min-h-5 text-xs leading-5 text-white/55">{status || "Ready."}</p>
+              <p className="mt-3 min-h-5 text-xs leading-5 text-muted-foreground">{status || "Ready."}</p>
               {ffmpegLog ? <p className="mt-2 break-words text-[11px] leading-4 text-white/30">{ffmpegLog}</p> : null}
             </div>
 
-            <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4 text-xs leading-5 text-white/45">
-              <p className="font-bold text-white/70">What changes per copy:</p>
+            <div className="mt-5 rounded-2xl border border-border bg-muted/40 p-4 text-xs leading-5 text-muted-foreground">
+              <p className="font-bold text-foreground/70">What changes per copy:</p>
               <p className="mt-2">
                 Visual filters, frame timing, tiny trims, borders, optional text, optional image watermark, optional audio,
                 H.264 encode settings, and metadata are randomized independently for every generated file.

@@ -43,6 +43,7 @@ const C = {
 const LABELY_PAGE_BG_URL = "/labely/bg.png";
 const LABELY_ICON_SEED_OILS = "/labely/seedoils.png";
 const LABELY_ICON_ADDITIVES = "/labely/additives.png";
+const LABELY_ICON_HERB = "/labely/herb.png";
 function LabelyRowLeadingIcon({ src, size }) {
   return (
     <img
@@ -89,50 +90,7 @@ const LABELY_SUMMARY_VISIBLE_LINES = 2;
 
 const READ_MORE_SUFFIX = " Read more..";
 
-function fnv1a32(str) {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-/** Uniform-ish floats in [0, 1). */
-function mulberry32(seed) {
-  return function next() {
-    let t = (seed += 0x6d2b79f5);
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/**
- * Lawsuit + metric parens — pseudorandom per slide, stable for export.
- * Lawsuits 3–99; small parens 1–15 (uniform draws from a keyed PRNG).
- */
-function labelySlideRandomDisplayCounts(slot, config, itemIndex = 0) {
-  const key = [
-    itemIndex,
-    Number(config?.jitterSeed) || 0,
-    slot?.itemName ?? "",
-    slot?.labelyBrand ?? "",
-    String(slot?.imageUrl ?? "").slice(0, 200),
-    String(slot?.labelyLegalNote ?? "").slice(0, 160),
-    String(slot?.labelyAnalysis ?? "").slice(0, 100),
-  ].join("\x1e");
-  const rng = mulberry32(fnv1a32(key) || 1);
-  return {
-    lawsuitCount: 3 + Math.floor(rng() * 97),
-    seedOilsParenCount: 1 + Math.floor(rng() * 15),
-    additivesParenCount: 1 + Math.floor(rng() * 15),
-  };
-}
-
-function LawsuitBubbleInner({ count, px }) {
-  const k = Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0;
-  const noun = k === 1 ? "lawsuit" : "lawsuits";
+function LawsuitBubbleInner({ px }) {
   const hereStyle = {
     textDecoration: "underline",
     textUnderlineOffset: px(2),
@@ -140,7 +98,7 @@ function LawsuitBubbleInner({ count, px }) {
   };
   return (
     <>
-      ⚠️ {k} {noun} found. Tap <span style={hereStyle}>here</span> to view full report.
+      ⚠️ Lawsuits found. Tap <span style={hereStyle}>here</span> to view full report.
     </>
   );
 }
@@ -390,21 +348,9 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
     (slot.labelyAnalysis || "").trim()
     || "Generate this slide from the sidebar to add a clean-ingredient analysis.";
   const seedOils = "Dangerous";
-  const additives = "Cancerous";
+  const additives = "Dangerous";
   const productThumb = px(100);
   const productStyle = productImageStyle(config, itemIndex);
-  const { lawsuitCount, seedOilsParenCount, additivesParenCount } = useMemo(
-    () => labelySlideRandomDisplayCounts(slot, config, itemIndex),
-    [
-      itemIndex,
-      config?.jitterSeed,
-      slot?.itemName,
-      slot?.labelyBrand,
-      slot?.imageUrl,
-      slot?.labelyLegalNote,
-      slot?.labelyAnalysis,
-    ],
-  );
   const lawsuitBubbleStyle = {
     alignSelf: "center",
     display: "block",
@@ -560,26 +506,12 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
 
         <div style={{ flexShrink: 0, marginTop: px(18), paddingLeft: px(10), paddingRight: px(10), display: "flex", flexDirection: "column", gap: px(12) }}>
           <span style={lawsuitBubbleStyle}>
-            <LawsuitBubbleInner count={lawsuitCount} px={px} />
+            <LawsuitBubbleInner px={px} />
           </span>
           {/* Healthier alternatives reveal */}
           <div style={{ background: "#ffffff", borderRadius: px(14), padding: `${px(12)}px ${px(14)}px`, display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid rgba(0,0,0,0.04)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
-              <span
-                style={{
-                  flexShrink: 0,
-                  width: px(36),
-                  height: px(36),
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: px(30),
-                  lineHeight: 1,
-                }}
-                aria-hidden
-              >
-                🌿
-              </span>
+              <LabelyRowLeadingIcon src={LABELY_ICON_HERB} size={px(36)} />
               <div style={{ fontSize: px(14), fontWeight: 700, color: "#274B36", lineHeight: 1.2 }}>
                 Reveal Healthier Alternatives
               </div>
@@ -594,7 +526,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
             <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
               <LabelyRowLeadingIcon src={LABELY_ICON_SEED_OILS} size={px(36)} />
               <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>
-                Seed Oils ({seedOilsParenCount})
+                Seed Oils
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>
@@ -611,7 +543,7 @@ export default function LabelySlide({ slot, S, config, itemIndex = 0 }) {
             <div style={{ display: "flex", alignItems: "center", gap: px(10), minWidth: 0 }}>
               <LabelyRowLeadingIcon src={LABELY_ICON_ADDITIVES} size={px(36)} />
               <div style={{ fontSize: px(15), fontWeight: 700, color: "#274B36" }}>
-                Additives ({additivesParenCount})
+                Additives
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: px(10), flexShrink: 0 }}>

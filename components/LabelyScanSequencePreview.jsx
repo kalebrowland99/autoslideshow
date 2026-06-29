@@ -119,7 +119,16 @@ export default function LabelyScanSequencePreview({ config, currentSlide, setCur
 
       const slot = info.slot ?? config.slots?.[targetIdx - 1] ?? config.slots?.[0];
       let productDataUrl = typeof slot?.imageUrl === "string" ? slot.imageUrl.trim() : "";
-      if (!productDataUrl) productDataUrl = SAMPLE_SCAN_PRODUCT_IMAGE;
+      const isValcoinApp = (config?.appId ?? "thrifty") === "valcoin";
+      if (!productDataUrl) {
+        if (isValcoinApp) {
+          setLoading(false);
+          setOpen(false);
+          flushSync(() => setCurrentSlide(prevSlide));
+          return;
+        }
+        productDataUrl = SAMPLE_SCAN_PRODUCT_IMAGE;
+      }
 
       const seq = await buildLabelyScanFrameSequence({
         productDataUrl,
@@ -175,11 +184,11 @@ export default function LabelyScanSequencePreview({ config, currentSlide, setCur
             ? "Play scan → slide-up → hold (matches Labely / Valcoin scan export)"
             : "Switch to Labely or Valcoin scan tour with at least 2 slides"
         }
-        className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-white/10 hover:bg-white/18 disabled:opacity-35 disabled:cursor-not-allowed border border-white/15 text-white transition-colors"
+        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-35"
         aria-label="Play scan tour export preview"
       >
         {loading ? (
-          <span className="w-4 h-4 border-2 border-white/35 border-t-white rounded-full animate-spin" />
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
         ) : (
           <span className="text-lg leading-none pl-0.5">▶</span>
         )}

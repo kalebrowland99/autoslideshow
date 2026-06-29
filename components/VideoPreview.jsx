@@ -102,19 +102,19 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
         <button
           onClick={() => setCurrentSlide((s) => Math.max(0, s - 1))}
           disabled={currentSlide === 0}
-          className="w-7 h-7 rounded-full bg-white/8 hover:bg-white/15 disabled:opacity-20 flex items-center justify-center text-white text-sm transition-colors"
+          className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background text-sm text-foreground transition-colors hover:bg-muted/50 disabled:opacity-25"
         >
           ←
         </button>
         {!valcoinScanTour ? (
-          <span className="text-white/50 text-xs min-w-[140px] text-center">{slideLabel()}</span>
+          <span className="min-w-[140px] text-center text-xs font-medium text-muted-foreground">{slideLabel()}</span>
         ) : (
           <span className="min-w-[140px]" aria-hidden />
         )}
         <button
           onClick={() => setCurrentSlide((s) => Math.min(totalSlides - 1, s + 1))}
           disabled={currentSlide === totalSlides - 1}
-          className="w-7 h-7 rounded-full bg-white/8 hover:bg-white/15 disabled:opacity-20 flex items-center justify-center text-white text-sm transition-colors"
+          className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background text-sm text-foreground transition-colors hover:bg-muted/50 disabled:opacity-25"
         >
           →
         </button>
@@ -198,73 +198,63 @@ export default function VideoPreview({ config, currentSlide, setCurrentSlide, to
           const momTxt     = fmt === "imessageMom" && i === 2;
           const momThrifty = fmt === "imessageMom" && i === 3;
           const isPose = fmt === "posePerson";
-          const dotColor = isPose
-            ? "bg-sky-400"
-            : momPhoto
-            ? "bg-slate-400"
-            : momMsg
-            ? "bg-fuchsia-400"
-            : momVm
-            ? "bg-amber-400"
-            : momTxt
-            ? "bg-pink-400"
-            : momThrifty
-            ? "bg-emerald-400"
-            : isCollage
-            ? "bg-violet-500"
+          const dotColor = isCollage
+            ? "bg-muted-foreground/50"
             : isReveal
-            ? "bg-orange-400"
-            : "bg-emerald-400";
+            ? "bg-muted-foreground/70"
+            : momVm
+            ? "bg-[#b45309]"
+            : "bg-[#059669]";
           return (
             <button
               key={i}
               onClick={() => setCurrentSlide(i)}
-              className={`w-2 h-2 rounded-full transition-all ${
+              className={`h-2 w-2 rounded-full transition-all ${
                 i === currentSlide
-                  ? `${dotColor} scale-125`
-                  : "bg-white/20 hover:bg-white/40"
+                  ? `${dotColor} scale-125 ring-2 ring-border`
+                  : "bg-border hover:bg-muted-foreground/40"
               }`}
             />
           );
         })}
       </div>
       {fmt === "posePerson" ? (
-        <div className="flex gap-4 text-xs text-white/30">
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-400 inline-block"/>Pose</span>
+        <div className="flex gap-4 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-muted-foreground/60"/>Pose</span>
         </div>
       ) : (
-        <div className="flex gap-4 text-xs text-white/30 flex-wrap justify-center">
+        <div className="flex flex-wrap justify-center gap-4 text-xs text-muted-foreground">
           {fmt === "imessageMom" ? (
             <>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-fuchsia-400 inline-block"/>iMessage</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block"/>Voicemail</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-pink-400 inline-block"/>Text reply</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>{brand.appId === "labely" ? "Labely" : brand.appName}</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-muted-foreground/60"/>iMessage</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#b45309]"/>Voicemail</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-muted-foreground/40"/>Text reply</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#059669]"/>{brand.appId === "labely" ? "Labely" : brand.appName}</span>
             </>
           ) : skipsCollageOpening(config) ? (
             !valcoinScanTour ? (
               <>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>{brand.appId === "valcoin" ? "Valcoin" : "Labely"}</span>
+                <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#059669]"/>{brand.appId === "valcoin" ? "Valcoin" : "Labely"}</span>
                 {(config.outputFormat ?? "standard") === "labelyScan" && (
                   <>
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-400/90 inline-block"/>Scan × {scanTourSlotCount(config)} → slide</span>
-                    <span className="text-white/25">· includes intro</span>
+                    <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#2563eb]"/>Scan × {scanTourSlotCount(config)} → slide</span>
+                    <span className="text-muted-foreground/70">· includes intro</span>
                   </>
                 )}
               </>
             ) : null
           ) : valcoinScanTour ? (
             <>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-violet-500 inline-block"/>Collage</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-400/90 inline-block"/>Scan × {scanTourSlotCount(config)} → Valcoin slide-up</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-muted-foreground/50"/>Collage</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#2563eb]"/>Scan × {scanTourSlotCount(config)} → Valcoin slide-up</span>
             </>
           ) : (
             <>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-violet-500 inline-block"/>Collage</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-muted-foreground/50"/>Collage</span>
               {fmt === "standard" && (
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block"/>Reveal</span>
+                <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-muted-foreground/70"/>Reveal</span>
               )}
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>{brand.appId === "labely" ? "Labely" : brand.appName}</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#059669]"/>{brand.appId === "labely" ? "Labely" : brand.appName}</span>
             </>
           )}
         </div>

@@ -5,9 +5,9 @@ import VideoPreview from "@/components/VideoPreview";
 import LabelyScanSequencePreview from "@/components/LabelyScanSequencePreview";
 import ConfigPanel from "@/components/ConfigPanel";
 import GlobalJobBar from "@/components/GlobalJobBar";
-import BraveSearchUsageBar from "@/components/BraveSearchUsageBar";
 import GalleryRail from "@/components/GalleryRail";
 import VideoUniqueizer from "@/components/VideoUniqueizer";
+import { AppNav, PreviewFrame } from "@/components/ui/acme-hero";
 import { getTotalSlides, normalizeValcoinOutputFormat, LABELY_SCAN_TOUR_SLOTS } from "@/lib/slideLayout";
 import {
   mergePersistedConfig,
@@ -53,6 +53,8 @@ export const emptySlot = (i) => ({
   labelyAnalysis: "",
   labelyAnalysisTitle: "Labely's Analysis",
   labelyLegalNote: "No lawsuits found.",
+  labelyShelfImageUrl: null,
+  labelyDbImageUrl: null,
 });
 
 export const defaultConfig = {
@@ -83,23 +85,14 @@ export const defaultConfig = {
   /** @type {{ id: string, dataUrl: string }[]} */
   poseReferenceImages: [],
 
-  /** Labely only: true = AI-generated packaged-food cards + product images (no uploads). false = vision + uploads (current default). */
-  labelyAiProducts: false,
-  /** Labely AI-products only: use Open Food Facts package photos before falling back to generated images. */
-  labelyUseFoodDatabasePhotos: false,
-  /** Labely food-database mode: use Brave Image Search instead of Open Food Facts (requires BRAVE_SEARCH_API_KEY). */
+  /** Labely only: true = AI-generated packaged-food cards + product images (no uploads). */
+  labelyAiProducts: true,
+  /** Labely: product photos from Brave Image Search (not GPT pack shots). */
   labelyUseBraveImages: true,
   /** Labely AI-products only: use the pilates mirror selfie prompt for the first generated photo. */
   labelyUseSelfieImage: false,
   /** Labely scan tour: number of food scan/result pairs in the current saved slideshow. */
   labelyScanSlotCount: 3,
-  /** Labely DB photo mode: six isolated generation batches. */
-  labelyFoodDbBatches: Array.from({ length: 6 }, (_, i) => ({
-    id: `batch-${i + 1}`,
-    name: `Food database batch ${i + 1}`,
-    itemsRaw: "",
-    slideshowCount: 1,
-  })),
   /** Labely food list (newline-separated); persisted in home session so removals survive refresh. */
   labelyFoodItemsRaw: "",
 
@@ -166,7 +159,12 @@ export default function Home() {
       setNumSlideshows(raw.numSlideshows);
     }
     if (Array.isArray(raw.batchImageDataUrls)) {
-      setBatchImageDataUrls(raw.batchImageDataUrls.map((x) => (typeof x === "string" && x.trim() ? x : null)));
+      const aid = merged.appId ?? "thrifty";
+      if (aid === "thrifty") {
+        setBatchImageDataUrls(raw.batchImageDataUrls.map((x) => (typeof x === "string" && x.trim() ? x : null)));
+      } else {
+        setBatchImageDataUrls([]);
+      }
     }
     return merged;
   }, []);
@@ -194,7 +192,12 @@ export default function Home() {
       setActiveShowIdx(null);
     }
     if (Array.isArray(raw.batchImageDataUrls)) {
-      setBatchImageDataUrls(raw.batchImageDataUrls.map((x) => (typeof x === "string" && x.trim() ? x : null)));
+      const aid = typeof raw.config?.appId === "string" ? raw.config.appId : "thrifty";
+      if (aid === "thrifty") {
+        setBatchImageDataUrls(raw.batchImageDataUrls.map((x) => (typeof x === "string" && x.trim() ? x : null)));
+      } else {
+        setBatchImageDataUrls([]);
+      }
     }
   }, []);
 
@@ -463,7 +466,6 @@ export default function Home() {
       ...(showData.appId != null ? { appId: showData.appId } : {}),
       ...(showData.jitterSeed != null ? { jitterSeed: showData.jitterSeed } : {}),
       ...(showData.labelyOutroText != null ? { labelyOutroText: showData.labelyOutroText } : {}),
-      ...(showData.labelyFoodDbBatches != null ? { labelyFoodDbBatches: showData.labelyFoodDbBatches } : {}),
       ...(isLabelyShow
         ? { labelyScanSlotCount: showData.labelyScanSlotCount ?? LABELY_SCAN_TOUR_SLOTS }
         : showData.labelyScanSlotCount != null
@@ -497,21 +499,37 @@ export default function Home() {
   }, [config.appId, savedSlideshows]);
 
   const updateConfig = useCallback((key, value) => {
+    if (key === "appId") {
+      setConfig((prev) => {
+        if (value === prev.appId) return prev;
+        const next = { ...prev, appId: value };
+        next.slots = Array.from({ length: 6 }, (_, i) => emptySlot(i));
+        next.captionText = "";
+        next.jitterSeed = 0;
+        if (value === "valcoin") {
+          next.outputFormat = normalizeValcoinOutputFormat(next.outputFormat);
+        }
+        if (value !== "labely" && prev.appId === "labely") {
+          if (["labelyOnly", "labelyScan"].includes(prev.outputFormat ?? "standard")) {
+            next.outputFormat = "standard";
+          }
+        }
+        if (value === "labely") {
+          next.outputFormat = "labelyScan";
+          next.labelyAiProducts = true;
+          next.labelyUseBraveImages = true;
+        }
+        return next;
+      });
+      setBatchImageDataUrls([]);
+      setActiveShowIdx(null);
+      setCurrentSlide(0);
+      return;
+    }
     setConfig((prev) => {
       const next = { ...prev, [key]: value };
-      if (key === "appId" && value === "valcoin") {
-        next.outputFormat = normalizeValcoinOutputFormat(next.outputFormat);
-      }
       if (key === "outputFormat" && next.appId === "valcoin") {
         next.outputFormat = normalizeValcoinOutputFormat(value);
-      }
-      if (key === "appId" && value !== "labely" && prev.appId === "labely") {
-        if (["labelyOnly", "labelyScan"].includes(prev.outputFormat ?? "standard")) {
-          next.outputFormat = "standard";
-        }
-      }
-      if (key === "appId" && value === "labely") {
-        next.outputFormat = "labelyScan";
       }
       if (key === "outputFormat") {
         const maxSlide = Math.max(0, getTotalSlides(next) - 1);
@@ -547,153 +565,95 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-[#0f0f0f]">
-      <header className="border-b border-white/10 px-6 py-4 flex items-center justify-between shrink-0">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center">
-              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
+    <div className="container max-w-6xl mx-auto px-4 pb-10">
+        <AppNav
+          appId={config.appId ?? "thrifty"}
+          onAppIdChange={(nextAppId) => updateConfig("appId", nextAppId)}
+          currentSlide={currentSlide}
+          totalSlides={totalSlides}
+          cloudStatus={isFirebaseConfigured() ? cloudStatus : ""}
+          cloudStatusDetail={cloudStatusDetail}
+          onReloadMedia={!isVideoUniqueizer ? () => void reloadGalleryAndBatchMedia() : undefined}
+          reloadingMedia={reloadingSessionMedia}
+          isExporting={isExporting}
+          isGenerating={isGenerating}
+          isVideoUniqueizer={isVideoUniqueizer}
+        />
+
+        <main className="relative py-8 md:py-10">
+          <GlobalJobBar />
+          {isVideoUniqueizer ? (
+            <div className="dash-card p-4 md:p-6">
+              <VideoUniqueizer />
             </div>
-            <div className="relative">
-              <select
-                value={config.appId ?? "thrifty"}
-                onChange={(e) => {
-                  const nextAppId = e.target.value;
-                  updateConfig("appId", nextAppId);
-                }}
-                className="text-white font-bold text-lg tracking-tight bg-transparent outline-none appearance-none pr-6 cursor-pointer"
-                aria-label="Select app brand"
-              >
-                <option value="thrifty" className="bg-[#0f0f0f] text-white">Thrifty Slideshows</option>
-                <option value="valcoin" className="bg-[#0f0f0f] text-white">Valcoin Slideshows</option>
-                <option value="labely" className="bg-[#0f0f0f] text-white">Labely</option>
-                <option value="videoUniqueizer" className="bg-[#0f0f0f] text-white">Video Uniqueizer</option>
-              </select>
-              <span className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-white/60 text-xs">▼</span>
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          {isFirebaseConfigured() && cloudStatus ? (
-            <span
-              className="text-emerald-400/90 text-[11px] max-w-[min(280px,40vw)] truncate cursor-default"
-              title={cloudStatusDetail || cloudStatus}
-            >
-              {cloudStatus}
-            </span>
-          ) : null}
-          {!isVideoUniqueizer ? (
-            <button
-              type="button"
-              onClick={() => void reloadGalleryAndBatchMedia()}
-              disabled={isGenerating || isExporting || reloadingSessionMedia}
-              title="Clears saved slideshow thumbnails and batch photo rows, then reloads them from your last saved session (Firebase when newer). Does not reset the left editor workspace."
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 text-[11px] font-medium text-white/85 hover:bg-white/10 disabled:pointer-events-none disabled:opacity-35"
-            >
-              <svg
-                className={`h-3.5 w-3.5 shrink-0 ${reloadingSessionMedia ? "animate-spin" : ""}`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                aria-hidden
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                />
-              </svg>
-              {reloadingSessionMedia ? "Reloading…" : "Reload media"}
-            </button>
-          ) : null}
-          {!isVideoUniqueizer ? (
-            <span className="text-white/30 text-xs">
-              Slide {currentSlide + 1} / {totalSlides}
-            </span>
-          ) : null}
-          <span className="text-white/40 text-sm">{isVideoUniqueizer ? "Video Uniqueizer" : "Video Generator"}</span>
-        </div>
-      </header>
-
-      <GlobalJobBar />
-      {config.appId === "labely" && config.labelyUseBraveImages ? (
-        <BraveSearchUsageBar enabled compact className="shrink-0 border-b border-white/10 rounded-none" />
-      ) : null}
-
-      <div className="flex-1 flex overflow-hidden min-h-0">
-        {isVideoUniqueizer ? (
-          <main className="flex-1 min-h-0 min-w-0 overflow-auto bg-[#080808]">
-            <VideoUniqueizer />
-          </main>
-        ) : (
-          <>
-            <aside className="w-[420px] border-r border-white/10 overflow-y-auto shrink-0 min-h-0">
-              <ConfigPanel
-                config={config}
-                setConfig={setConfig}
-                updateConfig={updateConfig}
-                updateSlot={updateSlot}
-                updateMatchItem={updateMatchItem}
-                currentSlide={currentSlide}
-                setCurrentSlide={setCurrentSlide}
-                totalSlides={totalSlides}
-                isExporting={isExporting}
-                setIsExporting={setIsExporting}
-                exportProgress={exportProgress}
-                setExportProgress={setExportProgress}
-                exportStatus={exportStatus}
-                setExportStatus={setExportStatus}
-                onBusyChange={setIsGenerating}
-                registerRefreshSlide={(fn) => { refreshHandlerRef.current = fn; }}
-                onSlideshowSaved={handleSlideshowSaved}
-                onSavedSlideshowsChange={setSavedSlideshows}
-                activeShowIdx={activeShowIdx}
-                savedSlideshows={savedSlideshows}
-                numSlideshows={numSlideshows}
-                setNumSlideshows={setNumSlideshows}
-                batchImageDataUrls={batchImageDataUrls}
-                setBatchImageDataUrls={setBatchImageDataUrls}
-                persistHomeSessionNow={persistHomeSessionNow}
-              />
-            </aside>
-
-            <main className="flex-1 min-h-0 min-w-0 flex items-center justify-center p-8 overflow-auto bg-[#080808]">
-              <div className="flex flex-col items-center gap-4">
-                <div className="flex items-center justify-center gap-3 flex-wrap">
-                  <p className="text-white/40 text-xs uppercase tracking-widest">Live Preview</p>
-                  <LabelyScanSequencePreview
-                    config={config}
-                    currentSlide={currentSlide}
-                    setCurrentSlide={setCurrentSlide}
-                    totalSlides={totalSlides}
-                  />
-                </div>
-                <VideoPreview
+          ) : (
+            <div className="grid items-start gap-5 md:gap-6 lg:grid-cols-5">
+              <div className="dash-card p-4 md:p-5 lg:col-span-2 max-h-[calc(100vh-6rem)] overflow-y-auto">
+                <ConfigPanel
                   config={config}
+                  setConfig={setConfig}
+                  updateConfig={updateConfig}
+                  updateSlot={updateSlot}
+                  updateMatchItem={updateMatchItem}
                   currentSlide={currentSlide}
                   setCurrentSlide={setCurrentSlide}
                   totalSlides={totalSlides}
-                  isGenerating={isGenerating}
-                  onRefreshSlide={(i) => refreshHandlerRef.current?.(i)}
+                  isExporting={isExporting}
+                  setIsExporting={setIsExporting}
+                  exportProgress={exportProgress}
+                  setExportProgress={setExportProgress}
+                  exportStatus={exportStatus}
+                  setExportStatus={setExportStatus}
+                  onBusyChange={setIsGenerating}
+                  registerRefreshSlide={(fn) => { refreshHandlerRef.current = fn; }}
+                  onSlideshowSaved={handleSlideshowSaved}
+                  onSavedSlideshowsChange={setSavedSlideshows}
+                  activeShowIdx={activeShowIdx}
+                  savedSlideshows={savedSlideshows}
+                  numSlideshows={numSlideshows}
+                  setNumSlideshows={setNumSlideshows}
+                  batchImageDataUrls={batchImageDataUrls}
+                  setBatchImageDataUrls={setBatchImageDataUrls}
+                  persistHomeSessionNow={persistHomeSessionNow}
                 />
-                <p className="text-white/30 text-xs">1080 × 1920 · {totalSlides} slides · {config.slideDuration}s each</p>
               </div>
-            </main>
 
-            {/* ── Slideshow gallery panel (scrolls inside viewport; compact when many) ─ */}
-            {galleryEntries.length > 0 && (
-              <GalleryRail
-                entries={galleryEntries}
-                activeShowIdx={activeShowIdx}
-                loadShow={loadShow}
-              />
-            )}
-          </>
-        )}
-      </div>
+              <div className="flex min-w-0 flex-col gap-5 md:gap-6 lg:col-span-3">
+                <div className="dash-card flex items-center justify-center p-4 md:p-5">
+                  <PreviewFrame
+                    subtitle={`${totalSlides} slides · ${config.slideDuration}s each`}
+                    meta="1080 × 1920"
+                  >
+                    <div className="flex flex-col items-center gap-3">
+                      <LabelyScanSequencePreview
+                        config={config}
+                        currentSlide={currentSlide}
+                        setCurrentSlide={setCurrentSlide}
+                        totalSlides={totalSlides}
+                      />
+                      <VideoPreview
+                        config={config}
+                        currentSlide={currentSlide}
+                        setCurrentSlide={setCurrentSlide}
+                        totalSlides={totalSlides}
+                        isGenerating={isGenerating}
+                        onRefreshSlide={(i) => refreshHandlerRef.current?.(i)}
+                      />
+                    </div>
+                  </PreviewFrame>
+                </div>
+
+                {galleryEntries.length > 0 ? (
+                  <GalleryRail
+                    entries={galleryEntries}
+                    activeShowIdx={activeShowIdx}
+                    loadShow={loadShow}
+                  />
+                ) : null}
+              </div>
+            </div>
+          )}
+        </main>
     </div>
   );
 }

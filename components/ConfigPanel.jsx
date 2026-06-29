@@ -17,8 +17,6 @@ import { buildLabelyScanFrameSequence, captureScanSourceCanvas, captureShelfIntr
 import { ensureExportImageUrls, needsExportImageInlining } from "@/lib/ensureExportImageUrls";
 import { inlineRemoteImagesInElement } from "@/lib/exportImagePrepare";
 import { getBrand } from "@/lib/brand";
-import BraveSearchUsageBar, { dispatchBraveUsageUpdated } from "@/components/BraveSearchUsageBar";
-import { markExportedBraveImagesUsed, markExportedBraveImageUrl } from "@/lib/markExportedBraveImages";
 import { savedShowMatchesApp } from "@/lib/showAppId";
 import {
   fileToDisplayableDataUrl,
@@ -46,6 +44,7 @@ import {
   setFarmJobStatus,
   uploadMp4ToFarm,
 } from "@/lib/farmBridge";
+import { markExportedBraveImagesUsed } from "@/lib/markExportedBraveImages";
 
 function parseDataUrl(dataUrl) {
   if (!dataUrl || typeof dataUrl !== "string") return null;
@@ -150,7 +149,20 @@ const freshSlot = (i) => ({
   labelyAnalysis: "",
   labelyAnalysisTitle: "Labely's Analysis",
   labelyLegalNote: "No lawsuits found.",
+  labelyShelfImageUrl: null,
+  labelyDbImageUrl: null,
 });
+
+/** Pack photo from /api/labely (Brave search or AI fallback). */
+function labelyProductImagePatch(ly) {
+  if (!ly?.imageDataUrl) return {};
+  return {
+    imageUrl: ly.imageDataUrl,
+    ...(String(ly.labelyDbImageUrl || "").trim()
+      ? { labelyDbImageUrl: String(ly.labelyDbImageUrl).trim() }
+      : {}),
+  };
+}
 
 /** Reset Labely AI fields when this slot's photo no longer matches cached analysis (shuffle/reorder/new batch row). */
 function labelySlotAfterImageSwap(prevSlot, imageUrl, slotIndex) {
@@ -240,85 +252,6 @@ function isPngBytes(bytes) {
   );
 }
 
-const FOOD_DB_DROPDOWN_MAX = 20;
-
-/** Rows for food DB search dropdowns — label text + optional Open Food Facts front photo. */
-function foodDbDropdownRowsFromSuggestionRow(row) {
-  if (!row) return [];
-  const details = Array.isArray(row.candidateDetails) ? row.candidateDetails : [];
-  if (details.length > 0) {
-    return details
-      .slice(0, FOOD_DB_DROPDOWN_MAX)
-      .map((d) => ({
-        label: String(d?.label || "").trim(),
-        imageUrl: String(d?.imageUrl || "").trim(),
-      }))
-      .filter((d) => d.label);
-  }
-  const labels = [
-    ...new Set(
-      [
-        ...(Array.isArray(row.candidates) ? row.candidates : []),
-        row.match,
-        row.suggestion,
-      ].filter(Boolean),
-    ),
-  ].slice(0, FOOD_DB_DROPDOWN_MAX);
-  const detailMap = new Map(
-    (Array.isArray(row.candidateDetails) ? row.candidateDetails : []).map((d) => [
-      d.label,
-      String(d.imageUrl || "").trim(),
-    ]),
-  );
-  return labels.map((label) => ({ label, imageUrl: detailMap.get(label) || "" }));
-}
-
-function persistedFoodDbRowForSelection(label, option = null, sourceRow = null) {
-  const name = String(label || "").trim();
-  if (!name) return null;
-  const imageUrl = String(option?.imageUrl || "").trim();
-  const candidates = [
-    name,
-    ...(Array.isArray(sourceRow?.candidates) ? sourceRow.candidates : []),
-  ].filter(Boolean);
-  const uniqueCandidates = [...new Set(candidates)].slice(0, FOOD_DB_DROPDOWN_MAX);
-  const existingDetails = Array.isArray(sourceRow?.candidateDetails) ? sourceRow.candidateDetails : [];
-  const detailsByLabel = new Map(
-    existingDetails
-      .map((d) => [String(d?.label || "").trim(), String(d?.imageUrl || "").trim()])
-      .filter(([k]) => k),
-  );
-  if (imageUrl) detailsByLabel.set(name, imageUrl);
-  return {
-    query: name,
-    status: "found",
-    match: name,
-    candidates: uniqueCandidates,
-    candidateDetails: uniqueCandidates.map((candidate) => ({
-      label: candidate,
-      imageUrl: detailsByLabel.get(candidate) || "",
-    })),
-  };
-}
-
-/** @param {{ label: string, imageUrl?: string }} row */
-function FoodDbDropdownRowThumb({ row }) {
-  const url = String(row.imageUrl || "").trim();
-  return url ? (
-    <img
-      src={url}
-      alt=""
-      className="h-[132px] w-[132px] shrink-0 rounded-md border border-white/10 bg-white object-contain"
-      loading="lazy"
-    />
-  ) : (
-    <div
-      className="h-[132px] w-[132px] shrink-0 rounded-md border border-dashed border-white/15 bg-white/5"
-      aria-hidden
-    />
-  );
-}
-
 /** Merge a saved gallery show into the workspace snapshot for export (keeps duration, transitions, audio). */
 function galleryShowToExportConfig(workspace, show) {
   const appId = show.appId != null ? show.appId : workspace.appId;
@@ -351,11 +284,6 @@ function badLabelyPatch(score) {
   return { labelyScore: normalizeBadLabelyScore(score), labelyVerdict: BAD_LABELY_VERDICT };
 }
 
-function slotLabelyDbImageUrl(ly, foodDatabaseImageUrl = "") {
-  const remote = String(ly?.braveImageUrl || foodDatabaseImageUrl || "").trim();
-  return /^https?:\/\//i.test(remote) ? remote : "";
-}
-
 function labelyShelfScenePrompt(itemName, brandName = "") {
   const item = [brandName, itemName].filter(Boolean).join(" ").trim() || "packaged grocery product";
   const t = item.toLowerCase();
@@ -379,12 +307,6 @@ The shelf/fridge aisle must match the product category: drinks in beverage coole
 }
 
 const LABELY_DB_BATCH_COUNT = 6;
-const DEFAULT_LABELY_DB_BATCHES = Array.from({ length: LABELY_DB_BATCH_COUNT }, (_, i) => ({
-  id: `batch-${i + 1}`,
-  name: `Food database batch ${i + 1}`,
-  itemsRaw: "",
-  slideshowCount: 1,
-}));
 
 /** Default target for large iPhone packs; export itself scales to the saved gallery. */
 const GALLERY_IPHONE_DEVICE_COUNT = 20;
@@ -571,48 +493,12 @@ export default function ConfigPanel({
   const isValcoin = brand.appId === "valcoin";
   const isLabely = brand.appId === "labely";
   const labelyUseSelfieImage = isLabely && !!config.labelyUseSelfieImage;
-  const labelyUseFoodDatabasePhotos = isLabely && !!config.labelyUseFoodDatabasePhotos;
-  const labelyUseBraveImages = isLabely && !!config.labelyUseBraveImages;
-  const isLabelyFoodDbBatchMode = isLabely && !!config.labelyAiProducts && labelyUseFoodDatabasePhotos;
-  const foodImageLookupBody = () => (
-    labelyUseBraveImages ? { useBraveImages: true } : {}
-  );
-  const foodImageSourceLabel = labelyUseBraveImages ? "Brave Images" : "Open Food Facts";
   const isValcoinIphonePackBatchMode = isValcoin && isLabelyScanTourFormat(config);
   const labelyUploadsLocked = isLabely && !!config.labelyAiProducts;
   const savedForCurrentApp = useMemo(() => {
     const aid = config.appId ?? "thrifty";
     return savedSlideshows.filter((s) => savedShowMatchesApp(s, aid));
   }, [savedSlideshows, config.appId]);
-  const labelyFoodDbBatches = useMemo(() => {
-    const raw = Array.isArray(config.labelyFoodDbBatches) ? config.labelyFoodDbBatches : [];
-    return DEFAULT_LABELY_DB_BATCHES.map((base, i) => {
-      const row = raw[i] || {};
-      return {
-        ...base,
-        ...(typeof row.name === "string" ? { name: row.name } : {}),
-        ...(typeof row.itemsRaw === "string" ? { itemsRaw: row.itemsRaw } : {}),
-        slideshowCount: Math.max(0, Math.min(200, Number(row.slideshowCount) || 0)),
-        foodDbMatches: row.foodDbMatches && typeof row.foodDbMatches === "object" ? row.foodDbMatches : {},
-      };
-    });
-  }, [config.labelyFoodDbBatches]);
-  const totalBatchSlideshows = useMemo(
-    () => labelyFoodDbBatches.reduce((sum, b) => sum + (Number(b.slideshowCount) || 0), 0),
-    [labelyFoodDbBatches],
-  );
-  const updateLabelyFoodDbBatch = (batchIndex, patch) => {
-    setConfig((prev) => {
-      const current = Array.isArray(prev.labelyFoodDbBatches)
-        ? prev.labelyFoodDbBatches
-        : DEFAULT_LABELY_DB_BATCHES;
-      const next = DEFAULT_LABELY_DB_BATCHES.map((base, i) => ({ ...base, ...(current[i] || {}) }));
-      next[batchIndex] = { ...next[batchIndex], ...patch };
-      const nextConfig = { ...prev, labelyFoodDbBatches: next };
-      persistHomeSessionNow?.({ config: nextConfig });
-      return nextConfig;
-    });
-  };
   const referencesDirLabel =
     brand.appId === "valcoin"
       ? "public/valcoin/references/"
@@ -678,8 +564,6 @@ export default function ConfigPanel({
   // genAllProgress shape: { total: 6, done: number, current: number, phase: string, slotsDone: Set }
   const [referenceImages, setReferenceImages] = useState(null);
   const [mounted, setMounted] = useState(false);
-  /** png_slide | png_zip | mp4_current | mp4_gallery */
-  const [exportChoice, setExportChoice] = useState("mp4_current");
   const storeKey = (base) => `${base}_${brand.appId}`;
   // Always start with consistent defaults for SSR; sync all persisted values from localStorage after mount
   const [brandItemsRaw, setBrandItemsRaw] = useState(DEFAULT_BRAND_LIST);
@@ -734,13 +618,7 @@ export default function ConfigPanel({
     if (parsed.length > 0) return parsed;
     return DEFAULT_BRAND_LIST.split("\n").map((l) => l.trim()).filter(Boolean);
   })();
-  const labelyFoodItemCount = isLabelyFoodDbBatchMode
-    ? labelyFoodDbBatches.reduce(
-        (sum, b) =>
-          sum + String(b.itemsRaw || "").split("\n").map((line) => line.trim()).filter(Boolean).length,
-        0,
-      )
-    : brandItems.length;
+  const labelyFoodItemCount = brandItems.length;
   const commitLabelyFoodItemsRaw = (nextRaw) => {
     const next = typeof nextRaw === "string" ? nextRaw : "";
     setBrandItemsRaw(next);
@@ -754,338 +632,19 @@ export default function ConfigPanel({
   const clearAllLabelyFoods = () => {
     if (
       !window.confirm(
-        "Clear every food from all Labely batches and the main list? This is saved immediately and will stay cleared after refresh.",
+        "Clear every food from the list? This is saved immediately and will stay cleared after refresh.",
       )
     ) {
       return;
     }
-    setFoodDbSuggestions([]);
-    setFoodDbSearch("");
-    setFoodDbSearchOptions([]);
-    setFoodDbSearchStatus("idle");
-    setBatchFoodDbSearch({});
-    setBatchFoodDbSearchOptions({});
-    setBatchFoodDbSearchStatus({});
-    foodDbSuggestionCacheRef.current.clear();
     setBrandItemsRaw("");
     localStorage.setItem(storeKey("ts_brand_items"), "");
     setConfig((prev) => {
-      const current = Array.isArray(prev.labelyFoodDbBatches)
-        ? prev.labelyFoodDbBatches
-        : DEFAULT_LABELY_DB_BATCHES;
-      const clearedBatches = DEFAULT_LABELY_DB_BATCHES.map((base, i) => ({
-        ...base,
-        ...(current[i] || {}),
-        itemsRaw: "",
-        foodDbMatches: {},
-      }));
-      const nextConfig = {
-        ...prev,
-        labelyFoodItemsRaw: "",
-        labelyFoodDbBatches: clearedBatches,
-      };
+      const nextConfig = { ...prev, labelyFoodItemsRaw: "" };
       persistHomeSessionNow?.({ config: nextConfig });
       return nextConfig;
     });
   };
-  const [foodDbSuggestions, setFoodDbSuggestions] = useState([]);
-  const [foodDbSuggestionStatus, setFoodDbSuggestionStatus] = useState("idle");
-  const [foodDbSearch, setFoodDbSearch] = useState("");
-  const [foodDbSearchStatus, setFoodDbSearchStatus] = useState("idle");
-  const [foodDbSearchOptions, setFoodDbSearchOptions] = useState([]);
-  const [batchFoodDbSearch, setBatchFoodDbSearch] = useState({});
-  const [batchFoodDbSearchStatus, setBatchFoodDbSearchStatus] = useState({});
-  const [batchFoodDbSearchOptions, setBatchFoodDbSearchOptions] = useState({});
-  const foodDbSuggestionCacheRef = useRef(new Map());
-  const foodDbKeyFor = (value) => String(value || "").trim().toLowerCase();
-  const foodDbSuggestionKey = useMemo(() => (
-    isLabely && config.labelyAiProducts && labelyUseFoodDatabasePhotos
-      ? brandItems.slice(0, 20).join("\n")
-      : ""
-  ), [isLabely, config.labelyAiProducts, labelyUseFoodDatabasePhotos, brandItemsRaw]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!foodDbSuggestionKey) {
-      setFoodDbSuggestions([]);
-      setFoodDbSuggestionStatus("idle");
-      return;
-    }
-    let cancelled = false;
-    const requestedItems = foodDbSuggestionKey.split("\n").filter(Boolean);
-    const missingItems = requestedItems.filter((item) => !foodDbSuggestionCacheRef.current.has(foodDbKeyFor(item)));
-    const cachedRows = requestedItems
-      .map((item) => foodDbSuggestionCacheRef.current.get(foodDbKeyFor(item)))
-      .filter(Boolean);
-    setFoodDbSuggestions(cachedRows);
-    if (missingItems.length === 0) {
-      setFoodDbSuggestionStatus("done");
-      return;
-    }
-    setFoodDbSuggestionStatus("loading");
-    const t = window.setTimeout(async () => {
-      try {
-        const res = await fetch("/api/labely-food-suggestions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: missingItems, ...foodImageLookupBody() }),
-        });
-        const body = await res.json().catch(() => ({}));
-        if (cancelled) return;
-        const incoming = Array.isArray(body.results) ? body.results : [];
-        for (const row of incoming) {
-          if (row?.query) foodDbSuggestionCacheRef.current.set(foodDbKeyFor(row.query), row);
-        }
-        const requested = new Set(requestedItems);
-        setFoodDbSuggestions((prev) => {
-          const prevByQuery = new Map(prev.map((row) => [row.query, row]));
-          for (const row of incoming) {
-            const old = prevByQuery.get(row.query);
-            const keepOld =
-              old &&
-              ["found", "recommend"].includes(old.status) &&
-              ["missing", "error"].includes(row.status);
-            prevByQuery.set(row.query, keepOld ? old : row);
-          }
-          return [...prevByQuery.values()].filter((row) => requested.has(row.query));
-        });
-        setFoodDbSuggestionStatus(res.ok ? "done" : "error");
-        if (body?.braveUsage) dispatchBraveUsageUpdated(body.braveUsage);
-      } catch {
-        if (!cancelled) {
-          setFoodDbSuggestionStatus("error");
-        }
-      }
-    }, 550);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(t);
-    };
-  }, [foodDbSuggestionKey]);
-
-  const replaceFoodListItem = (from, to) => {
-    const next = brandItems.map((line) => (line === from ? to : line)).join("\n");
-    if (isLabely) commitLabelyFoodItemsRaw(next);
-    else {
-      setBrandItemsRaw(next);
-      localStorage.setItem(storeKey("ts_brand_items"), next);
-    }
-    const cached = foodDbSuggestionCacheRef.current.get(foodDbKeyFor(from));
-    if (cached) {
-      foodDbSuggestionCacheRef.current.set(foodDbKeyFor(to), { ...cached, query: to });
-    }
-  };
-  const addFoodListItem = (item, opts = {}) => {
-    const nextItem = String(item || "").trim();
-    if (!nextItem) return;
-    const current = brandItems;
-    if (!current.some((line) => line.toLowerCase() === nextItem.toLowerCase())) {
-      const next = [...current, nextItem].join("\n");
-      if (isLabely) commitLabelyFoodItemsRaw(next);
-      else {
-        setBrandItemsRaw(next);
-        localStorage.setItem(storeKey("ts_brand_items"), next);
-      }
-    }
-    if (!opts.keepSearchOpen) {
-      setFoodDbSearch("");
-      setFoodDbSearchOptions([]);
-      setFoodDbSearchStatus("idle");
-    }
-  };
-  const removeFoodListItem = (item) => {
-    const next = brandItems.filter((line) => line !== item).join("\n");
-    if (isLabely) commitLabelyFoodItemsRaw(next);
-    else {
-      setBrandItemsRaw(next);
-      localStorage.setItem(storeKey("ts_brand_items"), next);
-    }
-  };
-  const runFoodDbSearch = async () => {
-    const q = foodDbSearch.trim();
-    if (!isLabely || !config.labelyAiProducts || !labelyUseFoodDatabasePhotos || q.length < 2) {
-      setFoodDbSearchOptions([]);
-      setFoodDbSearchStatus("idle");
-      return;
-    }
-    setFoodDbSearchStatus("loading");
-    setFoodDbSearchOptions([]);
-    try {
-      const res = await fetch("/api/labely-food-suggestions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: [q], ...foodImageLookupBody() }),
-      });
-      const body = await res.json().catch(() => ({}));
-      const row = Array.isArray(body.results) ? body.results[0] : null;
-      if (row?.query) foodDbSuggestionCacheRef.current.set(foodDbKeyFor(row.query), row);
-      setFoodDbSearchOptions(foodDbDropdownRowsFromSuggestionRow(row));
-      setFoodDbSearchStatus(res.ok ? "done" : "error");
-      if (body?.braveUsage) dispatchBraveUsageUpdated(body.braveUsage);
-    } catch {
-      setFoodDbSearchOptions([]);
-      setFoodDbSearchStatus("error");
-    }
-  };
-  const addBatchFoodListItem = (batchIndex, item, option = null, opts = {}) => {
-    const nextItem = String(item || "").trim();
-    if (!nextItem) return;
-    const batch = labelyFoodDbBatches[batchIndex] || {};
-    const current = String(labelyFoodDbBatches[batchIndex]?.itemsRaw || "")
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const existingMatches = batch.foodDbMatches && typeof batch.foodDbMatches === "object" ? batch.foodDbMatches : {};
-    const persistedRow = persistedFoodDbRowForSelection(nextItem, option);
-    const patch = {};
-    if (!current.some((line) => line.toLowerCase() === nextItem.toLowerCase())) {
-      patch.itemsRaw = [...current, nextItem].join("\n");
-    }
-    if (persistedRow) {
-      patch.foodDbMatches = { ...existingMatches, [nextItem]: persistedRow };
-      foodDbSuggestionCacheRef.current.set(foodDbKeyFor(nextItem), persistedRow);
-    }
-    if (Object.keys(patch).length > 0) {
-      updateLabelyFoodDbBatch(batchIndex, patch);
-    }
-    const batchId = batch.id;
-    if (batchId && !opts.keepSearchOpen) {
-      setBatchFoodDbSearch((prev) => ({ ...prev, [batchId]: "" }));
-      setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: [] }));
-      setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: "idle" }));
-    }
-  };
-  const removeBatchFoodListItem = (batchIndex, item) => {
-    const current = String(labelyFoodDbBatches[batchIndex]?.itemsRaw || "")
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const batch = labelyFoodDbBatches[batchIndex] || {};
-    const existingMatches = batch.foodDbMatches && typeof batch.foodDbMatches === "object" ? batch.foodDbMatches : {};
-    const nextMatches = { ...existingMatches };
-    delete nextMatches[item];
-    updateLabelyFoodDbBatch(batchIndex, { itemsRaw: current.filter((line) => line !== item).join("\n"), foodDbMatches: nextMatches });
-  };
-  const handleBatchFoodDbSearchChange = (batchIndex, value) => {
-    const batchId = labelyFoodDbBatches[batchIndex]?.id;
-    if (!batchId) return;
-    setBatchFoodDbSearch((prev) => ({ ...prev, [batchId]: value }));
-    if (String(value || "").trim().length < 2) {
-      setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: [] }));
-      setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: "idle" }));
-    }
-  };
-  const runBatchFoodDbSearch = async (batchIndex) => {
-    const batchId = labelyFoodDbBatches[batchIndex]?.id;
-    if (!batchId) return;
-    const q = String(batchFoodDbSearch[batchId] || "").trim();
-    if (q.length < 2) {
-      setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: [] }));
-      setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: "idle" }));
-      return;
-    }
-    setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: "loading" }));
-    setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: [] }));
-    try {
-      const res = await fetch("/api/labely-food-suggestions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: [q], ...foodImageLookupBody() }),
-      });
-      const body = await res.json().catch(() => ({}));
-      const row = Array.isArray(body.results) ? body.results[0] : null;
-      if (row?.query) foodDbSuggestionCacheRef.current.set(foodDbKeyFor(row.query), row);
-      setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: foodDbDropdownRowsFromSuggestionRow(row) }));
-      setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: res.ok ? "done" : "error" }));
-      if (body?.braveUsage) dispatchBraveUsageUpdated(body.braveUsage);
-    } catch {
-      setBatchFoodDbSearchOptions((prev) => ({ ...prev, [batchId]: [] }));
-      setBatchFoodDbSearchStatus((prev) => ({ ...prev, [batchId]: "error" }));
-    }
-  };
-  const foodDbSuggestionsByQuery = useMemo(() => {
-    const m = new Map();
-    for (const row of foodDbSuggestions) {
-      if (row?.query) m.set(row.query, row);
-    }
-    return m;
-  }, [foodDbSuggestions]);
-  const applyFoodDbCandidate = (item, value) => {
-    if (!value || value === item) return;
-    replaceFoodListItem(item, value);
-  };
-
-  const foodDbImageUrlFromRow = (row, item = "") => {
-    if (!row) return "";
-    const preferred = [
-      item,
-      row.match,
-      row.suggestion,
-      ...(Array.isArray(row.candidates) ? row.candidates : []),
-    ].map((x) => String(x || "").trim()).filter(Boolean);
-    const details = Array.isArray(row.candidateDetails) ? row.candidateDetails : [];
-    for (const label of preferred) {
-      const found = details.find((d) => String(d?.label || "").trim() === label);
-      const url = String(found?.imageUrl || "").trim();
-      if (url) return url;
-    }
-    for (const d of details) {
-      const url = String(d?.imageUrl || "").trim();
-      if (url) return url;
-    }
-    return "";
-  };
-
-  const foodDbImageUrlForItem = (item, matches = {}) => {
-    const key = String(item || "").trim();
-    if (!key) return "";
-    return foodDbImageUrlFromRow(matches[key], key)
-      || foodDbImageUrlFromRow(foodDbSuggestionCacheRef.current.get(foodDbKeyFor(key)), key);
-  };
-
-  const foodDbImageUrlForSlot = (slot, matches = {}) => {
-    const candidates = [
-      slot?.labelyDbSeedHint,
-      [slot?.labelyBrand, slot?.itemName].filter(Boolean).join(" "),
-      slot?.itemName,
-    ].map((x) => String(x || "").trim()).filter(Boolean);
-    for (const candidate of candidates) {
-      const url = foodDbImageUrlForItem(candidate, matches);
-      if (url) return url;
-    }
-    return "";
-  };
-
-  const fetchLabelyDatabaseImage = async ({ slot, exactImageUrl = "" }) => {
-    const res = await fetch("/api/labely", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: abortRef.current?.signal,
-      body: JSON.stringify({
-        imageOnly: true,
-        useFoodDatabasePhoto: true,
-        ...foodImageLookupBody(),
-        name: slot?.itemName || "",
-        brand: slot?.labelyBrand || "",
-        seedHint: slot?.labelyDbSeedHint || slot?.itemName || "",
-        ...(exactImageUrl ? { foodDatabaseImageUrl: exactImageUrl } : {}),
-      }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (body?.braveUsage) dispatchBraveUsageUpdated(body.braveUsage);
-    return res.ok && typeof body.imageDataUrl === "string" && body.imageDataUrl ? body.imageDataUrl : "";
-  };
-
-  useEffect(() => {
-    if (!isLabelyFoodDbBatchMode) return;
-    for (const batch of labelyFoodDbBatches) {
-      const matches = batch.foodDbMatches && typeof batch.foodDbMatches === "object" ? batch.foodDbMatches : {};
-      for (const [item, row] of Object.entries(matches)) {
-        if (item && row?.query) {
-          foodDbSuggestionCacheRef.current.set(foodDbKeyFor(item), row);
-        }
-      }
-    }
-  }, [isLabelyFoodDbBatchMode, labelyFoodDbBatches]);
 
   const getCaptureNode = () => document.getElementById("video-preview-root");
 
@@ -1146,16 +705,93 @@ export default function ConfigPanel({
       .catch(() => setReferenceImages([]));
   }, [brand.appId]);
 
-  useEffect(() => {
-    if (savedForCurrentApp.length < 2 && exportChoice === "mp4_gallery") {
-      setExportChoice("mp4_current");
-    }
-  }, [savedForCurrentApp.length, exportChoice]);
-
   const cancelGenRef = useRef(false);
   const jobPausedRef = useRef(false);
   const apiKeyWarnedRef = useRef(false);
   const abortRef = useRef(null); // AbortController for force-stopping in-flight requests
+  /** Brave product URLs + content hashes reserved this generate run. */
+  const sessionBraveReservedRef = useRef(new Set());
+  const sessionBraveContentHashesRef = useRef(new Set());
+  /** Server-side in-memory reservation scope for one slideshow. */
+  const braveSlideshowTokenRef = useRef(null);
+
+  const resetLabelyBraveSession = useCallback(() => {
+    sessionBraveReservedRef.current = new Set();
+    sessionBraveContentHashesRef.current = new Set();
+  }, []);
+
+  const beginLabelySlideshowBraveRun = useCallback(() => {
+    braveSlideshowTokenRef.current = randomExportHex(8);
+  }, []);
+
+  const ensureLabelyBraveSlideshowToken = useCallback(() => {
+    if (!braveSlideshowTokenRef.current) {
+      braveSlideshowTokenRef.current = randomExportHex(8);
+    }
+    return braveSlideshowTokenRef.current;
+  }, []);
+
+  const labelyBraveExcludePayload = useCallback((extraUrls = [], extraHashes = []) => {
+    const urls = new Set(sessionBraveReservedRef.current);
+    const hashes = new Set(sessionBraveContentHashesRef.current);
+    for (const raw of extraUrls) {
+      const u = String(raw || "").trim();
+      if (u) urls.add(u);
+    }
+    for (const raw of extraHashes) {
+      const h = String(raw || "").trim();
+      if (h) hashes.add(h);
+    }
+    for (const slot of config.slots ?? []) {
+      const u = String(slot?.labelyDbImageUrl || "").trim();
+      if (u) urls.add(u);
+    }
+    for (const show of savedSlideshows ?? []) {
+      if (!savedShowMatchesApp(show, "labely")) continue;
+      for (const slot of show.slots ?? []) {
+        const u = String(slot?.labelyDbImageUrl || "").trim();
+        if (u) urls.add(u);
+      }
+    }
+    return {
+      excludeBraveImageUrls: [...urls],
+      excludeBraveContentHashes: [...hashes],
+      braveSlideshowToken: ensureLabelyBraveSlideshowToken(),
+    };
+  }, [config.slots, savedSlideshows, ensureLabelyBraveSlideshowToken]);
+
+  const labelyBraveExcludeUrls = useCallback(() => {
+    return labelyBraveExcludePayload().excludeBraveImageUrls;
+  }, [labelyBraveExcludePayload]);
+
+  const noteLabelyBravePicked = useCallback((ly) => {
+    const u = String(ly?.labelyDbImageUrl || "").trim();
+    if (u) sessionBraveReservedRef.current.add(u);
+    const h = String(ly?.labelyBraveContentHash || "").trim();
+    if (h) sessionBraveContentHashesRef.current.add(h);
+  }, []);
+
+  const seedPersistedBraveUsedFromGallery = useCallback(async () => {
+    const urls = labelyBraveExcludeUrls();
+    if (!urls.length) return;
+    try {
+      await fetch("/api/brave-used-images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls }),
+      });
+    } catch (e) {
+      console.warn("[labely] seed brave used urls", e);
+    }
+  }, [labelyBraveExcludeUrls]);
+
+  const beginLabelyBraveGenerateRun = useCallback(async () => {
+    resetLabelyBraveSession();
+    beginLabelySlideshowBraveRun();
+    if (config.labelyUseBraveImages !== false) {
+      await seedPersistedBraveUsedFromGallery();
+    }
+  }, [config.labelyUseBraveImages, resetLabelyBraveSession, beginLabelySlideshowBraveRun, seedPersistedBraveUsedFromGallery]);
 
   const waitWhilePaused = useCallback(async () => {
     while (jobPausedRef.current && !cancelGenRef.current) {
@@ -1499,12 +1135,8 @@ ${SHARED_RULES_OUTRO}`;
     }
   };
 
-  /** No photo — GPT picks a real retail SKU + score + analysis (fictional scanner compounds) + optional pack image (same as POST /api/labely with no body image). */
+  /** No photo — GPT picks a real retail SKU + score + analysis (real ingredients) + optional pack image (same as POST /api/labely with no body image). */
   const fillLabelyFromAi = async (seedHint, errorSlotIdx = null, opts = {}) => {
-    const foodDatabaseImageUrl =
-      typeof opts.foodDatabaseImageUrl === "string" && opts.foodDatabaseImageUrl.trim()
-        ? opts.foodDatabaseImageUrl.trim()
-        : "";
     const useSelfieImage = opts.useSelfieImage === true;
     try {
       const res = await fetch("/api/labely", {
@@ -1513,10 +1145,14 @@ ${SHARED_RULES_OUTRO}`;
         signal: abortRef.current?.signal,
         body: JSON.stringify({
           ...(seedHint?.trim() ? { seedHint: seedHint.trim() } : {}),
-          useFoodDatabasePhoto: !!labelyUseFoodDatabasePhotos,
-          ...foodImageLookupBody(),
           useSelfieImage,
-          ...(foodDatabaseImageUrl ? { foodDatabaseImageUrl } : {}),
+          useBraveImages: config.labelyUseBraveImages !== false,
+          ...(config.labelyUseBraveImages !== false
+            ? labelyBraveExcludePayload(
+                opts.braveExcludeExtraUrls ?? [],
+                opts.braveExcludeExtraHashes ?? [],
+              )
+            : {}),
           ...(opts.includeShelfIntro ? { includeShelfIntro: true } : {}),
         }),
       });
@@ -1528,7 +1164,7 @@ ${SHARED_RULES_OUTRO}`;
         }
         return null;
       }
-      if (body?.braveUsage) dispatchBraveUsageUpdated(body.braveUsage);
+      if (config.labelyUseBraveImages !== false) noteLabelyBravePicked(body);
       return body;
     } catch (e) {
       if (typeof errorSlotIdx === "number") {
@@ -1659,6 +1295,7 @@ ${SHARED_RULES_OUTRO}`;
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     if (isLabely) {
+      if (config.labelyUseBraveImages !== false) ensureLabelyBraveSlideshowToken();
       try {
         if (config.labelyAiProducts) {
           const weightedPool = buildWeightedPool(brandItems);
@@ -1668,24 +1305,21 @@ ${SHARED_RULES_OUTRO}`;
               : null;
           const includeShelfIntro = index === 0 && isLabelyScanTourFormat(config);
           const useSelfieForSlot = labelyUseSelfieImage && index === 0;
-          const foodDatabaseImageUrl = labelyUseFoodDatabasePhotos
-            ? foodDbImageUrlForItem(hint)
-            : "";
+          const extraBraveUrls = (config.slots ?? [])
+            .map((s) => s?.labelyDbImageUrl)
+            .filter(Boolean);
           const ly = await fillLabelyFromAi(hint, index, {
             includeShelfIntro,
-            foodDatabaseImageUrl,
             useSelfieImage: useSelfieForSlot,
+            braveExcludeExtraUrls: extraBraveUrls,
           });
           if (ly?.name) {
             if (useSelfieForSlot && !ly.shelfIntroDataUrl) {
-              setGenAllProgress({
-                total: slotCount,
-                done: si,
-                current: si,
-                phase: `Show ${showIndex + 1}/${totalShows} failed: Pilates selfie intro was not generated. Try again.`,
-                slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
-              });
-              return null;
+              setAiErrors((p) => ({
+                ...p,
+                [index]: "Pilates selfie intro was not generated. Try again.",
+              }));
+              return;
             }
             const shelfIntroUrl = await resolveLabelyShelfIntroUrl(ly, {
               includeShelfIntro,
@@ -1698,11 +1332,7 @@ ${SHARED_RULES_OUTRO}`;
               labelyAnalysis: ly.analysis ?? "",
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
               labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
-              ...(hint ? { labelyDbSeedHint: hint } : {}),
-              ...(slotLabelyDbImageUrl(ly, foodDatabaseImageUrl)
-                ? { labelyDbImageUrl: slotLabelyDbImageUrl(ly, foodDatabaseImageUrl) }
-                : {}),
-              ...(ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
+              ...(ly.imageDataUrl ? labelyProductImagePatch(ly) : {}),
               ...(shelfIntroUrl ? { labelyShelfImageUrl: shelfIntroUrl } : {}),
             });
             setConfig((prev) => ({ ...prev, jitterSeed: (Math.random() * 0xffff) | 0 }));
@@ -2023,6 +1653,7 @@ ${SHARED_RULES_OUTRO}`;
     setAiErrors({});
     abortRef.current?.abort();
     abortRef.current = new AbortController();
+    if (isLabely) await beginLabelyBraveGenerateRun();
     try {
       setConfig((prev) => ({ ...prev, jitterSeed: generationJitterSeed }));
 
@@ -2078,8 +1709,12 @@ ${SHARED_RULES_OUTRO}`;
       }
 
       let failedCount = 0;
+      /** Labely Brave URLs already picked in this slideshow (sync exclude for deferred slot writes). */
+      const currentSlideshowBraveUrls = [];
+      const currentSlideshowBraveHashes = [];
       /** Labely ×3 AI + scan tour: merge all slot patches in one commit (avoids lost updates mid-loop). */
       const tourAiDeferredWrites = [];
+      const valcoinUsedSourceUrls = isValcoin ? new Set() : null;
       setGenAllProgress({ total, done: 0, current: activeSlots[0].i, phase: `Starting ${total} image${total > 1 ? "s" : ""}…`, slotsDone });
 
       for (let idx = 0; idx < activeSlots.length; idx++) {
@@ -2118,7 +1753,7 @@ ${SHARED_RULES_OUTRO}`;
             done: slotsDone.size,
             current: i,
             phase: config.labelyAiProducts
-              ? `Labely AI product ${stepLabel}${brandLabel}…`
+              ? `Labely product ${stepLabel}${brandLabel}…`
               : `Labely analysis ${stepLabel}…`,
             slotsDone: new Set(slotsDone),
           });
@@ -2126,13 +1761,11 @@ ${SHARED_RULES_OUTRO}`;
           const includeShelfIntro = i === 0 && isLabelyScanTourFormat(config);
           if (config.labelyAiProducts) {
             const useSelfieForSlot = labelyUseSelfieImage && i === 0;
-            const foodDatabaseImageUrl = labelyUseFoodDatabasePhotos
-              ? foodDbImageUrlForItem(brandItem)
-              : "";
             ly = await fillLabelyFromAi(brandItem, i, {
               includeShelfIntro,
-              foodDatabaseImageUrl,
               useSelfieImage: useSelfieForSlot,
+              braveExcludeExtraUrls: currentSlideshowBraveUrls,
+              braveExcludeExtraHashes: currentSlideshowBraveHashes,
             });
           } else {
             const slot = config.slots[i];
@@ -2140,6 +1773,8 @@ ${SHARED_RULES_OUTRO}`;
             ly = await fillLabelyFromImage(url, { includeShelfIntro });
           }
           if (ly?.name) {
+            if (ly.labelyDbImageUrl) currentSlideshowBraveUrls.push(ly.labelyDbImageUrl);
+            if (ly.labelyBraveContentHash) currentSlideshowBraveHashes.push(ly.labelyBraveContentHash);
             const useSelfieForSlot = config.labelyAiProducts && labelyUseSelfieImage && i === 0;
             if (useSelfieForSlot && includeShelfIntro && !ly.shelfIntroDataUrl) {
               failedCount++;
@@ -2164,11 +1799,7 @@ ${SHARED_RULES_OUTRO}`;
               labelyAnalysis: ly.analysis ?? "",
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
               labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
-              ...(brandItem ? { labelyDbSeedHint: brandItem } : {}),
-              ...(slotLabelyDbImageUrl(ly, foodDatabaseImageUrl)
-                ? { labelyDbImageUrl: slotLabelyDbImageUrl(ly, foodDatabaseImageUrl) }
-                : {}),
-              ...(config.labelyAiProducts && ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
+              ...(config.labelyAiProducts && ly.imageDataUrl ? labelyProductImagePatch(ly) : {}),
               ...(shelfIntroUrl ? { labelyShelfImageUrl: shelfIntroUrl } : {}),
             };
             const batchTourAi = config.labelyAiProducts && isLabelyScanTourFormat(config);
@@ -2200,12 +1831,13 @@ ${SHARED_RULES_OUTRO}`;
           });
 
           if (isValcoin) {
-            const numista = await fetchValcoinNumistaSlot();
+            const numista = await fetchValcoinNumistaSlot(valcoinUsedSourceUrls);
             if (numista) {
               const slot = config.slots[i];
               const catalogTitle = numista.title?.trim() || hint || pickValuableUSCoin();
               const patch = await buildValcoinSlotPatch(catalogTitle, slot, numista.dataUrl);
               updateSlot(i, patch);
+              if (numista.sourceUrl) valcoinUsedSourceUrls.add(numista.sourceUrl);
               slotsDone.add(i);
               setGenAllProgress({ total, done: slotsDone.size, current: i, phase: `Slot ${stepLabel} complete`, slotsDone: new Set(slotsDone) });
             } else {
@@ -2267,7 +1899,7 @@ ${SHARED_RULES_OUTRO}`;
       const summary = failedCount > 0
         ? `Done — ${doneCount} succeeded, ${failedCount} failed`
         : missingPackShots
-          ? "All done — text & scores saved, but no pack images. Check the terminal running next dev for [labely] logs; set OPENAI_API_KEY in .env.local. (Localhost is fine — images are created on the server.)"
+          ? "All done — text & scores saved, but no product photos. Check BRAVE_SEARCH_API_KEY in .env.local and your food list."
         : "All done! ✓";
       setGenAllProgress((p) => p ? { ...p, phase: summary, done: doneCount } : null);
       setTimeout(() => setGenAllProgress(null), missingPackShots ? 12000 : 4000);
@@ -2294,11 +1926,9 @@ ${SHARED_RULES_OUTRO}`;
         : isLabelySingleSlideFormat(config)
           ? 1
           : 6;
-  const effectiveNumSlideshows = isLabelyFoodDbBatchMode
-    ? totalBatchSlideshows
-    : isValcoinIphonePackBatchMode
-      ? VALCOIN_IPHONE_PACK_TOTAL
-      : numSlideshows;
+  const effectiveNumSlideshows = isValcoinIphonePackBatchMode
+    ? VALCOIN_IPHONE_PACK_TOTAL
+    : numSlideshows;
   const batchImagesNeeded = effectiveNumSlideshows * batchSlotCount;
 
   const hasWorkspacePhotos = useMemo(
@@ -2424,10 +2054,6 @@ ${SHARED_RULES_OUTRO}`;
     const sourceBrandItems = Array.isArray(options.brandItemsOverride) && options.brandItemsOverride.length > 0
       ? options.brandItemsOverride
       : brandItems;
-    const sourceFoodDbMatches =
-      options.foodDbMatchesOverride && typeof options.foodDbMatchesOverride === "object"
-        ? options.foodDbMatchesOverride
-        : {};
     const scanSlotOverride = Math.floor(Number(options.scanSlotCountOverride));
     const labelyScanSlotsForShow =
       isLabely && isLabelyScanTourFormat(config) && Number.isFinite(scanSlotOverride) && scanSlotOverride > 0
@@ -2441,8 +2067,9 @@ ${SHARED_RULES_OUTRO}`;
           ? 1
           : 6;
     const base = showIndex * slotCount;
+    const useBatchUploads = !isValcoin && !(isLabely && config.labelyAiProducts);
     const slice =
-      batchImageDataUrls.length > base
+      useBatchUploads && batchImageDataUrls.length > base
         ? Array.from({ length: slotCount }, (_, si) =>
             base + si < batchImageDataUrls.length ? batchImageDataUrls[base + si] ?? null : null
           )
@@ -2457,6 +2084,7 @@ ${SHARED_RULES_OUTRO}`;
     const showJitterSeed = (Math.random() * 0xffff) | 0;
 
     if (isLabely) {
+      if (config.labelyUseBraveImages !== false) beginLabelySlideshowBraveRun();
       if (config.labelyAiProducts) {
         for (let si = 0; si < slotCount; si++) {
           await waitWhilePaused();
@@ -2466,18 +2094,18 @@ ${SHARED_RULES_OUTRO}`;
             total: slotCount,
             done: si,
             current: si,
-            phase: `Show ${showIndex + 1}/${totalShows} · AI product ${si + 1}/${slotCount}${brandItem ? ` — "${brandItem}"` : ""}…`,
+            phase: `Show ${showIndex + 1}/${totalShows} · Product ${si + 1}/${slotCount}${brandItem ? ` — "${brandItem}"` : ""}…`,
             slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
           });
           const includeShelfIntro = si === 0 && isLabelyScanTourFormat(config);
           const useSelfieForSlot = labelyUseSelfieImage && si === 0;
-          const foodDatabaseImageUrl = labelyUseFoodDatabasePhotos
-            ? foodDbImageUrlForItem(brandItem, sourceFoodDbMatches)
-            : "";
+          const extraBraveUrls = localSlots
+            .map((s) => s?.labelyDbImageUrl)
+            .filter(Boolean);
           const ly = await fillLabelyFromAi(brandItem, si, {
             includeShelfIntro,
-            foodDatabaseImageUrl,
             useSelfieImage: useSelfieForSlot,
+            braveExcludeExtraUrls: extraBraveUrls,
           });
           if (ly?.name) {
             const shelfIntroUrl = await resolveLabelyShelfIntroUrl(ly, {
@@ -2492,11 +2120,7 @@ ${SHARED_RULES_OUTRO}`;
               labelyAnalysis: ly.analysis ?? "",
               labelyAnalysisTitle: ly.analysisTitle ?? "Labely's Analysis",
               labelyLegalNote: ly.labelyLegalNote?.trim() || "No lawsuits found.",
-              ...(brandItem ? { labelyDbSeedHint: brandItem } : {}),
-              ...(slotLabelyDbImageUrl(ly, foodDatabaseImageUrl)
-                ? { labelyDbImageUrl: slotLabelyDbImageUrl(ly, foodDatabaseImageUrl) }
-                : {}),
-              ...(ly.imageDataUrl ? { imageUrl: ly.imageDataUrl } : {}),
+              ...(ly.imageDataUrl ? labelyProductImagePatch(ly) : {}),
               ...(shelfIntroUrl ? { labelyShelfImageUrl: shelfIntroUrl } : {}),
             };
           }
@@ -2558,7 +2182,6 @@ ${SHARED_RULES_OUTRO}`;
         jitterSeed: showJitterSeed,
         ...(isLabelyScanTourFormat(config) ? { labelyScanSlotCount: slotCount } : {}),
         ...(config.labelyOutroText ? { labelyOutroText: config.labelyOutroText } : {}),
-        ...(config.labelyFoodDbBatches ? { labelyFoodDbBatches: config.labelyFoodDbBatches } : {}),
         ...(options.batchMeta || {}),
       };
       onSlideshowSaved?.(savedShow);
@@ -2570,25 +2193,20 @@ ${SHARED_RULES_OUTRO}`;
       for (let si = 0; si < slotCount; si++) {
         await waitWhilePaused();
         if (cancelGenRef.current) break;
-        const pre = slice?.[si] ?? null;
         setGenAllProgress({
           total: slotCount,
           done: si,
           current: si,
-          phase: pre
-            ? `Show ${showIndex + 1}/${totalShows} · Upload ${si + 1}/${slotCount}…`
-            : `Show ${showIndex + 1}/${totalShows} · Random US coin photo ${si + 1}/${slotCount}…`,
+          phase: `Show ${showIndex + 1}/${totalShows} · Random US coin photo ${si + 1}/${slotCount}…`,
           slotsDone: new Set(Array.from({ length: si }, (_, k) => k)),
         });
-        let url = pre;
+        let url = null;
         let coinTitle = "";
-        if (!url) {
-          const numista = await fetchValcoinNumistaSlot(usedSourceUrls);
-          if (numista) {
-            url = numista.dataUrl;
-            coinTitle = numista.title || coinTitle;
-            if (numista.sourceUrl) usedSourceUrls.add(numista.sourceUrl);
-          }
+        const numista = await fetchValcoinNumistaSlot(usedSourceUrls);
+        if (numista) {
+          url = numista.dataUrl;
+          coinTitle = numista.title || coinTitle;
+          if (numista.sourceUrl) usedSourceUrls.add(numista.sourceUrl);
         }
         if (url) {
           const title = coinTitle.trim() || pickValuableUSCoin();
@@ -2625,11 +2243,12 @@ ${SHARED_RULES_OUTRO}`;
       return savedShow;
     }
 
+    const valcoinUsedSourceUrls = isValcoin ? new Set() : null;
     for (let si = 0; si < slotCount; si++) {
       await waitWhilePaused();
       if (cancelGenRef.current) break;
       const brandItem = shuffled.length > 0 ? shuffled[si] : null;
-      const pre = slice?.[si] ?? null;
+      const pre = useBatchUploads ? (slice?.[si] ?? null) : null;
       setGenAllProgress({
         total: slotCount,
         done: si,
@@ -2646,10 +2265,11 @@ ${SHARED_RULES_OUTRO}`;
       let url = pre;
       let catalogTitle = "";
       if (!url && isValcoin) {
-        const numista = await fetchValcoinNumistaSlot();
+        const numista = await fetchValcoinNumistaSlot(valcoinUsedSourceUrls);
         if (numista) {
           url = numista.dataUrl;
           catalogTitle = numista.title?.trim() || "";
+          if (numista.sourceUrl) valcoinUsedSourceUrls.add(numista.sourceUrl);
         }
       } else if (!url) {
         url = await generateImage(si, p, hintGen);
@@ -2703,7 +2323,6 @@ ${SHARED_RULES_OUTRO}`;
       appId: config.appId,
       jitterSeed: showJitterSeed,
       ...(config.labelyOutroText ? { labelyOutroText: config.labelyOutroText } : {}),
-      ...(config.labelyFoodDbBatches ? { labelyFoodDbBatches: config.labelyFoodDbBatches } : {}),
       ...(options.batchMeta || {}),
     };
     onSlideshowSaved?.(savedShow);
@@ -2880,10 +2499,7 @@ ${SHARED_RULES_OUTRO}`;
     }
 
     if (isLabely) {
-      if (!config.labelyAiProducts && !batchImageDataUrls.some(Boolean)) {
-        alert("Add at least one photo in the image rows above (or use multi-select). Order is slideshow #1 first, then #2, etc.");
-        return;
-      }
+      // AI products mode — no manual uploads required
     } else if (!isValcoin && brandItems.length === 0 && !batchImageDataUrls.some(Boolean)) {
       alert("Add brand items for AI images, or queue batch uploads — or both (uploads fill first, AI fills gaps).");
       return;
@@ -2893,6 +2509,7 @@ ${SHARED_RULES_OUTRO}`;
     cancelGenRef.current = false;
     abortRef.current?.abort();
     abortRef.current = new AbortController();
+    if (isLabely) await beginLabelyBraveGenerateRun();
     try {
       let savedCount = 0;
       for (let i = 0; i < numSlideshows; i++) {
@@ -3374,7 +2991,9 @@ ${SHARED_RULES_OUTRO}`;
       const blob = await encodeWorkspaceVideoToBlob(config);
       if (blob) {
         triggerMp4Download(blob, `${randomExportHex(14)}.mp4`);
-        await markExportedBraveImagesUsed(config);
+        if (isLabely && config.labelyUseBraveImages !== false) {
+          await markExportedBraveImagesUsed({ ...config, labelyUseBraveImages: true });
+        }
         setExportProgress(100);
         setExportStatus("Done! Video downloaded.");
       }
@@ -3483,9 +3102,6 @@ ${SHARED_RULES_OUTRO}`;
           const blob = new Blob([zipData], { type: "application/zip" });
           triggerZipDownload(blob, `${zipFilePrefix}${String(plan.iphoneNumber).padStart(2, "0")}-${randomExportHex(10)}.zip`);
           downloadedZipCount++;
-          await markExportedBraveImagesUsed(
-            plan.jobs.map((job) => galleryShowToExportConfig(restoreConfig, job.show)),
-          );
           await new Promise((r) => setTimeout(r, 650));
         }
 
@@ -3576,7 +3192,6 @@ ${SHARED_RULES_OUTRO}`;
         if (cancelGenRef.current) break;
         if (blob) {
           triggerMp4Download(blob, sequentialRandomMp4Name(i, show));
-          await markExportedBraveImagesUsed(exportCfg);
           await new Promise((r) => setTimeout(r, 400));
         }
         setExportProgress(Math.round(((i + 1) / videos.length) * 100));
@@ -3645,8 +3260,6 @@ ${SHARED_RULES_OUTRO}`;
       a.download = `slide-${currentSlide + 1}.png`;
       a.click();
       URL.revokeObjectURL(url);
-      const slideUrl = String(config.slots?.[currentSlide]?.labelyDbImageUrl || "").trim();
-      if (slideUrl) await markExportedBraveImageUrl(slideUrl);
       setExportProgress(100);
       setTimeout(() => { setIsExporting(false); setExportProgress(0); }, 600);
     } catch (err) {
@@ -3813,9 +3426,6 @@ ${SHARED_RULES_OUTRO}`;
         const blob = new Blob([zipData], { type: "application/zip" });
         triggerZipDownload(blob, `${zipFilePrefix}${String(plan.iphoneNumber).padStart(2, "0")}-${randomExportHex(10)}.zip`);
         downloadedZipCount++;
-        await markExportedBraveImagesUsed(
-          plan.jobs.map((job) => galleryShowToExportConfig(restoreConfig, job.show)),
-        );
         await new Promise((r) => setTimeout(r, 650));
       }
 
@@ -3879,8 +3489,6 @@ ${SHARED_RULES_OUTRO}`;
     a.click();
     URL.revokeObjectURL(url);
 
-    await markExportedBraveImagesUsed(config);
-
     setIsExporting(false);
     setExportProgress(100);
     setExportStatus("Done! ZIP downloaded.");
@@ -3888,10 +3496,7 @@ ${SHARED_RULES_OUTRO}`;
   };
 
   const runChosenExport = async () => {
-    if (exportChoice === "png_slide") await handleExportPNG();
-    else if (exportChoice === "png_zip") await handleExportAllPNGs();
-    else if (exportChoice === "mp4_gallery") await handleExportAllVideos();
-    else await handleExportVideo();
+    await handleExportVideo();
   };
 
   // Register the per-slide refresh handler so VideoPreview can trigger generation
@@ -3918,25 +3523,22 @@ ${SHARED_RULES_OUTRO}`;
   });
 
   return (
-    <div className="p-5 space-y-5">
-      <h2 className="text-white/50 font-bold text-xs uppercase tracking-widest">Configuration</h2>
+    <div className="space-y-5">
 
       <div className="space-y-3 -mt-1">
-        <span className="text-white/45 text-xs font-semibold uppercase tracking-wider">Output format</span>
+        <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">Output format</span>
         {isLabely ? (
-          <div className="rounded-xl border border-violet-500/25 bg-violet-500/10 px-3 py-2.5 text-[11px] text-white/80">
-            <div className="font-semibold text-white">Grocery intro + scan</div>
-            <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-              {isLabelyFoodDbBatchMode
-                ? "Shelf intro, then one scan/result pair for each food saved in that batch."
-                : `Shelf intro, scan beam, then ${scanTourSlotCount(config)} Labely slides. Use AI products + food list, or upload ${scanTourSlotCount(config)} pack photos in the rows below.`}
+          <div className="callout px-3 py-2.5 text-[11px]">
+            <div className="font-semibold text-foreground">Grocery intro + scan</div>
+            <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+              {`Shelf intro, scan beam, then ${scanTourSlotCount(config)} Labely slides. AI picks from your food list and generates pack shots.`}
             </p>
           </div>
         ) : isValcoin ? (
-          <div className="rounded-xl border border-violet-500/25 bg-violet-500/10 px-3 py-2.5 text-[11px] text-white/80">
-            <div className="font-semibold text-white">6-coin collage → scan ×6 → Valcoin slide-up</div>
-            <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-              {`Opens on a 6-coin collage, then each coin gets a scan animation and the Valcoin app slides up — same slide-up choreography as Labely. Coin photos come from Wikimedia Commons (public domain); upload your own in the image rows below if you prefer. Batch generate builds ${VALCOIN_IPHONE_PACK_TOTAL} slideshows (6 batches × ${VALCOIN_IPHONE_SLIDESHOWS_PER_BATCH}) and auto-exports ${GALLERY_IPHONE_DEVICE_COUNT} iPhone ZIPs (${LABELY_DB_BATCH_COUNT} videos each), same folder layout as Labely.`}
+          <div className="callout px-3 py-2.5 text-[11px]">
+            <div className="font-semibold text-foreground">6-coin collage → scan ×6 → Valcoin slide-up</div>
+            <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+              {`Opens on a 6-coin collage, then each coin gets a scan animation and the Valcoin app slides up — same slide-up choreography as Labely. Coin photos come from Wikimedia Commons (public domain). Batch generate builds ${VALCOIN_IPHONE_PACK_TOTAL} slideshows (6 batches × ${VALCOIN_IPHONE_SLIDESHOWS_PER_BATCH}) and auto-exports ${GALLERY_IPHONE_DEVICE_COUNT} iPhone ZIPs (${LABELY_DB_BATCH_COUNT} videos each), same folder layout as Labely.`}
             </p>
           </div>
         ) : (
@@ -3954,12 +3556,12 @@ ${SHARED_RULES_OUTRO}`;
               onClick={() => updateConfig("outputFormat", id)}
               className={`text-left rounded-xl border px-3 py-2 transition-all ${
                 (config.outputFormat ?? "standard") === id
-                  ? "border-violet-500 bg-violet-500/15 text-white"
-                  : "border-white/10 bg-white/4 text-white/50 hover:border-white/20"
+                  ? "choice-selected"
+                  : "choice-default hover:border-foreground/20"
               }`}
             >
               <div className="text-xs font-semibold">{label}</div>
-              <div className="text-[10px] text-white/40 mt-0.5">{sub}</div>
+              <div className="text-[10px] text-muted-foreground/80 mt-0.5">{sub}</div>
             </button>
           ))}
         </div>
@@ -3967,9 +3569,9 @@ ${SHARED_RULES_OUTRO}`;
 
         {/* ── Starter Pack config ───────────────────────────────────────── */}
         {!isLabely && !isValcoin && (config.outputFormat ?? "standard") === "starterPack" && (
-          <div className="bg-white/4 border border-violet-500/30 rounded-xl p-3 flex flex-col gap-2">
-            <div className="text-white/55 text-xs font-semibold">Starter Pack</div>
-            <p className="text-white/35 text-[10px] leading-relaxed">
+          <div className="callout p-3 flex flex-col gap-2">
+            <div className="text-muted-foreground text-xs font-semibold">Starter Pack</div>
+            <p className="text-muted-foreground/70 text-[10px] leading-relaxed">
               Headline stays static. Each of the 3 items + {brand.appName} dissolves in over 5 seconds.
               Use the image slots below to generate/upload photos for items 1–3.
             </p>
@@ -3985,50 +3587,50 @@ ${SHARED_RULES_OUTRO}`;
                   setIsExporting(false);
                   setExportStatus("");
                 }}
-                className="px-2.5 py-1.5 rounded-lg bg-violet-500/20 hover:bg-violet-500/30 border border-violet-500/40 text-white text-[11px] font-semibold"
+                className="btn-ghost btn-primary-outline text-[11px] font-semibold"
               >
                 Auto-generate (AI)
               </button>
-              <span className="text-white/30 text-[10px]">Generates a fresh headline, titles, and card images every time.</span>
+              <span className="text-muted-foreground/70 text-[10px]">Generates a fresh headline, titles, and card images every time.</span>
             </div>
             {/* Headline */}
-            <label className="text-white/50 text-[10px] font-semibold">Headline text</label>
+            <label className="text-muted-foreground text-[10px] font-semibold">Headline text</label>
             <textarea
               rows={2}
               value={config.starterPackHeadline ?? ""}
               onChange={(e) => updateConfig("starterPackHeadline", e.target.value)}
               placeholder="e.g. people with these hobbies have more aura than they know what to do with"
-              className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs placeholder:text-white/25 resize-none focus:outline-none focus:border-violet-500/60"
+              className="w-full bg-background border border-border rounded-lg px-2 py-1.5 text-foreground text-xs placeholder:text-muted-foreground/60 resize-none focus:outline-none focus:border-ring"
             />
             {/* Item name overrides */}
-            <label className="text-white/50 text-[10px] font-semibold mt-1">Item card titles (uses slot name if left blank)</label>
+            <label className="text-muted-foreground text-[10px] font-semibold mt-1">Item card titles (uses slot name if left blank)</label>
             {[0, 1, 2].map((i) => (
               <div key={i} className="flex items-center gap-2">
-                <span className="text-white/30 text-[10px] w-10 shrink-0">Card {i + 1}</span>
+                <span className="text-muted-foreground/70 text-[10px] w-10 shrink-0">Card {i + 1}</span>
                 <input
                   type="text"
                   value={config.slots?.[i]?.itemName ?? ""}
                   onChange={(e) => updateSlot(i, { itemName: e.target.value })}
                   placeholder={`Item ${i + 1} name`}
-                  className="flex-1 bg-black/30 border border-white/10 rounded-lg px-2 py-1 text-white text-xs placeholder:text-white/25 focus:outline-none focus:border-violet-500/60"
+                  className="flex-1 bg-background border border-border rounded-lg px-2 py-1 text-foreground text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:border-ring"
                 />
               </div>
             ))}
-            <p className="text-white/30 text-[10px]">Card 4 is always <span className="text-white/60">{brand.appName}</span> (auto).</p>
+            <p className="text-muted-foreground/70 text-[10px]">Card 4 is always <span className="text-muted-foreground">{brand.appName}</span> (auto).</p>
           </div>
         )}
 
         {!isLabely && !isValcoin && (
-        <div className="bg-white/4 border border-white/10 rounded-xl p-3">
-          <div className="text-white/55 text-xs font-semibold mb-1">Pose format (optional)</div>
-          <p className="text-white/35 text-[10px] mb-2 leading-relaxed">
-            Upload your own reference photos. The model matches pose and framing, then swaps in each item. Images are cycled by slot (1→2→3…→1). With <span className="text-white/50">Pose person</span> selected, hands/arms are only allowed on the first generated slide; other slides stay hands-free.
+        <div className="bg-muted/50 border border-border rounded-xl p-3">
+          <div className="text-muted-foreground text-xs font-semibold mb-1">Pose format (optional)</div>
+          <p className="text-muted-foreground/70 text-[10px] mb-2 leading-relaxed">
+            Upload your own reference photos. The model matches pose and framing, then swaps in each item. Images are cycled by slot (1→2→3…→1). With <span className="text-muted-foreground">Pose person</span> selected, hands/arms are only allowed on the first generated slide; other slides stay hands-free.
           </p>
           <input
             type="file"
             accept={IMAGE_FILE_ACCEPT}
             multiple
-            className="text-white/50 text-[11px] w-full file:mr-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-white/10 file:text-white/80"
+            className="text-muted-foreground text-[11px] w-full file:mr-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-muted file:text-foreground/80"
             onChange={(e) => {
               const files = [...e.target.files];
               e.target.value = "";
@@ -4050,11 +3652,11 @@ ${SHARED_RULES_OUTRO}`;
           />
           {(config.poseReferenceImages?.length ?? 0) > 0 && (
             <div className="mt-2 flex flex-wrap gap-2 items-center justify-between">
-              <span className="text-violet-300 text-[10px] font-medium">{config.poseReferenceImages.length} loaded</span>
+              <span className="text-muted-foreground text-[10px] font-medium">{config.poseReferenceImages.length} loaded</span>
               <button
                 type="button"
                 onClick={() => updateConfig("poseReferenceImages", [])}
-                className="text-[10px] text-red-400/90 hover:text-red-300 font-medium"
+                className="text-[10px] status-error hover:opacity-80 font-medium"
               >
                 Clear all
               </button>
@@ -4069,23 +3671,23 @@ ${SHARED_RULES_OUTRO}`;
       {!isLabely && !isValcoin ? (
       <Section title="iMessage Mom" icon="💬">
         <div>
-          <label className="text-white/35 text-[10px] block mb-1">TikTok @ watermark</label>
+          <label className="text-muted-foreground/70 text-[10px] block mb-1">TikTok @ watermark</label>
           <input
             type="text"
             value={config.tiktokWatermark ?? ""}
             onChange={(e) => updateConfig("tiktokWatermark", e.target.value)}
             placeholder="@mom"
-            className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/20"
+            className="w-full bg-muted/50 border border-border rounded-lg px-2.5 py-1.5 text-foreground text-xs focus:outline-none focus:border-ring placeholder:text-muted-foreground/40"
           />
         </div>
         <div className="mt-2">
-          <label className="text-white/35 text-[10px] block mb-1">Voicemail caller ID</label>
+          <label className="text-muted-foreground/70 text-[10px] block mb-1">Voicemail caller ID</label>
           <input
             type="text"
             value={config.voicemailDisplayNumber ?? ""}
             onChange={(e) => updateConfig("voicemailDisplayNumber", e.target.value)}
             placeholder="+1 (225) 427-8071"
-            className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/20"
+            className="w-full bg-muted/50 border border-border rounded-lg px-2.5 py-1.5 text-foreground text-xs focus:outline-none focus:border-ring placeholder:text-muted-foreground/40"
           />
         </div>
       </Section>
@@ -4096,8 +3698,8 @@ ${SHARED_RULES_OUTRO}`;
         {!isLabely && !isValcoin && (
         <div className="flex gap-2 mb-3">
           {[
-            { id: "gpt-image-1", label: "GPT-Image-1.5", color: "border-emerald-500 bg-emerald-500/15 text-emerald-200" },
-            { id: "gemini",      label: "Gemini Flash",  color: "border-violet-500 bg-violet-500/15 text-violet-200" },
+            { id: "gpt-image-1", label: "GPT-Image-1.5", color: "choice-selected" },
+            { id: "gemini",      label: "Gemini Flash",  color: "choice-selected" },
           ].map(({ id, label, color }) => {
             const isMom = (config.outputFormat ?? "standard") === "imessageMom";
             const imgs = isMom
@@ -4113,7 +3715,7 @@ ${SHARED_RULES_OUTRO}`;
               key={id}
               onClick={() => setImageModel(id)}
               className={`flex-1 py-2 px-3 rounded-xl border text-xs font-semibold transition-all text-left ${
-                imageModel === id ? color : "border-white/10 bg-white/4 text-white/40 hover:text-white/60"
+                imageModel === id ? color : "border-border bg-muted/50 text-muted-foreground/80 hover:text-muted-foreground"
               }`}
             >
               <span className="flex items-center gap-1.5">
@@ -4127,448 +3729,44 @@ ${SHARED_RULES_OUTRO}`;
         </div>
         )}
 
-        <div className={`rounded-xl border px-3 py-2.5 text-xs ${
-          isValcoin
-            ? "border-amber-500/25 bg-amber-500/8 text-amber-100"
-            : "border-emerald-500/20 bg-emerald-500/8 text-emerald-200"
-        }`}>
+        <div className="callout px-3 py-2.5 text-xs">
           <div className="font-semibold">{isValcoin ? "Wikimedia Commons (no API key)" : "AI keys are managed on the server."}</div>
-          <div className={`mt-1 ${isValcoin ? "text-amber-100/75" : "text-emerald-100/70"}`}>
+          <div className="mt-1 text-muted-foreground">
             {isLabely
-              ? config.labelyAiProducts
-                ? labelyUseSelfieImage
-                  ? labelyUseFoodDatabasePhotos
-                    ? labelyUseBraveImages
-                      ? "The intro uses the pilates selfie prompt; every scan/result uses random Brave Images for that food."
-                      : "The intro uses the pilates selfie prompt; every scan/result uses Open Food Facts."
-                    : "The intro uses the pilates selfie prompt; scan/result slides use generated pack shots."
-                  : labelyUseFoodDatabasePhotos
-                    ? labelyUseBraveImages
-                      ? "Random Brave Images for each food name; no AI image gen in that mode."
-                      : "Open Food Facts pack photos when possible; no AI image gen in that mode."
-                    : "AI pack shots from your food list; scanner readout stays fictional."
-                : "Vision reads your uploaded pack photos."
+              ? "Brave product photos from your food list; GPT writes real-ingredient analysis. Shelf intro is still AI-generated."
               : isValcoin
                 ? "Free public-domain coin photos from Wikimedia Commons — no API key required, no AI coin images."
                 : "This deployment uses the Vercel environment variables for image generation and auto-title, so teammates can use the app without entering API keys here."}
           </div>
         </div>
 
+        {/* Labely AI: seeds packaged-food generations */}
         {isLabely ? (
-          <div className="mt-3 space-y-2">
-          <div className="rounded-xl border border-violet-500/35 bg-violet-500/12 px-3 py-2.5">
-            <div className="flex items-start gap-3">
-              <button
-                type="button"
-                role="switch"
-                aria-checked={!!config.labelyAiProducts}
-                onClick={() => updateConfig("labelyAiProducts", !config.labelyAiProducts)}
-                className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors ${
-                  config.labelyAiProducts ? "bg-violet-500" : "bg-white/15"
-                }`}
-              >
-                <span
-                  className={`absolute top-1 left-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                    config.labelyAiProducts ? "translate-x-5" : "translate-x-0"
-                  }`}
-                />
-              </button>
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-semibold text-white/90">AI-generated products (junk-food / grocery style)</div>
-                <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-                  On: no photo uploads — GPT chooses real brands/SKUs (from your seed list when present), same fictional scanner compounds in analysis, plus a generated pack image. Off: upload real packaging photos and vision reads each label (current default).
-                </p>
-              </div>
-            </div>
-          </div>
-          {config.labelyAiProducts ? (
-            <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2.5">
-              <div className="flex items-start gap-3">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={!!labelyUseSelfieImage}
-                  onClick={() => {
-                    const next = !labelyUseSelfieImage;
-                    setConfig((prev) => ({
-                      ...prev,
-                      labelyUseSelfieImage: next,
-                      ...(next ? { labelyUseFoodDatabasePhotos: true } : {}),
-                    }));
-                  }}
-                  className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors ${
-                    labelyUseSelfieImage ? "bg-sky-500" : "bg-white/15"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-1 left-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                      labelyUseSelfieImage ? "translate-x-5" : "translate-x-0"
-                    }`}
-                  />
-                </button>
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-semibold text-white/90">Use pilates selfie intro</div>
-                  <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-                    Adds the luxury pilates mirror selfie as slide 1 only. Drop reference photos in public/labely/selfie-references/ to randomize the selfie source.
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : null}
-          {config.labelyAiProducts ? (
-            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5">
-              <div className="flex items-start gap-3">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={!!labelyUseFoodDatabasePhotos}
-                  onClick={() => {
-                    const next = !labelyUseFoodDatabasePhotos;
-                    setConfig((prev) => ({
-                      ...prev,
-                      labelyUseFoodDatabasePhotos: next,
-                    }));
-                  }}
-                  className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors ${
-                    labelyUseFoodDatabasePhotos ? "bg-emerald-500" : "bg-white/15"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-1 left-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                      labelyUseFoodDatabasePhotos ? "translate-x-5" : "translate-x-0"
-                    }`}
-                  />
-                </button>
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-semibold text-white/90">Use food database photos</div>
-                  <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-                    {labelyUseBraveImages
-                      ? "Searches Brave for “food name in store” photos. Requires BRAVE_SEARCH_API_KEY on the server."
-                      : "Searches Open Food Facts for a real package photo from the chosen food name. If there is no usable match, the image is left blank and a similar database item is recommended below."}
-                  </p>
-              </div>
-            </div>
-            </div>
-          ) : null}
-          {config.labelyAiProducts && labelyUseFoodDatabasePhotos ? (
-            <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2.5">
-              <div className="flex items-start gap-3">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={!!labelyUseBraveImages}
-                  onClick={() => {
-                    const next = !labelyUseBraveImages;
-                    setConfig((prev) => ({
-                      ...prev,
-                      labelyUseBraveImages: next,
-                    }));
-                  }}
-                  className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors ${
-                    labelyUseBraveImages ? "bg-sky-500" : "bg-white/15"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-1 left-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                      labelyUseBraveImages ? "translate-x-5" : "translate-x-0"
-                    }`}
-                  />
-                </button>
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-semibold text-white/90">Use Brave Images instead</div>
-                  <p className="mt-1 text-[10px] leading-relaxed text-white/45">
-                    When on, searches Brave for “food name in store” and picks a random result instead of Open Food Facts package photos.
-                  </p>
-                </div>
-              </div>
-              {labelyUseBraveImages ? <BraveSearchUsageBar enabled className="mt-2" /> : null}
-            </div>
-          ) : null}
-          </div>
-        ) : null}
-
-        {/* Reference images status — only rendered client-side to avoid hydration mismatch */}
-        {mounted && !isLabely && !isValcoin && (
-        <div className={`mt-2 flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
-          referenceImages === null ? "bg-white/4 border border-white/8 text-white/35"
-          : referenceImages.length > 0 ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"
-          : "bg-white/4 border border-white/8 text-white/35"
-        }`}>
-          <span>{referenceImages === null ? "⏳" : referenceImages.length > 0 ? "🖼️" : "📂"}</span>
-          {referenceImages === null ? (
-            <span>Loading reference photos…</span>
-          ) : referenceImages.length > 0 ? (
-            <span>
-              <strong>{referenceImages.length}</strong> reference photo{referenceImages.length > 1 ? "s" : ""} in{" "}
-              <code className="text-white/50">{referencesDirLabel}</code>{" "}
-              — used as the reference style for AI generations.
-            </span>
-          ) : (
-            <span>
-              Add a PNG/JPEG to{" "}
-              <code className="text-white/50">{referencesDirLabel}</code>
-              {" "}(e.g. messy clothes in a blue cart) to lock the buggy aesthetic.
-            </span>
-          )}
-        </div>
-        )}
-        {/* Labely AI: same role as Thrifty “Brand Items List” — seeds packaged-food generations */}
-        {isLabely && config.labelyAiProducts ? (
-          <div className="mt-3 bg-white/4 border border-white/10 rounded-xl p-3">
+          <div className="adv-section mt-3">
             <div className="flex items-center justify-between gap-2 mb-1">
               <Label className="!mb-0 shrink-0">Food &amp; drink list</Label>
               <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-                {mounted && (isLabelyFoodDbBatchMode ? totalBatchSlideshows > 0 : labelyFoodItemCount > 0) && (
-                  <span className="text-violet-300 text-[10px] font-medium">
-                    {isLabelyFoodDbBatchMode
-                      ? `${totalBatchSlideshows} slideshow${totalBatchSlideshows > 1 ? "s" : ""}`
-                      : `${labelyFoodItemCount} item${labelyFoodItemCount > 1 ? "s" : ""}`}
+                {mounted && labelyFoodItemCount > 0 ? (
+                  <span className="text-muted-foreground text-[10px] font-medium">
+                    {labelyFoodItemCount} item{labelyFoodItemCount > 1 ? "s" : ""}
                   </span>
-                )}
+                ) : null}
                 {mounted && labelyFoodItemCount > 0 ? (
                   <button
                     type="button"
                     onClick={clearAllLabelyFoods}
                     disabled={generatingSlot !== null}
-                    className="shrink-0 rounded-md border border-red-500/35 bg-red-500/10 px-2 py-1 text-[10px] font-bold tracking-wide text-red-300 hover:bg-red-500/20 disabled:opacity-40"
-                    title="Remove every food from all batches and the main list (saved to session)"
+                    className="shrink-0 rounded-md border border-border bg-muted/50 px-2 py-1 text-[10px] font-bold tracking-wide status-error hover:bg-muted disabled:opacity-40"
+                    title="Remove every food from the list (saved to session)"
                   >
                     Clear all foods
                   </button>
                 ) : null}
               </div>
             </div>
-            <p className="text-white/35 text-[10px] mb-2 leading-relaxed">
-              {labelyUseSelfieImage && labelyUseFoodDatabasePhotos
-                ? labelyUseBraveImages
-                  ? "Slide 1 uses the pilates selfie image. All scan/result pairs use random Brave Images for each food."
-                  : "Slide 1 uses the pilates selfie image. All scan/result pairs use selected Open Food Facts package photos."
-                : labelyUseFoodDatabasePhotos
-                ? labelyUseBraveImages
-                  ? "Type food names to search Brave Images, pick a result, then add it to this list."
-                  : "Search Open Food Facts, choose the exact package match, then it is added to this list."
-                : labelyUseSelfieImage
-                  ? "One real packaged product per line. Slide 1 uses the pilates selfie image; scan/result pairs use generated pack art."
-                  : "One real packaged product per line — same idea as Thrifty's brand list. Generate picks from this list (shuffled); GPT uses that real SKU for name/brand/pack image while analysis still uses fictional scanner compound names."}
+            <p className="text-muted-foreground/70 text-[10px] mb-2 leading-relaxed">
+              One real packaged product per line — same idea as Thrifty's brand list. Generate picks from this list (shuffled); GPT uses that real SKU for name/brand/pack image and names real concerning ingredients in the analysis.
             </p>
-            {isLabelyFoodDbBatchMode ? (
-              <div className="space-y-2">
-                {labelyFoodDbBatches.map((batch, idx) => (
-                  <div key={batch.id} className="rounded-lg border border-emerald-500/20 bg-emerald-500/8 p-2">
-                    {(() => {
-                      const batchItems = String(batch.itemsRaw || "")
-                        .split("\n")
-                        .map((line) => line.trim())
-                        .filter(Boolean);
-                      const savedPhotoCount = batchItems.filter((item) => foodDbImageUrlForItem(item, batch.foodDbMatches)).length;
-                      const missingPhotoCount = Math.max(0, batchItems.length - savedPhotoCount);
-                      return (
-                        <>
-                    <div className="mb-1 flex items-center justify-between gap-2">
-                      <input
-                        type="text"
-                        value={batch.name}
-                        onChange={(e) => updateLabelyFoodDbBatch(idx, { name: e.target.value.slice(0, 42) })}
-                        placeholder={`Food database batch ${idx + 1}`}
-                        className="min-w-0 flex-1 rounded-md border border-white/10 bg-black/25 px-2 py-1 text-[11px] font-semibold text-emerald-100 outline-none placeholder-emerald-200/35 focus:border-emerald-400/60"
-                      />
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] text-white/35">slideshows</span>
-                        <input
-                          type="number"
-                          min={0}
-                          max={200}
-                          value={batch.slideshowCount}
-                          onChange={(e) => updateLabelyFoodDbBatch(idx, { slideshowCount: Math.max(0, Math.min(200, Number(e.target.value) || 0)) })}
-                          className="w-16 rounded-md border border-white/15 bg-black/30 px-2 py-1 text-center text-[11px] text-white outline-none focus:border-emerald-400/60"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <div className="relative">
-                        <input
-                          type="text"
-                          value={batchFoodDbSearch[batch.id] ?? ""}
-                          onChange={(e) => handleBatchFoodDbSearchChange(idx, e.target.value)}
-                          onKeyDown={(e) => {
-                            const opts = batchFoodDbSearchOptions[batch.id] || [];
-                            if (e.key !== "Enter") return;
-                            e.preventDefault();
-                            if (opts[0]?.label && (batchFoodDbSearchStatus[batch.id] || "idle") === "done") {
-                              addBatchFoodListItem(idx, opts[0].label, opts[0]);
-                            } else {
-                              void runBatchFoodDbSearch(idx);
-                            }
-                          }}
-                          placeholder="Type product, then press Enter to search…"
-                          className="w-full rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 text-[11px] text-white outline-none placeholder-white/20 focus:border-emerald-400/60"
-                        />
-                        {(batchFoodDbSearch[batch.id] || "").trim().length >= 2 ? (
-                          <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-[min(70vh,36rem)] overflow-y-auto rounded-lg border border-emerald-500/25 bg-zinc-950 shadow-xl">
-                            {(batchFoodDbSearchStatus[batch.id] || "idle") === "idle" ? (
-                              <div className="px-3 py-2 text-[10px] text-white/35">Press Enter to search {foodImageSourceLabel}.</div>
-                            ) : (batchFoodDbSearchStatus[batch.id] || "idle") === "loading" ? (
-                              <div className="px-3 py-2 text-[10px] text-white/35">Searching {foodImageSourceLabel}…</div>
-                            ) : (batchFoodDbSearchOptions[batch.id] || []).length > 0 ? (
-                              (batchFoodDbSearchOptions[batch.id] || []).map((option) => (
-                                <button
-                                  key={`${batch.id}-${option.label}`}
-                                  type="button"
-                                  onClick={() => addBatchFoodListItem(idx, option.label, option, { keepSearchOpen: true })}
-                                  className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-emerald-500/15"
-                                >
-                                  <span className="min-w-0 flex-1 text-[11px] leading-snug text-white/75">
-                                    {option.label}
-                                  </span>
-                                  <FoodDbDropdownRowThumb row={option} />
-                                </button>
-                              ))
-                            ) : (
-                              <div className="px-3 py-2 text-[10px] text-red-300/80">
-                                {(batchFoodDbSearchStatus[batch.id] || "idle") === "error" ? "Search failed. Try again." : "No database matches yet."}
-                              </div>
-                            )}
-                          </div>
-                        ) : null}
-                      </div>
-                      {String(batch.itemsRaw || "").split("\n").map((line) => line.trim()).filter(Boolean).length > 0 ? (
-                        <div className="flex flex-wrap gap-1.5">
-                          {String(batch.itemsRaw || "").split("\n").map((line) => line.trim()).filter(Boolean).map((item) => (
-                            <button
-                              key={`${batch.id}-${item}`}
-                              type="button"
-                              onClick={() => removeBatchFoodListItem(idx, item)}
-                              className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-100 hover:bg-red-500/15 hover:text-red-200"
-                              title="Remove from batch"
-                            >
-                              {item} ×
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-[10px] text-white/30">Add one or more matched products to this batch.</p>
-                      )}
-                      <p className="text-[10px] text-white/30">
-                        Items in this batch generate only this batch&apos;s slideshows.
-                      </p>
-                      <div className="rounded-md border border-emerald-500/15 bg-black/15 p-2">
-                        <div className="mb-1 flex items-center justify-between gap-2">
-                          <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-200/80">
-                            Saved package photos
-                          </span>
-                          <span className="text-[10px] text-white/35">
-                            {savedPhotoCount}/{batchItems.length || 0} saved
-                          </span>
-                        </div>
-                        {missingPhotoCount > 0 ? (
-                          <p className="text-[10px] text-amber-300/85">
-                            {missingPhotoCount} item{missingPhotoCount === 1 ? "" : "s"} need a saved photo. Search and select an exact database result above.
-                          </p>
-                        ) : batchItems.length > 0 ? (
-                          <p className="text-[10px] text-emerald-300/75">Ready. Generation uses these saved photo URLs directly.</p>
-                        ) : null}
-                        {batchItems.length > 0 ? (
-                          <div className="mt-1.5 space-y-1">
-                            {batchItems.slice(0, 10).map((item) => {
-                              const hasPhoto = Boolean(foodDbImageUrlForItem(item, batch.foodDbMatches));
-                              return (
-                                <div key={`${batch.id}-match-${item}`} className="flex items-center justify-between gap-2 rounded-md bg-black/15 px-2 py-1.5">
-                                  <span className="min-w-0 truncate text-[10px] text-white/55">{item}</span>
-                                  {hasPhoto ? (
-                                    <span className="shrink-0 text-[10px] font-semibold text-emerald-300">Photo saved</span>
-                                  ) : (
-                                    <span className="shrink-0 text-[10px] text-amber-300/80">Needs photo</span>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <p className="mt-1 text-[10px] text-white/30">Search and select products to save package photos.</p>
-                        )}
-                      </div>
-                    </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-                ))}
-              </div>
-            ) : labelyUseFoodDatabasePhotos ? (
-              <div className="space-y-2">
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={foodDbSearch}
-                    onChange={(e) => {
-                      setFoodDbSearch(e.target.value);
-                      if (e.target.value.trim().length < 2) {
-                        setFoodDbSearchOptions([]);
-                        setFoodDbSearchStatus("idle");
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key !== "Enter") return;
-                      e.preventDefault();
-                      if (foodDbSearchOptions[0]?.label && foodDbSearchStatus === "done") {
-                        addFoodListItem(foodDbSearchOptions[0].label);
-                      } else {
-                        void runFoodDbSearch();
-                      }
-                    }}
-                    placeholder="Type product, then press Enter to search…"
-                    className="w-full rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 text-xs text-white outline-none placeholder-white/15 focus:border-emerald-400/60"
-                  />
-                  {foodDbSearch.trim().length >= 2 ? (
-                    <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-[min(70vh,36rem)] overflow-y-auto rounded-lg border border-emerald-500/25 bg-zinc-950 shadow-xl">
-                      {foodDbSearchStatus === "idle" ? (
-                        <div className="px-3 py-2 text-[10px] text-white/35">Press Enter to search {foodImageSourceLabel}.</div>
-                      ) : foodDbSearchStatus === "loading" ? (
-                        <div className="px-3 py-2 text-[10px] text-white/35">Searching {foodImageSourceLabel}…</div>
-                      ) : foodDbSearchOptions.length > 0 ? (
-                        foodDbSearchOptions.map((option) => (
-                          <button
-                            key={option.label}
-                            type="button"
-                            onClick={() => addFoodListItem(option.label, { keepSearchOpen: true })}
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-emerald-500/15"
-                          >
-                            <span className="min-w-0 flex-1 text-[11px] leading-snug text-white/75">
-                              {option.label}
-                            </span>
-                            <FoodDbDropdownRowThumb row={option} />
-                          </button>
-                        ))
-                      ) : (
-                        <div className="px-3 py-2 text-[10px] text-red-300/80">
-                          {foodDbSearchStatus === "error" ? "Search failed. Try again." : "No database matches yet."}
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-                {brandItems.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {brandItems.map((item) => (
-                      <button
-                        key={item}
-                        type="button"
-                        onClick={() => removeFoodListItem(item)}
-                        title="Remove from list"
-                        className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-100 hover:bg-red-500/15 hover:text-red-200"
-                      >
-                        {item} ×
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-white/25 text-[10px]">
-                    Select one or more database products above before generating.
-                  </p>
-                )}
-              </div>
-            ) : (
-              <>
             <textarea
               value={isLabely && typeof config.labelyFoodItemsRaw === "string" ? config.labelyFoodItemsRaw : brandItemsRaw}
               onChange={(e) => {
@@ -4580,370 +3778,110 @@ ${SHARED_RULES_OUTRO}`;
               }}
               placeholder={DEFAULT_LABELY_ITEMS}
               rows={6}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/15 resize-none"
+              className="w-full rounded-lg border bg-background px-2.5 py-2 text-foreground text-xs focus:outline-none focus:border-ring placeholder:text-muted-foreground/40 resize-none"
             />
-            <p className="text-white/25 text-[10px] mt-1">
+            <p className="text-muted-foreground/60 text-[10px] mt-1">
               Snacks, drinks, frozen, supplements — be specific (brand + product type). Leave empty to use the built-in grocery starter list.
             </p>
-              </>
-            )}
-            {labelyUseFoodDatabasePhotos && !isLabelyFoodDbBatchMode ? (
-              <div className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-500/8 p-2">
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-200/80">
-                    Food database matches
-                  </span>
-                  <span className="text-[10px] text-white/30">
-                    {foodDbSuggestionStatus === "loading" ? "Checking…" : `${brandItems.length} checked`}
-                  </span>
-                </div>
-                {foodDbSuggestionStatus === "error" ? (
-                  <p className="text-[10px] text-amber-300">Could not check {foodImageSourceLabel} right now.</p>
-                ) : brandItems.length > 0 ? (
-                  <div className="space-y-1.5">
-                    {brandItems.slice(0, 10).map((item) => {
-                      const row = foodDbSuggestionsByQuery.get(item);
-                      return (
-                        <div key={item} className="flex items-center justify-between gap-2 rounded-md bg-black/15 px-2 py-1.5">
-                          <span className="min-w-0 truncate text-[10px] text-white/55">{item}</span>
-                          {!row || foodDbSuggestionStatus === "loading" ? (
-                            <span className="shrink-0 text-[10px] text-white/30">Checking…</span>
-                          ) : row.status === "found" || row.status === "recommend" ? (
-                            <div className="flex min-w-0 shrink-0 items-center gap-1.5">
-                              <span className={`text-[10px] font-semibold ${row.status === "found" ? "text-emerald-300" : "text-amber-200"}`}>
-                                {row.status === "found" ? "Match" : "Try"}
-                              </span>
-                              <select
-                                value={row.status === "found" ? row.match : row.suggestion}
-                                onChange={(e) => applyFoodDbCandidate(item, e.target.value)}
-                                className="max-w-[220px] rounded-md border border-white/10 bg-zinc-900 px-2 py-1 text-[10px] font-semibold text-white/80 outline-none focus:border-emerald-400/60"
-                                title="Choose the database product for this line"
-                              >
-                                {(row.candidates?.length ? row.candidates : [row.match || row.suggestion]).filter(Boolean).map((candidate) => (
-                                  <option key={candidate} value={candidate}>{candidate}</option>
-                                ))}
-                              </select>
-                            </div>
-                          ) : (
-                            <span className="shrink-0 text-[10px] text-red-300/80">No database photo</span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-[10px] text-white/30">Type food names to check {foodImageSourceLabel}.</p>
-                )}
-              </div>
-            ) : null}
           </div>
         ) : null}
-        {!isValcoin && (
-        <>
-        {/* Image slots: batch rows + Thrifty brand list */}
-        <div className="mt-3 bg-white/4 border border-white/10 rounded-xl p-3">
-          {/* SSR + first paint: plain Label only (matches Hook Captions / reference-status hydration pattern). */}
-          {mounted ? (
-            <div className="flex items-start justify-between gap-2 mb-1">
-              <Label className="!mb-0">Image slots</Label>
-              {!labelyUploadsLocked && hasWorkspacePhotos ? (
-                <button
-                  type="button"
-                  disabled={generatingSlot !== null}
-                  onClick={clearAllWorkspacePhotos}
-                  title="Remove every uploaded photo from batch rows and live preview slots"
-                  className="shrink-0 rounded-md border border-red-500/35 bg-red-500/10 px-2 py-1 text-[10px] font-bold tracking-wide text-red-300 hover:bg-red-500/20 disabled:opacity-40"
-                >
-                  Clear all photos
-                </button>
-              ) : null}
-            </div>
+
+        {mounted && !isLabely && !isValcoin && (
+        <div className={`mt-3 flex items-center gap-2 rounded-lg px-3 py-2 text-xs ${
+          referenceImages === null ? "callout text-muted-foreground/70"
+          : referenceImages.length > 0 ? "callout status-success"
+          : "callout text-muted-foreground/70"
+        }`}>
+          <span>{referenceImages === null ? "⏳" : referenceImages.length > 0 ? "🖼️" : "📂"}</span>
+          {referenceImages === null ? (
+            <span>Loading reference photos…</span>
+          ) : referenceImages.length > 0 ? (
+            <span>
+              <strong>{referenceImages.length}</strong> reference photo{referenceImages.length > 1 ? "s" : ""} in{" "}
+              <code className="text-muted-foreground">{referencesDirLabel}</code>
+              {" "}— used as the style reference for AI generations.
+            </span>
           ) : (
-            <Label>Image slots</Label>
+            <span>
+              Add a PNG/JPEG to{" "}
+              <code className="text-muted-foreground">{referencesDirLabel}</code>
+              {" "}(e.g. messy clothes in a blue cart) to lock the buggy aesthetic.
+            </span>
           )}
-          <p className="text-white/35 text-[10px] mb-2 leading-relaxed">
-            <span className="text-white/50">{batchImagesNeeded}</span> rows = <span className="text-white/50">{effectiveNumSlideshows}</span> slideshow
-            {effectiveNumSlideshows !== 1 ? "s" : ""} × {batchSlotCount} photo{batchSlotCount !== 1 ? "s" : ""} each. Drag{" "}
-            <span className="text-white/50">⋮⋮</span> to reorder. Drop a photo or pick a file per row.
-            {labelyUploadsLocked
-              ? " AI mode is on — uploads are disabled; run Generate to fill slots."
-              : isLabely
-              ? ` First ${batchSlotCount} rows are your slides. Use AI products + food list, or upload ${batchSlotCount} photos.`
-              : " Rows 1–6 match the live preview. AI uses the brand list for any row left empty when generating."}
-          </p>
-
-          <div className="mb-3 flex flex-col items-center gap-2">
-            <input
-              ref={bulkFileInputRef}
-              type="file"
-              accept={IMAGE_FILE_ACCEPT}
-              multiple
-              className="sr-only"
-              tabIndex={-1}
-              aria-hidden
-              disabled={generatingSlot !== null || labelyUploadsLocked}
-              onChange={(e) => {
-                const files = [...(e.target.files || [])];
-                e.target.value = "";
-                if (files.length) void handleBulkImageFiles(files, { replace: true });
-              }}
-            />
-            <button
-              type="button"
-              disabled={generatingSlot !== null || labelyUploadsLocked}
-              onClick={() => bulkFileInputRef.current?.click()}
-              onDragEnter={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setBulkDropHover(true);
-              }}
-              onDragLeave={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (!e.currentTarget.contains(e.relatedTarget)) setBulkDropHover(false);
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "copy";
-              }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setBulkDropHover(false);
-                    if (labelyUploadsLocked) return;
-                    if (e.dataTransfer.files?.length) void handleBulkImageFiles(e.dataTransfer.files, { replace: true });
-                  }}
-                  className={`flex aspect-square w-full max-w-[200px] flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed p-3 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                labelyUploadsLocked
-                  ? ""
-                  : "cursor-pointer "
-              }${
-                bulkDropHover
-                  ? "border-violet-400 bg-violet-500/15 text-violet-100"
-                  : "border-white/22 bg-white/[0.04] text-white/50 hover:border-white/40 hover:bg-white/[0.07]"
-              }`}
-              aria-label="Drop multiple images to randomly assign across slideshow rows, or click to choose files"
-            >
-              <span className="text-2xl leading-none" aria-hidden>
-                ⤓
-              </span>
-              <span className="text-[11px] font-semibold leading-tight">Bulk drop photos</span>
-              <span className="text-[9px] leading-snug text-white/35">
-                Photos shuffle into random rows across slideshows (#1·1 …). Extra photos raise slideshow qty automatically.
-              </span>
-            </button>
-          </div>
-
-          <div className="space-y-1.5 max-h-[min(70vh,520px)] overflow-y-auto pr-0.5">
-            {Array.from({ length: batchImagesNeeded }, (_, rowIdx) => {
-              const showNum = Math.floor(rowIdx / batchSlotCount) + 1;
-              const slotInShow = (rowIdx % batchSlotCount) + 1;
-              const url =
-                (rowIdx < batchImageDataUrls.length ? batchImageDataUrls[rowIdx] : null)
-                ?? (rowIdx < 6 ? config.slots[rowIdx]?.imageUrl : null);
-              return (
-                <div
-                  key={rowIdx}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = e.dataTransfer.types?.includes?.("Files") ? "copy" : "move";
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const file = e.dataTransfer.files?.[0];
-                    if (isLikelyRasterImageFile(file)) {
-                      if (labelyUploadsLocked) return;
-                      if (isLabely) void handleLabelySlotUpload(rowIdx, file);
-                      else void handleThriftyValcoinSlotFile(rowIdx, file);
-                      return;
-                    }
-                    const raw = e.dataTransfer.getData("text/plain");
-                    if (raw?.startsWith("batch-reorder:")) {
-                      const from = Number(raw.slice("batch-reorder:".length));
-                      if (!Number.isNaN(from)) reorderBatchRows(from, rowIdx);
-                    }
-                  }}
-                  className="flex flex-wrap items-center gap-2 rounded-lg border border-white/6 bg-black/20 px-2 py-1.5 min-h-[40px]"
-                >
-                  <button
-                    type="button"
-                    title="Drag to reorder"
-                    draggable
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData("text/plain", `batch-reorder:${rowIdx}`);
-                      e.dataTransfer.effectAllowed = "move";
-                    }}
-                    className="touch-none cursor-grab active:cursor-grabbing text-white/30 hover:text-white/55 text-xs font-bold px-1 shrink-0 select-none leading-none"
-                    aria-label={`Drag to reorder row ${rowIdx + 1}`}
-                  >
-                    ⋮⋮
-                  </button>
-                  <span className="text-white/30 text-[9px] w-[52px] shrink-0 tabular-nums leading-tight">
-                    #{showNum}·{slotInShow}
-                  </span>
-                  <div className="h-9 w-9 shrink-0 rounded-md overflow-hidden bg-white/5 border border-white/10">
-                    {url ? <img src={url} alt="" className="h-full w-full object-contain object-center" /> : null}
-                  </div>
-                  <input
-                    type="file"
-                    accept={IMAGE_FILE_ACCEPT}
-                    disabled={generatingSlot !== null || labelyUploadsLocked}
-                    className="text-white/50 text-[11px] max-w-[200px] min-w-0 flex-1 file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:bg-white/10 file:text-white/80 disabled:opacity-40"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (!f) return;
-                      if (isLabely) void handleLabelySlotUpload(rowIdx, f);
-                      else void handleThriftyValcoinSlotFile(rowIdx, f);
-                      e.target.value = "";
-                    }}
-                  />
-                  {url && generatingSlot !== rowIdx ? (
-                    <span className="text-emerald-400/90 text-[10px] font-medium shrink-0">Ready</span>
-                  ) : null}
-                  {generatingSlot === rowIdx ? (
-                    <span className="text-violet-300 text-[10px] shrink-0">{isLabely ? "Analyzing…" : "Working…"}</span>
-                  ) : null}
-                  {aiErrors[rowIdx] ? (
-                    <span className="text-red-400/90 text-[10px] shrink-0 max-w-[140px]">{aiErrors[rowIdx]}</span>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-
-          {!isLabely && !isValcoin ? (
-            <>
-              <div className="flex items-center justify-between mb-1 mt-4">
-                <Label>Brand Items List</Label>
-                {mounted && brandItems.length > 0 && (
-                  <span className="text-violet-300 text-[10px] font-medium">{brandItems.length} item{brandItems.length > 1 ? "s" : ""}</span>
-                )}
-              </div>
-              <textarea
-                value={brandItemsRaw}
-                onChange={(e) => {
-                  setBrandItemsRaw(e.target.value);
-                  localStorage.setItem(storeKey("ts_brand_items"), e.target.value);
-                }}
-                placeholder="vintage Carhartt double-knee pants\nSupreme box logo hoodie\nvintage Levi's 501\nKapital boro jacket\nvintage Nike windbreaker"
-                rows={5}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/15 resize-none"
-              />
-              <p className="text-white/25 text-[10px] mt-1">
-                Clothing only — one garment per line. Each AI slot gets a different piece from this list.
-              </p>
-            </>
-          ) : null}
         </div>
-        </>
         )}
 
-        <div className="mt-2 flex gap-2">
-          <button onClick={handleGenerateAll} disabled={generatingSlot !== null}
-            className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-semibold transition-colors">
-            {generatingSlot === "all"
-              ? "Generating…"
-              : isLabely
-              ? config.labelyAiProducts
-                ? "✨ Generate 1 Slideshow (AI products)"
-                : "✨ Generate 1 Slideshow (analyze uploads)"
-              : "✨ Generate 1 Slideshow"}
-          </button>
-          {generatingSlot === "all" && (
-            <button
-              onClick={hardStop}
-              className="px-3 py-2.5 rounded-xl bg-red-600/80 hover:bg-red-500 text-white text-sm font-semibold transition-colors"
-              title="Stop generating"
-            >
-              ■ Stop
-            </button>
-          )}
-        </div>
+        {!isLabely && !isValcoin ? (
+          <div className="adv-section mt-3">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <Label className="!mb-0">Brand items list</Label>
+              {mounted && brandItems.length > 0 ? (
+                <span className="text-muted-foreground text-[10px] font-medium">
+                  {brandItems.length} item{brandItems.length > 1 ? "s" : ""}
+                </span>
+              ) : null}
+            </div>
+            <p className="text-muted-foreground/70 text-[10px] mb-2 leading-relaxed">
+              One garment per line. Generate picks from this list for each AI slot.
+            </p>
+            <textarea
+              value={brandItemsRaw}
+              onChange={(e) => {
+                setBrandItemsRaw(e.target.value);
+                localStorage.setItem(storeKey("ts_brand_items"), e.target.value);
+              }}
+              placeholder={"vintage Carhartt double-knee pants\nSupreme box logo hoodie\nvintage Levi's 501\nKapital boro jacket\nvintage Nike windbreaker"}
+              rows={5}
+              className="w-full rounded-lg border bg-background px-2.5 py-2 text-foreground text-xs focus:outline-none focus:border-ring placeholder:text-muted-foreground/40 resize-none"
+            />
+          </div>
+        ) : null}
 
-        {/* ── Batch: generate N slideshows ── */}
-        <div className="mt-3 pt-3 border-t border-white/8">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-white/45 text-xs flex-1">Generate multiple slideshows</span>
-            {!isLabelyFoodDbBatchMode && !isValcoinIphonePackBatchMode ? (
+        <div className="mt-4">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="flex-1 text-xs font-semibold text-foreground">Generate slideshows</span>
+            {!isValcoinIphonePackBatchMode ? (
             <div className="flex items-center gap-1.5">
-              <span className="text-white/30 text-[11px]">qty</span>
+              <span className="text-muted-foreground/70 text-[11px]">Qty</span>
               <input
                 type="number" min={1} max={120}
                 value={numSlideshows}
                 onChange={(e) => setNumSlideshows(Math.max(1, Math.min(120, Number(e.target.value))))}
-                className="w-14 bg-white/8 border border-white/15 rounded-lg px-2 py-1 text-white text-sm text-center focus:outline-none focus:border-violet-500/60"
+                className="w-14 rounded-lg border bg-background px-2 py-1 text-foreground text-sm text-center focus:outline-none focus:border-ring"
               />
             </div>
             ) : (
-              <span className="text-emerald-200/80 text-[11px] font-semibold">
+              <span className="text-[11px] font-semibold text-foreground">
                 {effectiveNumSlideshows} total
                 {isValcoinIphonePackBatchMode ? ` · ${LABELY_DB_BATCH_COUNT}×${VALCOIN_IPHONE_SLIDESHOWS_PER_BATCH} iPhone pack` : ""}
               </span>
             )}
           </div>
-          <div className="mb-2 rounded-lg border border-white/10 bg-black/25 px-2.5 py-2">
-            <div className="text-white/45 text-[10px] font-semibold mb-1">Bulk fill rows (optional)</div>
-            <p className="text-white/30 text-[10px] leading-relaxed mb-2">
-              Multi-select merges into existing rows (same qty). The square above replaces from row 1 and raises qty if you drop more photos than fit.
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                type="file"
-                accept={IMAGE_FILE_ACCEPT}
-                multiple
-                disabled={generatingSlot !== null || labelyUploadsLocked}
-                className="text-white/50 text-[11px] flex-1 min-w-0 file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:bg-white/10 file:text-white/80 disabled:opacity-40"
-                onChange={(e) => {
-                  const files = [...(e.target.files || [])];
-                  e.target.value = "";
-                  if (files.length) void handleBulkImageFiles(files, { replace: false });
-                }}
-              />
-              {hasWorkspacePhotos ? (
-                <button
-                  type="button"
-                  disabled={generatingSlot !== null || labelyUploadsLocked}
-                  onClick={clearAllWorkspacePhotos}
-                  className="shrink-0 text-[10px] font-semibold text-red-400/90 hover:text-red-300 disabled:opacity-40"
-                >
-                  Clear all photos
-                </button>
-              ) : null}
-            </div>
-            <p className="text-white/35 text-[10px] mt-1.5">
-              <span className="text-violet-300/90 font-medium">{batchImageDataUrls.filter(Boolean).length}</span> /{" "}
-              {batchImagesNeeded} with photos
-              {!isLabely && batchImageDataUrls.some(Boolean) && batchImageDataUrls.filter(Boolean).length < batchImagesNeeded ? (
-                <span className="text-amber-400/80"> · empty rows use AI in batch</span>
-              ) : null}
-            </p>
-          </div>
           <button
             onClick={handleGenerateBatch}
             disabled={
               generatingSlot !== null
-              || (isLabelyFoodDbBatchMode && effectiveNumSlideshows <= 0)
-              || (!isLabely && !isValcoin && brandItems.length === 0 && !batchImageDataUrls.some(Boolean))
+              || (!isLabely && !isValcoin && brandItems.length === 0)
             }
-            className="w-full py-2.5 rounded-xl bg-fuchsia-700 hover:bg-fuchsia-600 disabled:opacity-40 text-white text-sm font-bold transition-colors"
+            className="btn-primary w-full disabled:opacity-40"
           >
-            {generatingSlot === "all" ? "Generating…" : `🎬 Generate ${effectiveNumSlideshows} Slideshow${effectiveNumSlideshows > 1 ? "s" : ""}`}
+            {generatingSlot === "all" ? "Generating…" : `Generate ${effectiveNumSlideshows} slideshow${effectiveNumSlideshows > 1 ? "s" : ""}`}
           </button>
-          {!isLabely && !isValcoin && (
-          <p className="text-white/25 text-[10px] mt-1.5 text-center">
+          {!isLabely && !isValcoin ? (
+          <p className="mt-1.5 text-center text-[10px] text-muted-foreground/60">
             {(() => {
               const isMom = (config.outputFormat ?? "standard") === "imessageMom";
               const imgs = isMom ? 1 : 6;
               const cost = imageModel === "gpt-image-1" ? 0.015 * imgs : 0.07 * imgs;
-              return `est. $${(effectiveNumSlideshows * cost).toFixed(2)} if all slots are AI · less when uploads fill the queue · each goes to gallery on the right`;
+              return `Est. $${(effectiveNumSlideshows * cost).toFixed(2)} · each saved to the gallery on the right`;
             })()}
           </p>
-          )}
+          ) : null}
         </div>
 
         {/* Progress tracker */}
         {genAllProgress && (
-          <div className="mt-3 bg-white/5 border border-white/10 rounded-xl p-3 space-y-2">
+          <div className="adv-section mt-3 space-y-2">
             {/* Slot dots */}
             <div className="flex gap-1.5 justify-center">
               {Array.from({ length: config.slots.length }).map((_, i) => {
@@ -4951,15 +3889,15 @@ ${SHARED_RULES_OUTRO}`;
                 const active = !done && i === genAllProgress.current;
                 return (
                   <div key={i} className={`relative flex items-center justify-center rounded-full transition-all
-                    ${done ? "w-7 h-7 bg-violet-500" : active ? "w-7 h-7 bg-violet-600/50 ring-2 ring-violet-400" : "w-7 h-7 bg-white/10"}`}>
+                    ${done ? "w-7 h-7 bg-foreground" : active ? "w-7 h-7 bg-foreground/50 ring-2 ring-foreground" : "w-7 h-7 bg-muted"}`}>
                     {done ? (
-                      <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 10 10" stroke="currentColor" strokeWidth={2.5}>
+                      <svg className="w-3.5 h-3.5 text-background" fill="none" viewBox="0 0 10 10" stroke="currentColor" strokeWidth={2.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M1.5 5l2.5 2.5 4.5-5" />
                       </svg>
                     ) : active ? (
-                      <div className="w-2.5 h-2.5 border-2 border-violet-300 border-t-transparent rounded-full animate-spin" />
+                      <div className="w-2.5 h-2.5 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" />
                     ) : (
-                      <span className="text-white/30 text-[10px] font-bold">{i + 1}</span>
+                      <span className="text-muted-foreground/70 text-[10px] font-bold">{i + 1}</span>
                     )}
                   </div>
                 );
@@ -4967,15 +3905,15 @@ ${SHARED_RULES_OUTRO}`;
             </div>
 
             {/* Progress bar */}
-            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
               <div
-                className="h-full bg-violet-500 rounded-full transition-all duration-500"
+                className="h-full bg-foreground rounded-full transition-all duration-500"
                 style={{ width: `${(genAllProgress.done / genAllProgress.total) * 100}%` }}
               />
             </div>
 
             {/* Status text */}
-            <p className="text-white/50 text-xs text-center">{genAllProgress.phase}</p>
+            <p className="text-muted-foreground text-xs text-center">{genAllProgress.phase}</p>
           </div>
         )}
       </Section>
@@ -4986,59 +3924,37 @@ ${SHARED_RULES_OUTRO}`;
           <Label className="shrink-0">Slide duration</Label>
           <input type="range" min={1} max={8} step={0.5} value={config.slideDuration}
             onChange={(e) => updateConfig("slideDuration", Number(e.target.value))}
-            className="flex-1 accent-violet-500" />
-          <span className="text-white text-sm w-8 text-right shrink-0">{config.slideDuration}s</span>
+            className="flex-1 accent-foreground" />
+          <span className="text-foreground text-sm w-8 text-right shrink-0">{config.slideDuration}s</span>
         </div>
       </Section>
 
       {/* ── EXPORT ── */}
       <div className="space-y-2 pb-8">
-        <h3 className="text-white/50 text-xs uppercase tracking-widest font-bold mb-3">Export</h3>
+        <h3 className="text-muted-foreground text-xs uppercase tracking-widest font-bold mb-3">Export</h3>
 
         {(isExporting || exportStatus) && (
           <div className="mb-3">
-            <div className="flex justify-between text-xs text-white/50 mb-1">
+            <div className="flex justify-between text-xs text-muted-foreground mb-1">
               <span>{exportStatus || "Exporting…"}</span>
               <span>{exportProgress}%</span>
             </div>
-            <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-violet-500 rounded-full transition-all duration-200" style={{ width: `${exportProgress}%` }} />
+            <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+              <div className="h-full bg-foreground rounded-full transition-all duration-200" style={{ width: `${exportProgress}%` }} />
             </div>
           </div>
         )}
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-          <select
-            value={exportChoice}
-            onChange={(e) => setExportChoice(e.target.value)}
-            disabled={isExporting}
-            className="flex-1 rounded-xl border border-white/15 bg-black/30 px-3 py-2.5 text-sm text-white outline-none focus:border-violet-500/60 disabled:opacity-40"
-            aria-label="Export type"
-          >
-            <option value="png_slide">Current slide → PNG</option>
-            <option value="png_zip">All slides → ZIP (PNG)</option>
-            <option value="mp4_current">This workspace → MP4</option>
-            {savedForCurrentApp.length >= 2 ? (
-              <option value="mp4_gallery">All gallery items → MP4 (each)</option>
-            ) : null}
-          </select>
-          <button
-            type="button"
-            onClick={() => void runChosenExport()}
-            disabled={isExporting}
-            className="shrink-0 rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-40 transition-colors sm:min-w-[120px]"
-          >
-            Run export
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => void runChosenExport()}
+          disabled={isExporting}
+          className="btn-primary w-full disabled:opacity-40"
+        >
+          {isExporting ? "Exporting…" : "Export MP4"}
+        </button>
 
-        {savedForCurrentApp.length >= 2 ? (
-          <p className="text-white/25 text-[10px] text-center leading-relaxed">
-            Gallery export runs each saved thumbnail for <span className="text-white/45">{brand.appName}</span> as its own video, unless batch metadata triggers the multi-ZIP iPhone pack (Labely food DB or Valcoin {VALCOIN_IPHONE_PACK_TOTAL}-slideshow batch).
-          </p>
-        ) : null}
-
-        <p className="text-white/25 text-xs text-center">
+        <p className="text-center text-xs text-muted-foreground/60">
           {totalSlides} slides · {(config.slideDuration * totalSlides).toFixed(0)}s+ · 1080×1920
         </p>
       </div>
@@ -5052,25 +3968,25 @@ function Section({ title, icon, children }) {
     <div>
       <div className="flex items-center gap-2 mb-3">
         <span>{icon}</span>
-        <h3 className="text-white font-semibold text-sm">{title}</h3>
+        <h3 className="text-foreground font-semibold text-sm">{title}</h3>
       </div>
       {children}
-      <div className="mt-5 border-b border-white/5" />
+      <div className="mt-5 border-b border-border" />
     </div>
   );
 }
 function Label({ children, className = "" }) {
-  return <label className={`block text-white/45 text-xs mb-1 ${className}`}>{children}</label>;
+  return <label className={`block text-muted-foreground text-xs mb-1 ${className}`}>{children}</label>;
 }
 function Input({ value, onChange, placeholder }) {
   return (
     <input type="text" value={value} onChange={onChange} placeholder={placeholder}
-      className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500/60 placeholder-white/20" />
+      className="w-full bg-background border border-border rounded-lg px-2.5 py-1.5 text-foreground text-xs focus:outline-none focus:border-ring placeholder:text-muted-foreground/40" />
   );
 }
 function Textarea({ value, onChange, placeholder, rows = 2 }) {
   return (
     <textarea value={value} onChange={onChange} placeholder={placeholder} rows={rows}
-      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500/60 placeholder-white/20 resize-none" />
+      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground text-sm focus:outline-none focus:border-ring placeholder:text-muted-foreground/40 resize-none" />
   );
 }

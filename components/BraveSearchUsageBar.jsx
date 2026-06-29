@@ -49,30 +49,29 @@ export default function BraveSearchUsageBar({ enabled = true, compact = false, c
   const remaining = Math.max(0, Number(usage.remaining) ?? limit - used);
   const pct = Math.min(100, (used / limit) * 100);
   const warn = remaining <= Math.max(50, limit * 0.1);
-  const barColor = warn ? "bg-amber-500" : "bg-sky-500";
 
   return (
     <div
-      className={`rounded-lg border border-sky-500/25 bg-sky-500/8 px-3 py-2 ${className}`}
+      className={`rounded-lg border border-border bg-muted/40 px-3 py-2 ${className}`}
       title="Brave Image Search API usage this month (free tier ≈ 1,000 searches)"
     >
       <div className="flex items-center justify-between gap-2 text-[10px]">
-        <span className="font-semibold uppercase tracking-wide text-sky-200/90">
+        <span className="font-semibold uppercase tracking-wide text-foreground">
           Brave searches
         </span>
-        <span className={`tabular-nums font-medium ${warn ? "text-amber-200" : "text-sky-100/80"}`}>
+        <span className={`tabular-nums font-medium ${warn ? "text-[#b45309]" : "text-muted-foreground"}`}>
           {remaining.toLocaleString()} left
           {!compact ? ` · ${used.toLocaleString()} / ${limit.toLocaleString()} used` : null}
         </span>
       </div>
-      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-black/30">
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
         <div
-          className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+          className="h-full rounded-full bg-foreground transition-all duration-300"
           style={{ width: `${pct}%` }}
         />
       </div>
       {!compact ? (
-        <p className="mt-1 text-[9px] leading-snug text-white/35">
+        <p className="mt-1 text-[9px] leading-snug text-muted-foreground">
           Resets monthly · override limit with BRAVE_SEARCH_MONTHLY_LIMIT
         </p>
       ) : null}
