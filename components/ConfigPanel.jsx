@@ -496,6 +496,16 @@ export default function ConfigPanel({
   const labelyUseSelfieImage = isLabely && !!config.labelyUseSelfieImage;
   const isValcoinIphonePackBatchMode = isValcoin && isLabelyScanTourFormat(config);
   const labelyUploadsLocked = isLabely && !!config.labelyAiProducts;
+  const labelyFoodDbBatchRows = Array.isArray(config.labelyFoodDbBatches) ? config.labelyFoodDbBatches : [];
+  const labelyUseBraveImages = config.labelyUseBraveImages !== false;
+  const isLabelyFoodDbBatchMode =
+    isLabely
+    && config.labelyUseFoodDatabasePhotos !== false
+    && labelyFoodDbBatchRows.some(
+      (b) =>
+        (Number(b?.slideshowCount) || 0) > 0
+        && String(b?.itemsRaw || "").split("\n").some((line) => line.trim()),
+    );
   const savedForCurrentApp = useMemo(() => {
     const aid = config.appId ?? "thrifty";
     return savedSlideshows.filter((s) => savedShowMatchesApp(s, aid));
@@ -710,6 +720,7 @@ export default function ConfigPanel({
   const jobPausedRef = useRef(false);
   const apiKeyWarnedRef = useRef(false);
   const abortRef = useRef(null); // AbortController for force-stopping in-flight requests
+  const foodDbSuggestionCacheRef = useRef(new Map());
   /** Brave product URLs + content hashes reserved this generate run. */
   const sessionBraveReservedRef = useRef(new Set());
   const sessionBraveContentHashesRef = useRef(new Set());
@@ -770,6 +781,26 @@ export default function ConfigPanel({
     if (u) sessionBraveReservedRef.current.add(u);
     const h = String(ly?.labelyBraveContentHash || "").trim();
     if (h) sessionBraveContentHashesRef.current.add(h);
+  }, []);
+
+  const foodDbKeyFor = useCallback((query) => String(query || "").trim().toLowerCase(), []);
+
+  const foodImageLookupBody = useCallback(
+    () => ({ useBraveImages: labelyUseBraveImages }),
+    [labelyUseBraveImages],
+  );
+
+  const pickFoodDbBraveUrl = useCallback((matches, foodName, usedUrlSet) => {
+    if (!matches || typeof matches !== "object") return "";
+    const want = String(foodName || "").trim().toLowerCase();
+    const key = Object.keys(matches).find((k) => k.toLowerCase() === want);
+    const row = key ? matches[key] : null;
+    const details = Array.isArray(row?.candidateDetails) ? row.candidateDetails : [];
+    for (const d of details) {
+      const u = String(d?.imageUrl || "").trim();
+      if (u && !usedUrlSet.has(u)) return u;
+    }
+    return "";
   }, []);
 
   const seedPersistedBraveUsedFromGallery = useCallback(async () => {
@@ -1160,6 +1191,7 @@ ${SHARED_RULES_OUTRO}`;
               )
             : {}),
           ...(opts.includeShelfIntro ? { includeShelfIntro: true } : {}),
+          ...(opts.presetBraveImageUrl ? { presetBraveImageUrl: opts.presetBraveImageUrl } : {}),
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -2086,8 +2118,16 @@ ${SHARED_RULES_OUTRO}`;
     while (shuffled.length > 0 && shuffled.length < slotCount)
       shuffled.push(...[...uniqueBrands].sort(() => Math.random() - 0.5));
 
+    const foodDbMatchesOverride =
+      options.foodDbMatchesOverride && typeof options.foodDbMatchesOverride === "object"
+        ? options.foodDbMatchesOverride
+        : null;
     const localSlots = Array.from({ length: Math.max(6, slotCount) }, (_, i) => freshSlot(i));
     const showJitterSeed = (Math.random() * 0xffff) | 0;
+    const usedFoodDbUrls = new Set([
+      ...sessionBraveReservedRef.current,
+      ...localSlots.map((s) => s?.labelyDbImageUrl).filter(Boolean),
+    ]);
 
     if (isLabely) {
       if (config.labelyUseBraveImages !== false) beginLabelySlideshowBraveRun();
@@ -2108,11 +2148,16 @@ ${SHARED_RULES_OUTRO}`;
           const extraBraveUrls = localSlots
             .map((s) => s?.labelyDbImageUrl)
             .filter(Boolean);
+          const presetBraveImageUrl = foodDbMatchesOverride
+            ? pickFoodDbBraveUrl(foodDbMatchesOverride, brandItem, usedFoodDbUrls)
+            : "";
           const ly = await fillLabelyFromAi(brandItem, si, {
             includeShelfIntro,
             useSelfieImage: useSelfieForSlot,
             braveExcludeExtraUrls: extraBraveUrls,
+            ...(presetBraveImageUrl ? { presetBraveImageUrl } : {}),
           });
+          if (presetBraveImageUrl) usedFoodDbUrls.add(presetBraveImageUrl);
           if (ly?.name) {
             const shelfIntroUrl = await resolveLabelyShelfIntroUrl(ly, {
               includeShelfIntro,
@@ -2337,7 +2382,7 @@ ${SHARED_RULES_OUTRO}`;
 
   const handleGenerateBatch = async () => {
     if (isLabelyFoodDbBatchMode) {
-      let plans = labelyFoodDbBatches
+      let plans = labelyFoodDbBatchRows
         .map((b, idx) => ({
           batchNumber: idx + 1,
           batchName: String(b.name || "").trim(),
@@ -2393,6 +2438,7 @@ ${SHARED_RULES_OUTRO}`;
       cancelGenRef.current = false;
       abortRef.current?.abort();
       abortRef.current = new AbortController();
+      if (isLabely) await beginLabelyBraveGenerateRun();
       try {
         let globalShowIdx = 0;
         const generatedShows = [];

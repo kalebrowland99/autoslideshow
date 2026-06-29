@@ -3,7 +3,7 @@ import { readFile } from "fs/promises";
 import { join } from "path";
 import sharp from "sharp";
 import { runImageGenerationPipeline } from "@/lib/imageGenerationBackend";
-import { braveImagesConfigured, pickBraveFoodImageDataUrl } from "@/lib/braveFoodImage";
+import { braveImagesConfigured, braveUrlToImagePick, pickBraveFoodImageDataUrl } from "@/lib/braveFoodImage";
 import { getSlideshowBraveExclude, noteSlideshowBravePick } from "@/lib/braveSlideshowReserve";
 import { iphoneRetailPhotoImperfectionPrompt } from "@/lib/iphoneRetailPhotoImperfectionPrompt";
 import { listPublicReferenceImageRelPaths, publicReferenceDirForAppId } from "@/lib/referenceImages";
@@ -580,10 +580,15 @@ export async function POST(req) {
         ...(Array.isArray(body.excludeBraveContentHashes) ? body.excludeBraveContentHashes : []),
         ...slideshowExclude.hashes,
       ];
-      const bravePick = await pickBraveFoodImageDataUrl(imageQuery, {
-        excludeUrls,
-        excludeContentHashes,
-      });
+      const bravePick = body.presetBraveImageUrl
+        ? await braveUrlToImagePick(String(body.presetBraveImageUrl).trim(), {
+            excludeUrls,
+            excludeContentHashes,
+          })
+        : await pickBraveFoodImageDataUrl(imageQuery, {
+            excludeUrls,
+            excludeContentHashes,
+          });
       if (bravePick?.dataUrl) {
         outImage = bravePick.dataUrl;
         labelyDbImageUrl = bravePick.sourceUrl;
