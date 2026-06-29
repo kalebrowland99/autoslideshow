@@ -4,9 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import ConfigPanel from "@/components/ConfigPanel";
 import VideoPreview from "@/components/VideoPreview";
+import LabelyScanSequencePreview from "@/components/LabelyScanSequencePreview";
+import GalleryRail from "@/components/GalleryRail";
+import AutomationProgressPanel from "@/components/AutomationProgressPanel";
+import { AppNav, PreviewFrame } from "@/components/ui/acme-hero";
 import { defaultConfig, emptySlot } from "@/app/page";
-import { getTotalSlides, normalizeValcoinOutputFormat } from "@/lib/slideLayout";
+import { getTotalSlides, normalizeValcoinOutputFormat, LABELY_SCAN_TOUR_SLOTS } from "@/lib/slideLayout";
 import { markFarmJobFailed, setFarmJobStatus } from "@/lib/farmBridge";
+import { clearAutomationLog, appendAutomationLog } from "@/lib/automationLog";
+import { savedShowMatchesApp } from "@/lib/showAppId";
 
 export default function AutomationRunner() {
   const params = useSearchParams();
@@ -18,6 +24,10 @@ export default function AutomationRunner() {
     () => String(params.get("slots") || "").split(",").map((s) => s.trim()).filter(Boolean),
     [params],
   );
+  const slideshowsPerSlot = useMemo(() => {
+    const n = Number(params.get("slideshowsPerSlot"));
+    return Number.isFinite(n) && n > 0 ? Math.min(200, Math.round(n)) : 3;
+  }, [params]);
 
   const [config, setConfig] = useState(defaultConfig);
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -26,9 +36,11 @@ export default function AutomationRunner() {
   const [exportStatus, setExportStatus] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [savedSlideshows, setSavedSlideshows] = useState([]);
-  const [numSlideshows, setNumSlideshows] = useState(3);
+  const [activeShowIdx, setActiveShowIdx] = useState(null);
+  const [numSlideshows, setNumSlideshows] = useState(slideshowsPerSlot);
   const [batchImageDataUrls, setBatchImageDataUrls] = useState([]);
   const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const refreshHandlerRef = useRef(null);
 
   const farmUpload = useMemo(
@@ -37,6 +49,23 @@ export default function AutomationRunner() {
   );
 
   const totalSlides = useMemo(() => getTotalSlides(config), [config]);
+  const isLabely = brand === "labely";
+
+  useEffect(() => {
+    setNumSlideshows(slideshowsPerSlot);
+  }, [slideshowsPerSlot]);
+
+  const bootLoggedRef = useRef(false);
+  useEffect(() => {
+    if (bootLoggedRef.current) return;
+    bootLoggedRef.current = true;
+    clearAutomationLog();
+    appendAutomationLog(`Automation started · brand ${brand} · job ${jobId || "—"}`);
+    if (slots.length) {
+      appendAutomationLog(`Farm slots: ${slots.join(", ")}`);
+    }
+    appendAutomationLog(`${slideshowsPerSlot} slideshow(s) per slot configured`);
+  }, [brand, jobId, slots, slideshowsPerSlot]);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,6 +74,7 @@ export default function AutomationRunner() {
         if (!jobId || !farmUrl) {
           throw new Error("Missing jobId or farmUrl query params");
         }
+        setLoadError("");
         setFarmJobStatus("Loading farm defaults…");
         const res = await fetch(`/api/farm/defaults?brand=${encodeURIComponent(brand)}`);
         if (!res.ok) throw new Error(await res.text());
@@ -56,10 +86,17 @@ export default function AutomationRunner() {
               ? "Brave picked unhealthy American foods — starting batch…"
               : "Defaults loaded — starting batch…",
           );
+        } else {
+          setFarmJobStatus("Defaults loaded — starting batch…");
         }
         setConfig((prev) => ({
           ...prev,
           ...(data.config || {}),
+          appId: brand,
+          ...(brand === "labely" ? { outputFormat: "labelyScan", labelyAiProducts: true, labelyUseBraveImages: true } : {}),
+          ...(brand === "valcoin"
+            ? { outputFormat: normalizeValcoinOutputFormat(data.config?.outputFormat) }
+            : {}),
           slots: (prev.slots ?? []).map((slot, i) => ({
             ...emptySlot(i),
             ...(slot || {}),
@@ -68,7 +105,9 @@ export default function AutomationRunner() {
         setReady(true);
         setFarmJobStatus(`Defaults loaded for ${brand} — generating slideshows…`);
       } catch (err) {
-        markFarmJobFailed(err?.message || String(err));
+        const msg = err?.message || String(err);
+        setLoadError(msg);
+        markFarmJobFailed(msg);
       }
     })();
     return () => {
@@ -115,63 +154,167 @@ export default function AutomationRunner() {
     }));
   }, []);
 
+  const handleSlideshowSaved = useCallback((showData) => {
+    setSavedSlideshows((prev) => {
+      const next = [...prev, showData];
+      setActiveShowIdx(next.length - 1);
+      return next;
+    });
+    appendAutomationLog("Slideshow saved to gallery.", "success");
+  }, []);
+
+  const loadShow = useCallback((showData, idx) => {
+    const isLabelyShow = showData.appId === "labely";
+    const isValcoinShow = showData.appId === "valcoin";
+    setConfig((prev) => ({
+      ...prev,
+      slots: showData.slots,
+      captionText: "",
+      ...(isLabelyShow
+        ? { outputFormat: "labelyScan" }
+        : isValcoinShow
+          ? {
+              outputFormat: normalizeValcoinOutputFormat(
+                showData.outputFormat ?? prev.outputFormat,
+              ),
+            }
+          : showData.outputFormat != null
+            ? { outputFormat: showData.outputFormat }
+            : {}),
+      ...(showData.appId != null ? { appId: showData.appId } : {}),
+      ...(showData.jitterSeed != null ? { jitterSeed: showData.jitterSeed } : {}),
+      ...(showData.labelyOutroText != null ? { labelyOutroText: showData.labelyOutroText } : {}),
+      ...(isLabelyShow
+        ? { labelyScanSlotCount: showData.labelyScanSlotCount ?? LABELY_SCAN_TOUR_SLOTS }
+        : showData.labelyScanSlotCount != null
+          ? { labelyScanSlotCount: showData.labelyScanSlotCount }
+          : {}),
+    }));
+    setActiveShowIdx(idx);
+    setCurrentSlide(0);
+    setBatchImageDataUrls([]);
+  }, []);
+
+  const galleryEntries = useMemo(() => {
+    return savedSlideshows
+      .map((show, origIdx) => ({ show, origIdx }))
+      .filter(({ show }) => savedShowMatchesApp(show, brand));
+  }, [savedSlideshows, brand]);
+
+  const automationSubtitle = [
+    jobId ? `Job ${jobId}` : null,
+    slots.length ? `slots ${slots.join(", ")}` : null,
+    farmUrl
+      ? (() => {
+          try {
+            return new URL(farmUrl).host;
+          } catch {
+            return farmUrl;
+          }
+        })()
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
-    <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-[#0f0f0f] text-white">
-      <header className="border-b border-white/10 px-6 py-3 shrink-0">
-        <div className="text-sm font-semibold">Farm automation · {brand}</div>
-        <div className="text-white/50 text-xs mt-1">
-          Job {jobId || "—"} · slots {slots.join(", ") || "—"}
-        </div>
-        {exportStatus ? (
-          <div className="text-emerald-400/90 text-xs mt-2 truncate">{exportStatus}</div>
+    <div className="container mx-auto max-w-6xl px-4 pb-10">
+      <AppNav
+        automationMode
+        automationTitle={`Farm automation · ${brand}`}
+        automationSubtitle={automationSubtitle}
+        appId={brand}
+        currentSlide={currentSlide}
+        totalSlides={totalSlides}
+        isExporting={isExporting}
+        isGenerating={isGenerating}
+      />
+
+      <main className="relative py-8 md:py-10">
+        <AutomationProgressPanel loading={!ready && !loadError} />
+
+        {loadError ? (
+          <div className="page-banner rounded-xl px-4 py-3 text-sm text-destructive">{loadError}</div>
         ) : null}
-      </header>
 
-      <div className="flex-1 flex overflow-hidden min-h-0">
-        <aside className="w-[380px] border-r border-white/10 overflow-y-auto shrink-0 min-h-0 p-2">
-          <ConfigPanel
-            config={config}
-            setConfig={setConfig}
-            updateConfig={updateConfig}
-            updateSlot={updateSlot}
-            updateMatchItem={updateMatchItem}
-            currentSlide={currentSlide}
-            setCurrentSlide={setCurrentSlide}
-            totalSlides={totalSlides}
-            isExporting={isExporting}
-            setIsExporting={setIsExporting}
-            exportProgress={exportProgress}
-            setExportProgress={setExportProgress}
-            exportStatus={exportStatus}
-            setExportStatus={setExportStatus}
-            onBusyChange={setIsGenerating}
-            registerRefreshSlide={(fn) => {
-              refreshHandlerRef.current = fn;
-            }}
-            onSlideshowSaved={() => {}}
-            onSavedSlideshowsChange={setSavedSlideshows}
-            savedSlideshows={savedSlideshows}
-            numSlideshows={numSlideshows}
-            setNumSlideshows={setNumSlideshows}
-            batchImageDataUrls={batchImageDataUrls}
-            setBatchImageDataUrls={setBatchImageDataUrls}
-            persistHomeSessionNow={async () => {}}
-            farmUpload={farmUpload}
-            autoRunBatch={ready}
-          />
-        </aside>
+        {!ready && !loadError ? (
+          <div className="dash-card p-8 text-center text-sm text-muted-foreground">
+            Preparing {brand} defaults…
+          </div>
+        ) : ready ? (
+          <div className="grid items-start gap-5 md:gap-6 lg:grid-cols-5">
+            <div className="dash-card max-h-[calc(100vh-6rem)] overflow-y-auto p-4 md:p-5 lg:col-span-2">
+              <ConfigPanel
+                config={config}
+                setConfig={setConfig}
+                updateConfig={updateConfig}
+                updateSlot={updateSlot}
+                updateMatchItem={updateMatchItem}
+                currentSlide={currentSlide}
+                setCurrentSlide={setCurrentSlide}
+                totalSlides={totalSlides}
+                isExporting={isExporting}
+                setIsExporting={setIsExporting}
+                exportProgress={exportProgress}
+                setExportProgress={setExportProgress}
+                exportStatus={exportStatus}
+                setExportStatus={setExportStatus}
+                onBusyChange={setIsGenerating}
+                registerRefreshSlide={(fn) => {
+                  refreshHandlerRef.current = fn;
+                }}
+                onSlideshowSaved={handleSlideshowSaved}
+                onSavedSlideshowsChange={setSavedSlideshows}
+                activeShowIdx={activeShowIdx}
+                savedSlideshows={savedSlideshows}
+                numSlideshows={numSlideshows}
+                setNumSlideshows={setNumSlideshows}
+                batchImageDataUrls={batchImageDataUrls}
+                setBatchImageDataUrls={setBatchImageDataUrls}
+                persistHomeSessionNow={async () => {}}
+                farmUpload={farmUpload}
+                autoRunBatch={ready}
+              />
+            </div>
 
-        <main className="flex-1 min-h-0 min-w-0 flex items-center justify-center p-6 overflow-auto bg-[#080808]">
-          <VideoPreview
-            config={config}
-            currentSlide={currentSlide}
-            setCurrentSlide={setCurrentSlide}
-            totalSlides={totalSlides}
-            isGenerating={isGenerating}
-            onRefreshSlide={(i) => refreshHandlerRef.current?.(i)}
-          />
-        </main>
-      </div>
+            <div className="flex min-w-0 flex-col gap-5 md:gap-6 lg:col-span-3">
+              <div className="dash-card flex items-center justify-center p-4 md:p-5">
+                <PreviewFrame
+                  subtitle={`${totalSlides} slides · ${config.slideDuration}s each`}
+                  meta="1080 × 1920"
+                >
+                  <div className="flex flex-col items-center gap-3">
+                    {isLabely ? (
+                      <LabelyScanSequencePreview
+                        config={config}
+                        currentSlide={currentSlide}
+                        setCurrentSlide={setCurrentSlide}
+                        totalSlides={totalSlides}
+                      />
+                    ) : null}
+                    <VideoPreview
+                      config={config}
+                      currentSlide={currentSlide}
+                      setCurrentSlide={setCurrentSlide}
+                      totalSlides={totalSlides}
+                      isGenerating={isGenerating}
+                      onRefreshSlide={(i) => refreshHandlerRef.current?.(i)}
+                    />
+                  </div>
+                </PreviewFrame>
+              </div>
+
+              {galleryEntries.length > 0 ? (
+                <GalleryRail
+                  entries={galleryEntries}
+                  activeShowIdx={activeShowIdx}
+                  loadShow={loadShow}
+                />
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </main>
     </div>
   );
 }

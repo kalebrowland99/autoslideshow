@@ -45,6 +45,7 @@ import {
   uploadMp4ToFarm,
 } from "@/lib/farmBridge";
 import { markExportedBraveImagesUsed } from "@/lib/markExportedBraveImages";
+import { appendAutomationLog } from "@/lib/automationLog";
 
 function parseDataUrl(dataUrl) {
   if (!dataUrl || typeof dataUrl !== "string") return null;
@@ -855,10 +856,15 @@ export default function ConfigPanel({
       percent: Math.min(100, Math.max(0, percent)),
       phase,
       paused: jobPausedRef.current,
-      hint: "Runs in this browser tab only (not on a server). You can switch away or minimize; work keeps going but may be slower in the background. Refresh or closing the tab stops the job.",
+      hint: farmUpload?.jobId
+        ? "Farm automation runs in this browser tab. Keep the tab open until upload completes."
+        : "Runs in this browser tab only (not on a server). You can switch away or minimize; work keeps going but may be slower in the background. Refresh or closing the tab stops the job.",
     });
     writeJobHeartbeat({ percent, phase });
-  }, [generatingSlot, genAllProgress, isExporting, exportProgress, exportStatus]);
+    if (farmUpload?.jobId && phase) {
+      appendAutomationLog(phase);
+    }
+  }, [generatingSlot, genAllProgress, isExporting, exportProgress, exportStatus, farmUpload?.jobId]);
 
   /**
    * Valcoin: Wikimedia Commons US coin photos only — never AI-generated images.

@@ -5,7 +5,7 @@ export default function AutomationPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-[#0f0f0f] text-white flex items-center justify-center">
+        <div className="container mx-auto max-w-6xl px-4 py-16 text-center text-muted-foreground">
           Loading farm automation…
         </div>
       }

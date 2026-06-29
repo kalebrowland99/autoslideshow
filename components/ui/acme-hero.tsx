@@ -41,6 +41,9 @@ export function AppNav({
   isExporting = false,
   isGenerating = false,
   isVideoUniqueizer = false,
+  automationMode = false,
+  automationTitle = "Farm automation",
+  automationSubtitle = "",
 }) {
   const slideLabel = isVideoUniqueizer
     ? "Video Uniqueizer"
@@ -50,9 +53,18 @@ export function AppNav({
     <header className="relative shrink-0 pt-4">
       <nav className="flex items-center justify-between rounded-xl border bg-background py-2.5 px-4 shadow-lg">
         <div className="flex items-center gap-4 md:gap-6">
-          <nav className="brand-nav flex min-w-0 items-center gap-1">
-            <NavLinks appId={appId} onAppIdChange={onAppIdChange} />
-          </nav>
+          {automationMode ? (
+            <div className="min-w-0">
+              <div className="text-sm font-semibold tracking-tight">{automationTitle}</div>
+              {automationSubtitle ? (
+                <div className="mt-0.5 truncate text-xs text-muted-foreground">{automationSubtitle}</div>
+              ) : null}
+            </div>
+          ) : (
+            <nav className="brand-nav flex min-w-0 items-center gap-1">
+              <NavLinks appId={appId} onAppIdChange={onAppIdChange} />
+            </nav>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
           {cloudStatus ? (
